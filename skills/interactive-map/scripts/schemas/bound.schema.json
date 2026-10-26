@@ -1,0 +1,229 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://instafy.dev/schemas/uw.bound@1.json",
+  "description": "bound.json at a map site's root: the intents its buttons may emit and where results land (ENGINE-SPEC-v0.2 §9.1). Intent params are themselves schemas in the §9.2 subset; uw validate checks them with checkSchema().",
+  "type": "object",
+  "required": [
+    "version",
+    "intents"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "const": 1
+    },
+    "intents": {
+      "type": "object",
+      "maxProperties": 40,
+      "additionalProperties": {
+        "$ref": "#/$defs/intent"
+      }
+    },
+    "results": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "type": "array",
+          "maxItems": 40,
+          "items": {
+            "$ref": "#/$defs/recordsPath"
+          }
+        },
+        "poll_s": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 300
+        },
+        "poll": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_./-]{1,120}\\.json$"
+        },
+        "sse": {
+          "type": "boolean"
+        }
+      }
+    },
+    "attribution": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "string",
+        "maxLength": 300
+      }
+    },
+    "parentOrigins": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "string",
+        "pattern": "^https?://[^/]+$"
+      }
+    },
+    "siteId": {
+      "type": "string",
+      "maxLength": 80,
+      "description": "the site's id in Instafy bind v1 hello (default: the folder name)"
+    },
+    "v": {
+      "type": "integer",
+      "description": "Instafy bound.json v1 marker (ignored by the engine)"
+    }
+  },
+  "$defs": {
+    "recordsPath": {
+      "type": "string",
+      "pattern": "^data/records/[A-Za-z0-9_.-]{1,80}\\.json$"
+    },
+    "intent": {
+      "type": "object",
+      "required": [
+        "label",
+        "params"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "emoji": {
+          "type": "string",
+          "maxLength": 8
+        },
+        "describe": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "params": {
+          "type": "object"
+        },
+        "prefill": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "ui": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "pattern": "^(card|card-more|sheet-header|map-context|list-row|compare-cell:[a-z][a-z0-9_]{0,47})$"
+          }
+        },
+        "layers": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,47}$"
+          }
+        },
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "records": {
+              "$ref": "#/$defs/recordsPath"
+            },
+            "layer": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,47}$"
+            },
+            "create": {
+              "type": "object",
+              "required": [
+                "type"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "enum": [
+                    "points",
+                    "lines",
+                    "areas"
+                  ]
+                },
+                "title": {
+                  "type": "string",
+                  "maxLength": 60
+                },
+                "tier": {
+                  "enum": [
+                    "option",
+                    "support",
+                    "context"
+                  ]
+                },
+                "style": {
+                  "type": "object"
+                },
+                "group": {
+                  "type": "string",
+                  "maxLength": 40
+                }
+              }
+            }
+          }
+        },
+        "pending": {
+          "type": "string",
+          "pattern": "^(item|layer|none|cell:[a-z][a-z0-9_]{0,47})$"
+        },
+        "confirm": {
+          "type": "boolean"
+        },
+        "cooldown_s": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3600
+        },
+        "timeout_s": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 1800
+        },
+        "sources": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "maxLength": 80
+          }
+        },
+        "handler": {
+          "type": "string",
+          "pattern": "^(pack:[a-z][a-z0-9_]{0,47}|[A-Za-z0-9_./-]{1,120}\\.mjs)$"
+        },
+        "produces": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,47}$"
+          },
+          "description": "claim attributes this intent writes: they show as pending while it runs and get a ↻ check-again button"
+        },
+        "doneLabel": {
+          "type": "string",
+          "maxLength": 24,
+          "description": "button text after a job brought results (\"Checked\"); default \"Done\""
+        },
+        "againLabel": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "button text once the cooldown is over (default \"<label> again\")"
+        }
+      }
+    }
+  }
+}

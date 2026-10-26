@@ -1,0 +1,317 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://instafy.dev/schemas/uw.messages@2.json",
+  "description": "Map ↔ host messages (ENGINE-SPEC-v0.2 §9.3 intent out, §9.4 host → map). Records inside results follow records.schema.json.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/intent"
+    },
+    {
+      "$ref": "#/$defs/host"
+    }
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^int_[a-z0-9]{1,12}_[a-z0-9]{2,8}$"
+    },
+    "intent": {
+      "type": "object",
+      "required": [
+        "source",
+        "v",
+        "type",
+        "id",
+        "name",
+        "params"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "instafy-map"
+        },
+        "v": {
+          "const": 2
+        },
+        "type": {
+          "const": "intent"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,47}$"
+        },
+        "params": {
+          "type": "object"
+        },
+        "ui": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 60
+        },
+        "ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 170
+        },
+        "attr": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 48
+        },
+        "by": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 60,
+          "description": "advisory only and no longer sent by the engine: hosts stamp who clicked"
+        },
+        "site": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "path": {
+              "type": "string",
+              "maxLength": 300
+            }
+          }
+        },
+        "state": {
+          "type": "object"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "host": {
+      "type": "object",
+      "required": [
+        "source",
+        "v",
+        "type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "instafy-host"
+        },
+        "v": {
+          "const": 2
+        },
+        "type": {
+          "enum": [
+            "hello",
+            "ack",
+            "progress",
+            "results",
+            "done",
+            "error",
+            "command"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "ids": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "maxLength": 40
+          }
+        },
+        "job": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "status": {
+          "enum": [
+            "queued",
+            "needs_confirm",
+            "rejected",
+            "running"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 140
+        },
+        "progress": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "step": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "of": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "message": {
+              "type": "string",
+              "maxLength": 140
+            },
+            "source": {
+              "type": "string",
+              "maxLength": 80
+            }
+          }
+        },
+        "records": {
+          "type": "array",
+          "maxItems": 2000
+        },
+        "files": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "rejected": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "error": {
+          "type": "object",
+          "required": [
+            "code"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "enum": [
+                "not_found",
+                "timeout",
+                "policy",
+                "upstream",
+                "invalid",
+                "cancelled"
+              ]
+            },
+            "message": {
+              "type": "string",
+              "maxLength": 140
+            }
+          }
+        },
+        "user": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "maxLength": 60
+            }
+          }
+        },
+        "capabilities": {
+          "type": "object",
+          "properties": {
+            "intents": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 48
+              }
+            }
+          }
+        },
+        "parentOrigins": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "command": {
+          "type": "object",
+          "required": [
+            "name"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "enum": [
+                "select",
+                "flyTo",
+                "setLens",
+                "setTime",
+                "highlight"
+              ]
+            },
+            "args": {
+              "type": "object"
+            }
+          }
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,47}$"
+        },
+        "ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 170
+        },
+        "ui": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 60
+        },
+        "by": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 60,
+          "description": "who started the job, stamped by the host (never taken from the page)"
+        },
+        "refs": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "string",
+            "maxLength": 170
+          }
+        },
+        "retry_after_s": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "params": {
+          "type": "object",
+          "description": "the job's params (map-context jobs: where the search ran)"
+        }
+      }
+    }
+  }
+}

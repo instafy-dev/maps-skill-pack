@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "title": "New map",
+  "subtitle": "Ask for places, walks or a neighbourhood feel layer",
+  "view": { "center": [12, 30], "zoom": 1.6, "pitch": 0, "bearing": 0 },
+  "basemap": {
+    "style": "style.json",
+    "labels": "en",
+    "theme": "auto",
+    "terrain": false,
+    "overrides": []
+  },
+  "theme": "instafy",
+  "layers": [],
+  "attribution": [],
+  "custom": "custom.js"
+}

@@ -1,0 +1,120 @@
+{
+  "schema": "instafy.lookup-providers@1",
+  "about": "Every outside lookup the map pack makes, as data (lib/lookup.mjs). A chain lists the providers of one capability in the order they are asked; a provider that is down is skipped for its cooldown by every uw command (one shared health file), and a new turn asks it again. base_env points a provider at another instance (a platform gateway, a self-hosted server). INSTAFY_LOOKUP_PROVIDERS adds or replaces providers and chains, e.g. a declared fake provider (protocol \"fake\") for an outage drill. Defaults are the free community services: fine for prototypes and personal maps (reference/data-sources.md).",
+  "providers": {
+    "photon": {
+      "protocol": "photon-search",
+      "label": "OpenStreetMap search (Photon)",
+      "base": "https://photon.komoot.io",
+      "base_env": "UW_PHOTON",
+      "timeout_ms": 60000,
+      "slow_ms": 15000,
+      "cooldown_s": 600,
+      "max_concurrent": 2
+    },
+    "wikipedia-coords": {
+      "protocol": "wikipedia-coords",
+      "label": "Wikipedia article coordinates",
+      "base": "https://en.wikipedia.org",
+      "base_env": "UW_WIKIPEDIA",
+      "timeout_ms": 15000,
+      "cooldown_s": 600,
+      "complete": false,
+      "max_concurrent": 2
+    },
+    "osm-name-search": {
+      "protocol": "overpass-name",
+      "label": "OpenStreetMap name search (Overpass)",
+      "timeout_ms": 0,
+      "health": "none"
+    },
+    "overpass": {
+      "protocol": "overpass",
+      "label": "Overpass",
+      "bases": [
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.private.coffee/api/interpreter"
+      ],
+      "base_env": "UW_OVERPASS",
+      "timeout_ms": 0,
+      "cooldown_s": 600,
+      "health": "none",
+      "max_concurrent": 2
+    },
+    "photon-reverse": {
+      "protocol": "photon-reverse",
+      "label": "OpenStreetMap search (Photon)",
+      "base": "https://photon.komoot.io",
+      "base_env": "UW_PHOTON",
+      "timeout_ms": 12000,
+      "slow_ms": 8000,
+      "cooldown_s": 600,
+      "complete": false,
+      "max_concurrent": 2
+    },
+    "osrm": {
+      "protocol": "osrm",
+      "label": "OSRM routing (routing.openstreetmap.de)",
+      "base": "https://routing.openstreetmap.de",
+      "base_env": "UW_OSRM",
+      "timeout_ms": 30000,
+      "cooldown_s": 300,
+      "max_concurrent": 2
+    },
+    "valhalla": {
+      "protocol": "valhalla",
+      "label": "Valhalla (valhalla1.openstreetmap.de)",
+      "base": "https://valhalla1.openstreetmap.de",
+      "base_env": "UW_VALHALLA",
+      "timeout_ms": 45000,
+      "cooldown_s": 300,
+      "max_concurrent": 2
+    },
+    "motis": {
+      "protocol": "motis",
+      "label": "the journey planner",
+      "base_env": "UW_TRANSIT_URL",
+      "timeout_ms": 25000,
+      "cooldown_s": 300,
+      "max_concurrent": 2
+    },
+    "open-meteo-air": {
+      "protocol": "open-meteo",
+      "label": "Open-Meteo air quality",
+      "base": "https://air-quality-api.open-meteo.com",
+      "base_env": "UW_OPENMETEO",
+      "timeout_ms": 30000,
+      "cooldown_s": 300,
+      "max_concurrent": 2
+    }
+  },
+  "chains": {
+    "geocode": [
+      "photon",
+      "wikipedia-coords",
+      "osm-name-search"
+    ],
+    "places": [
+      "overpass",
+      "photon-reverse"
+    ],
+    "osm-query": [
+      "overpass"
+    ],
+    "route": [
+      "osrm"
+    ],
+    "walk-table": [
+      "osrm"
+    ],
+    "isochrone": [
+      "valhalla"
+    ],
+    "transit": [
+      "motis"
+    ],
+    "air": [
+      "open-meteo-air"
+    ]
+  }
+}

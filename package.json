@@ -1,0 +1,14 @@
+{
+  "name": "maps-skill-pack",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Interactive maps, trips and place lookups as an Instafy skill pack",
+  "license": "AGPL-3.0-only",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "check": "node scripts/check-syntax.mjs && node scripts/manifest.mjs --check",
+    "test": "node --test tests/*.test.mjs",
+    "manifest": "node scripts/manifest.mjs",
+    "release-tarball": "node scripts/release-tarball.mjs"
+  }
+}

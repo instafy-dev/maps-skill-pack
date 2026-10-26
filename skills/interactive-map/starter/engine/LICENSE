@@ -1,0 +1,18 @@
+Interactive map engine (engine/*.js, engine/engine.css)
+Part of the interactive-map skill pack: https://github.com/instafy-dev/maps-skill-pack
+
+SPDX-License-Identifier: AGPL-3.0-only
+
+This program is free software: you can redistribute it and/or modify it under the terms of the
+GNU Affero General Public License as published by the Free Software Foundation, version 3.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+Affero General Public License for more details: https://www.gnu.org/licenses/agpl-3.0.html
+
+The full licence text and the source of this engine are at
+https://github.com/instafy-dev/maps-skill-pack (the LICENSE file at the root).
+If you publish a site built with this engine, keep this file with it.
+
+engine/vendor/ holds MapLibre GL JS, which keeps its own licence: engine/vendor/LICENSE.txt.
+See THIRD_PARTY_NOTICES.md in this folder for the data credits a map must keep.

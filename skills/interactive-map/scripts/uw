@@ -1,0 +1,3 @@
+#!/bin/sh
+# Shim so the CLI can be called as `scripts/uw <command>` from any shell (zsh does not word-split "$UW").
+exec node "$(dirname "$0")/uw.mjs" "$@"
