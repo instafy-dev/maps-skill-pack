@@ -3,7 +3,7 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
-## Unreleased
+## 0.1.2 (2026-10-26)
 
 - **Empty answers ask the next provider.** An empty answer from the place search moves on down the `geocode` chain
   (Wikipedia's coordinates, then the OpenStreetMap name search), so a small venue the first search lacks can still be

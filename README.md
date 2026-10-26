@@ -25,10 +25,10 @@ the manifest's `engines.node` is available. The agent then reads `SKILL.md` and 
 To add a pinned copy to a space yourself (or to try a newer tag), import the skill folder:
 
 ```
-/skills import https://github.com/instafy-dev/maps-skill-pack/tree/v0.1.1/skills/interactive-map
+/skills import https://github.com/instafy-dev/maps-skill-pack/tree/v0.1.2/skills/interactive-map
 ```
 
-This copies the folder into the space (`/skills import` takes up to 256 files and 8 MB; the pack is about 105 files
+This copies the folder into the space (`/skills import` takes up to 256 files and 8 MB; the pack is about 106 files
 and 3 MB). Any other agent that reads `SKILL.md` files can use the folder the same way: copy
 `skills/interactive-map/` into its skills directory.
 
