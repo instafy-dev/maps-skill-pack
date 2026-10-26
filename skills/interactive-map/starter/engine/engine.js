@@ -623,6 +623,8 @@ function showFeatureCard(L, f, o = {}) {
   const src = p.source || (/^osm-[nwr]\d+/.test(p.id) ? 'OpenStreetMap' : '');
   let foot = src ? `Source: ${src}` : '';
   if (/^osm-([nwr])(\d+)/.test(p.id)) { const [, t, n] = /^osm-([nwr])(\d+)/.exec(p.id); foot += ` · osm.org/${{ n: 'node', w: 'way', r: 'relation' }[t]}/${n}`; }
+  // placed from a fallback source (uw add-point / station): the card says so until a full answer replaces it
+  if (p.data_status === 'partial') foot += `${foot ? ' · ' : ''}data may be incomplete`;
   E.ui.showCard({ kind: 'feature', layer: L.id, id: p.id, title, subtitle, emoji: p._emoji || L.emoji || p.emoji || '', color: p._color || L.color,
     body: card.body ? fill(card.body, p) : (p.note || p.description || ''), chips, bars, actions, foot,
     image: typeof p.image === 'string' && /^https:\/\//.test(p.image) ? p.image : null,
@@ -2548,6 +2550,8 @@ function showFeatureCard2(L, f, o = {}) {
   const src = p.source || (/^osm-[nwr]\d+/.test(p.id) ? 'OpenStreetMap' : '');
   let foot = src ? `Source: ${src}` : '';
   if (/^osm-([nwr])(\d+)/.test(p.id)) { const [, t, n] = /^osm-([nwr])(\d+)/.exec(p.id); foot += ` · osm.org/${{ n: 'node', w: 'way', r: 'relation' }[t]}/${n}`; }
+  // placed from a fallback source (uw add-point / station): the card says so until a full answer replaces it
+  if (p.data_status === 'partial') foot += `${foot ? ' · ' : ''}data may be incomplete`;
   const base = { kind: 'feature', v2: true, layer: L.id, id: p.id, ref: item.ref, title, subtitle, emoji: p._emoji || L.emoji || p.emoji || '', color: p._color || L.color,
     letter: opt?.letter || null, context: isCtx, links, foot, refresh: !!o.refresh };
   const timeChip = () => {

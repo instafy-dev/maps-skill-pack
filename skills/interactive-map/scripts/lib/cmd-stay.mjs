@@ -6,8 +6,8 @@
 import fs from 'node:fs';
 import { parseArgs, makeOut, parseLngLat, haversine, round6, slugify, writeGeoJSON, writeJSON, readJSON, exists, UsageError, UserError } from './util.mjs';
 import { openSite, checkLayerId, configLayer, layerPath, layerRelPath, resolvePoint, addAttribution, titleCase, viewCenter, withSiteLock } from './site.mjs';
-import { isSkip, withCap, overpassBatch } from './net.mjs';
-import { geocodeSearch, countryMatches, forgetMissing } from './cmd-geocode.mjs';
+import { isSkip, withCap, overpassBatch, partialLine } from './net.mjs';
+import { geocodeSearch, countryMatches, forgetMissing, partialProps } from './cmd-geocode.mjs';
 import { placesSearch } from './osm-places.mjs';
 import { walkTable } from './route-lookups.mjs';
 import { adapterFor } from '../adapters/lib/areas.mjs';
@@ -242,6 +242,8 @@ export async function station(argv) {
   const centreKm = centre ? haversine(centre, c.coord) / 1000 : null;
   const props = { id, name: c.name, ...(nameEn ? { name_en: nameEn } : {}), kind: 'train_station', emoji: c.hsr ? '🚄' : '🚉',
     station_of: city, station_kind: c.hsr ? 'hsr' : 'rail', osm_id: c.osm_id || undefined, address: c.address || undefined, source: c.source || 'OpenStreetMap',
+    // found by a fallback source (the first search was down or found nothing): the point says so
+    ...partialProps(c),
     ...(args.nights != null ? { nights: args.nights } : {}),
     ...(centreKm != null && !(centreExtentKm > BIG_PLACE_KM) ? { centre_km: Math.round(centreKm * 10) / 10, centre_lnglat: centre.map(round6) } : {}) };
   for (const k of Object.keys(props)) if (props[k] === undefined) delete props[k];
@@ -254,7 +256,9 @@ export async function station(argv) {
   addAttribution(site, '© OpenStreetMap contributors (ODbL)');
   const fmt = (x, i) => `${i === idx ? '*' : ' '} ${i + 1}. ${x.name}${x.name_en && x.name_en !== x.name ? ` (${x.name_en})` : ''}${x.hsr ? ' [high-speed]' : ''} @ ${x.coord.join(',')}` +
     `${near ? ` (${(haversine(near, x.coord) / 1000).toFixed(1)} km from --near)` : ''} score ${x.score}`;
-  out.result({ ok: true, layer, file: w.rel, feature: props, coord: feat.geometry.coordinates, candidates: ranked.slice(0, 5).map((x) => ({ name: x.name, name_en: x.name_en, coord: x.coord, score: x.score, hsr: x.hsr })), registered: reg },
+  const partialNote = c.data_status === 'partial' ? partialLine(`${layer}:${id} ${c.name}`, c.data_reason || 'found by a fallback source', 'check the station on the map; re-run this station later for the full answer') : null;
+  if (partialNote) console.error(partialNote);
+  out.result({ ok: true, ...(partialNote ? { status: 'partial', partial: partialNote } : { status: 'ok' }), layer, file: w.rel, feature: props, coord: feat.geometry.coordinates, candidates: ranked.slice(0, 5).map((x) => ({ name: x.name, name_en: x.name_en, coord: x.coord, score: x.score, hsr: x.hsr })), registered: reg },
     [`Added ${layer}:${id} — ${props.emoji} ${c.name}${props.name_en ? ` (${props.name_en})` : ''} @ ${feat.geometry.coordinates.join(',')}${args.nights != null ? ` · ${args.nights} night(s)` : ''}`,
       farLine,
       ranked.length > 1 ? 'Alternatives (--pick N):' : null, ...(ranked.length > 1 ? ranked.slice(0, 5).map(fmt) : []), reg]);

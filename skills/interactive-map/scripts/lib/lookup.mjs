@@ -125,6 +125,24 @@ export function stateDir(env = process.env) {
   return path.join(env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache"), "instafy");
 }
 
+/** The folder for slot and lock files (how many lookups of a service run at once on this machine): `slots` in the
+ *  state folder, else, where that cannot be written (a read-only HOME, no INSTAFY_CACHE_DIR), the system's temporary
+ *  folder, so the limit on concurrent requests to a public service still holds. */
+const slotDirs = new Map();
+export function slotsDir(env = process.env) {
+  const want = path.join(stateDir(env), "slots");
+  if (slotDirs.has(want)) return slotDirs.get(want);
+  let dir = want;
+  try {
+    fs.mkdirSync(want, { recursive: true });
+    fs.accessSync(want, fs.constants.W_OK);
+  } catch {
+    dir = path.join(os.tmpdir(), "instafy-lookup-slots");
+  }
+  slotDirs.set(want, dir);
+  return dir;
+}
+
 export function defaultStateFile(env = process.env) {
   if (env.INSTAFY_LOOKUP_STATE) return env.INSTAFY_LOOKUP_STATE;
   return path.join(stateDir(env), "lookup-health.json");
@@ -276,7 +294,7 @@ const slotOwnerGone = (file) => {
 export async function withProviderSlot(p, fn, { env = process.env, waitMs = 60_000, now = () => Date.now() } = {}) {
   const slots = Math.floor(Number(p?.max_concurrent));
   if (!(slots >= 1)) return fn();
-  const dir = path.join(stateDir(env), "slots");
+  const dir = slotsDir(env);
   // per host: two providers of the same service (search and reverse search) share its slots
   let host = null;
   try { host = p.base ? new URL(p.base).host : null; } catch { /* not a URL */ }

@@ -291,3 +291,68 @@ test('lookup state and shared answers live in the runtime\'s stable folder (INST
     down.close();
   }
 });
+
+test('station: a station found by a fallback is placed as partial, never as a complete answer', async () => {
+  const env = {
+    INSTAFY_LOOKUP_STATE: freshState(),
+    ...declared({
+      providers: {
+        main: { protocol: 'fake', behaviour: 'not_found', label: 'Main search' },
+        names: { protocol: 'fake', behaviour: 'results', label: 'Name search', results: [{ name: 'Hualien', type: 'railway=station', kind: 'train_station', address: '', coord: [121.6014, 23.9932], osm_id: 'osm-n9' }] },
+      },
+      chains: { geocode: ['main', 'names'] },
+    }),
+  };
+  assert.equal((await uw(['new', 'rail', '--title', 'Rail', '--center', '121.60,23.99', '--zoom', '13'], env)).code, 0);
+  const s = await uw(['station', 'rail', '--city', 'Hualien', '--near', '121.60,23.99', '--json'], env);
+  assert.equal(s.code, 0, s.out + s.err);
+  assert.equal(s.json.status, 'partial');
+  const props = JSON.parse(fs.readFileSync(path.join(tmp, 'rail', 'data', 'stations.geojson'), 'utf8')).features[0].properties;
+  assert.equal(props.data_status, 'partial');
+  assert.match(props.data_note, /data may be incomplete/);
+  assert.match(s.err, /^PARTIAL: stations:hualien Hualien — /m);
+});
+
+test('commands run one after another in a turn: an explicit --timeout late in the turn gets only what is left of it', async () => {
+  const b = await import('../skills/interactive-map/scripts/lib/budget.mjs');
+  assert.equal(b.commandLimitS({ defaultS: 45, given: 0, turnHardLeftS: 100, env: {} }), 100, '--timeout 0 late in a turn');
+  assert.equal(b.commandLimitS({ defaultS: 45, given: 300, turnHardLeftS: 100, env: {} }), 100, 'an explicit --timeout');
+  assert.equal(b.commandLimitS({ defaultS: 90, selfPaced: true, turnHardLeftS: 50, env: {} }), 50, 'handoff --apply');
+  assert.equal(b.commandLimitS({ defaultS: 45, given: 0, turnHardLeftS: -30, env: {} }), 10, 'past the limit: a short try, never none');
+
+  // a turn 9m20s in (the pack's own turn clock, no host clock): add-point --timeout 0 against a service that never
+  // answers ends in seconds, not after the 9-minute command ceiling
+  const hang = http.createServer(() => {});
+  await new Promise((r) => hang.listen(0, '127.0.0.1', r));
+  try {
+    const env = {
+      UW_TURN_BUDGET: undefined, INSTAFY_LOOKUP_STATE: freshState(),
+      ...declared({ providers: { hang: { protocol: 'photon-search', label: 'Hanging search', base: `http://127.0.0.1:${hang.address().port}`, timeout_ms: 0 } }, chains: { geocode: ['hang'] } }),
+    };
+    assert.equal((await uw(['new', 'late', '--title', 'Late', '--center', '139.70,35.66', '--zoom', '15'], env)).code, 0);
+    const now = Date.now();
+    fs.writeFileSync(path.join(tmp, 'late', '.uwcache', 'turn.json'), JSON.stringify({ started: now - 560_000, last: now }));
+    const r = await uw(['add-point', 'late', '--layer', 'cafes', '--query', 'Kissa Tanpopo', '--near', '139.70,35.66', '--timeout', '0'], env);
+    assert.equal(r.code, 4, r.out + r.err);
+    assert.ok(r.ms < 40_000, `ended after ${r.ms} ms`);
+  } finally {
+    hang.closeAllConnections?.();
+    hang.close();
+  }
+});
+
+test('a read-only state folder (no INSTAFY_CACHE_DIR, a read-only HOME) still limits concurrent requests to a service', async () => {
+  const ro = freshDir('readonly');
+  fs.chmodSync(ro, 0o500);
+  try {
+    const env = { XDG_CACHE_HOME: path.join(ro, 'cache') };
+    assert.ok(lookup.slotsDir(env).startsWith(os.tmpdir()), lookup.slotsDir(env));
+    const p = { id: 'svc', base: `http://slots-${process.pid}-${Date.now()}.example`, max_concurrent: 1 };
+    let now = 0, most = 0;
+    const work = () => lookup.withProviderSlot(p, async () => { now++; most = Math.max(most, now); await new Promise((r) => setTimeout(r, 150)); now--; }, { env, waitMs: 5000 });
+    await Promise.all([work(), work(), work()]);
+    assert.equal(most, 1, 'one request at a time, as declared');
+  } finally {
+    fs.chmodSync(ro, 0o700);
+  }
+});

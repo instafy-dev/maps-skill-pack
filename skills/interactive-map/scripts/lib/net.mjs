@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { sleep, UserError } from './util.mjs';
-import { Health, STATUS, chainHealth, chainOf, loadProviders, resolveProvider, runChain, stateDir } from './lookup.mjs';
+import { Health, STATUS, chainHealth, chainOf, loadProviders, resolveProvider, runChain, slotsDir } from './lookup.mjs';
 
 /** Who is asking, with a contact URL, as public services' usage policies ask (Nominatim, Overpass, OpenFreeMap…).
  *  INSTAFY_LOOKUP_CONTACT (a URL or an e-mail, no secret) adds the operator's own contact. */
@@ -302,9 +302,9 @@ export class HttpError extends UserError {
 
 // ---------------------------------------------------------------------------
 // Overpass: at most `max_concurrent` queries at a time on this machine (the provider's declared slots, default 1; one
-// lock file per slot next to the lookup health file, a folder that outlasts the turn), each started at least 1 s
-// after the last one ended.
-const lockDir = () => path.join(stateDir(), 'slots');
+// lock file per slot next to the lookup health file, a folder that outlasts the turn, else the temporary folder),
+// each started at least 1 s after the last one ended.
+const lockDir = () => slotsDir();
 const LOCK = () => path.join(lockDir(), 'uw-overpass.lock');
 const STAMP = () => path.join(lockDir(), 'uw-overpass.last');
 const slotFile = (i) => (i ? `${LOCK()}.${i}` : LOCK());

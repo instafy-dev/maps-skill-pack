@@ -30,13 +30,17 @@ export function jobDeadlineMs(env = process.env) {
  * The limit in seconds of one network command (always > 0).
  *   defaultS: the command's own default; given: --timeout (0 = the longest allowed, never "none");
  *   selfPaced: handoff --apply (its own total budget); turnLeftS: what the turn budget leaves (null: no turn clock);
- *   hostDeadlineMs / hostMarginS: the host's hard turn limit and the margin kept before it; env: for the job deadline
- *   and the ceilings.
+ *   turnHardLeftS: what is left before the turn's hard limit by the pack's own turn clock (null: none; the host's
+ *   clock is hostDeadlineMs); hostDeadlineMs / hostMarginS: the host's hard turn limit and the margin kept before it;
+ *   env: for the job deadline and the ceilings.
  */
-export function commandLimitS({ defaultS, given = null, selfPaced = false, turnLeftS = null, hostDeadlineMs = null, hostMarginS = 45, now = Date.now(), env = process.env }) {
+export function commandLimitS({ defaultS, given = null, selfPaced = false, turnLeftS = null, turnHardLeftS = null, hostDeadlineMs = null, hostMarginS = 45, now = Date.now(), env = process.env }) {
   let limit = selfPaced ? applyBudgetS(env) : given == null ? defaultS : given === 0 ? maxCommandS(env) : given;
   // the turn budget caps the default limit (an explicit --timeout is the caller's own choice)
   if (!selfPaced && given == null && turnLeftS != null) limit = Math.min(limit, Math.max(10, turnLeftS));
+  // ... but no choice outlives the turn's hard limit: commands run one after another in a turn, so an explicit
+  // --timeout or handoff --apply late in the turn gets only what is left of it
+  if (turnHardLeftS != null) limit = Math.min(limit, Math.max(10, turnHardLeftS));
   // ... but never the host's hard turn limit
   if (hostDeadlineMs != null) limit = Math.min(limit, Math.max(10, Math.floor((hostDeadlineMs - now) / 1000) - hostMarginS));
   // ... nor the run it belongs to (a self-paced run's steps, a detached job)

@@ -553,7 +553,7 @@ export class UI {
     else if (L.type === 'route') { const f = L.data.features[0]?.properties || {}; if (f.duration_min) bits.push(`${Math.round(f.duration_min)} min`); if (f.distance_km) bits.push(`${f.distance_km} km`); if (!bits.length) bits.push('route'); }
     else bits.push(`${n} ${{ points: 'place', heat: 'place', lines: 'line', areas: 'area' }[L.type] || 'feature'}${n === 1 ? '' : 's'}`);
     if (L.shown === false && L.visible) bits.push('hidden at this time');
-    if (L.def?.partial || L.data?.uw?.partial) bits.push('partial data');
+    if (L.def?.partial || L.data?.uw?.partial || L.data?.features?.some((f) => f.properties?.data_status === 'partial')) bits.push('partial data');
     return bits.join(' · ');
   }
   swatch(L) {

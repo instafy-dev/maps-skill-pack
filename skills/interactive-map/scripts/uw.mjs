@@ -78,7 +78,10 @@ const TURN_BUDGET_S = process.env.UW_TURN_BUDGET != null ? Number(process.env.UW
 const TURN_GAP_S = Number(process.env.UW_TURN_GAP ?? 150);
 
 function siteDirOf(rest) {
-  for (const a of rest.slice(0, 2)) {
+  // the site is the first positional, or --site <dir> (handoff <handoff dir> --site <site>)
+  const flag = rest.findIndex((a) => a === '--site' || a.startsWith('--site='));
+  const named = flag < 0 ? [] : [rest[flag].includes('=') ? rest[flag].slice(7) : rest[flag + 1]];
+  for (const a of [...rest.slice(0, 2), ...named]) {
     if (!a || a.startsWith('-')) continue;
     try { if (fs.statSync(path.join(a, 'map.config.json')).isFile()) return path.resolve(a); } catch {}
   }
@@ -204,6 +207,8 @@ async function main() {
       throw Object.assign(new Error(line), { name: 'SkipError', exitCode: 4, line });
     }
     let turnLeftS = null;
+    // the pack's own turn clock (no host clock): what is left before the hard limit, whatever the command asks
+    const turnHardLeftS = clock && !clock.host && TURN_BUDGET_S > 0 ? TURN_BUDGET_S + REPLY_MARGIN_S - HOST_MARGIN_S - clock.elapsedS : null;
     if (!selfPaced && given == null && clock && TURN_BUDGET_S > 0) {
       turnLeftS = TURN_BUDGET_S - clock.elapsedS;
       if (OPTIONAL.has(cmd) && turnLeftS < 20) {
@@ -213,7 +218,7 @@ async function main() {
     }
     // no command outlives the turn it runs in (a job started with --detach runs outside the turn's clock when a
     // continuation turn can pick it up, see jobs.mjs), and none has no limit at all
-    const limit = commandLimitS({ defaultS: NET_TIMEOUT_S[cmd], given, selfPaced, turnLeftS,
+    const limit = commandLimitS({ defaultS: NET_TIMEOUT_S[cmd], given, selfPaced, turnLeftS, turnHardLeftS,
       hostDeadlineMs: HOST_TURN && process.env.UW_TURN_BUDGET == null ? HOST_TURN.deadline : null, hostMarginS: HOST_MARGIN_S });
     // the steps a self-paced run starts end with it
     if (selfPaced) process.env.INSTAFY_JOB_DEADLINE = jobDeadlineValue(Date.now() + limit * 1000);

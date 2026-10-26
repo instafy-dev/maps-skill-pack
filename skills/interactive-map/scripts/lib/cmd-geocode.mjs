@@ -278,6 +278,12 @@ export async function geocodeSearch(q, { near, limit = 5, lang, tags = [], onEmp
   }
   return r.results;
 }
+/** The properties a point placed from a fallback's candidate carries until a full answer replaces it (empty for a
+ *  complete candidate): data_status "partial", data_note ("… data may be incomplete"), data_missing. */
+export function partialProps(c) {
+  if (c?.data_status !== 'partial') return {};
+  return { data_status: 'partial', data_note: `${c.data_reason || 'found by a fallback source'} (data may be incomplete)`, ...(c.data_missing?.length ? { data_missing: c.data_missing } : {}) };
+}
 /** The PARTIAL: line for candidates a fallback found (null when every one is complete). */
 export function partialCandidatesLine(cands, what = 'place search') {
   const p = cands.filter((c) => c.data_status === 'partial');
@@ -734,11 +740,7 @@ async function addPointRun(argv, ctx) {
     if (chosen.osm_id) props.osm_id = chosen.osm_id;
     props.source = args.at ? 'user-provided coordinates' : args.osm ? 'OpenStreetMap' : chosen.source || 'OpenStreetMap';
     // found by a fallback source: the point says so (and what it lacks) until a full answer replaces it
-    if (chosen.data_status === 'partial') {
-      props.data_status = 'partial';
-      props.data_note = `${chosen.data_reason || 'found by a fallback source'} (data may be incomplete)`;
-      if (chosen.data_missing?.length) props.data_missing = chosen.data_missing;
-    }
+    Object.assign(props, partialProps(chosen));
   }
   Object.assign(props, extra);
   props.id = id; // --props cannot change the id silently
