@@ -1,7 +1,7 @@
 // `enrich`: add comparable metrics to each feature of a layer (in place).
 import path from 'node:path';
 import { parseArgs, makeOut, parseList, parseLngLat, parseBBox, bboxAround, haversine, representativePoint, pointInPolygonGeom, writeGeoJSON, readJSON, exists, sleep, assembleRings, UsageError, UserError, skipped as skipLine } from './util.mjs';
-import { overpass, isSkip } from './net.mjs';
+import { overpass, isSkip, partialLine } from './net.mjs';
 import { walkTable } from './route-lookups.mjs';
 import { nearestOnLine } from './geo.mjs';
 import { openSite, checkLayerId, loadLayer, layerPath, listLayerIds, configLayer, titleCase } from './site.mjs';
@@ -51,6 +51,7 @@ export async function run(argv) {
   const layerOf = {}; // metric → { layer, id_key } for metrics.json
   const added = new Set();
   let skipped = null; // a SkipError (deadline) during --route-to: the rest is still written
+  let routedPartial = null; // { keys, reason, caveat, refetch }: --route-to stopped part way
 
   // Isochrone source
   let iso = null, isoLayer = args.within || null;
@@ -269,6 +270,9 @@ export async function run(argv) {
         if (!isSkip(e)) throw e;
         // out of time or routing unavailable: keep what is measured (counts, nearest, the routes done so far) and say what is missing
         skipped = e; skipped.missing = `${word}_min_${kk} missing for ${targets.length - routed} of ${targets.length}${nearest.includes(R) ? ` (nearest_${kk}_m, straight line, stands in)` : ''}`;
+        // times for only some options: never compared as if complete ("longest walk" may be one never routed)
+        routedPartial = { keys: [`${word}_min_${kk}`, `${word}_km_${kk}`], reason: `${skipped.missing}: routing stopped (${e.message})`, caveat: `${word === 'ride' ? 'Ride' : 'Walk'} times partial`,
+          refetch: `uw enrich ${site.rel} --layer ${layer} --route-to ${R}${args.mode ? ` --mode ${args.mode}` : ''}` };
         break;
       }
       routed++;
@@ -304,6 +308,12 @@ export async function run(argv) {
     if (!e) continue;
     entries[k] = { ...e, ...(layerOf[k] || {}) };
     const L = srcLayer[k];
+    // times for only some options: partial, whatever their target layer says
+    if (routedPartial?.keys.includes(k)) {
+      Object.assign(entries[k], { partial: true, partial_reason: routedPartial.reason, partial_refetch: routedPartial.refetch, caveat: routedPartial.caveat, confidence: 'low' });
+      if (L) { const src = sourceOf(L); if (src) entries[k].source = `${e.source}; ${L}: ${src}`; }
+      continue;
+    }
     if (!L) continue;
     const src = sourceOf(L);
     if (src) entries[k].source = /^(walk|ride)_/.test(k) ? `${e.source}; ${L}: ${src}` : src;
@@ -319,6 +329,7 @@ export async function run(argv) {
     for (const w of [...new Set(warnings)]) out.warn(w);
     const k = [...added].filter((x) => !/_name$/.test(x));
     skipped.kept = `${k.length ? k.join(', ') : 'nothing new'} in ${layer} (${skipped.missing})`;
+    if (routedPartial && added.has(routedPartial.keys[0])) console.error(partialLine(`${routedPartial.keys[0]} in ${layer}`, routedPartial.reason, `the verdict says "${routedPartial.caveat}" and no shortest/longest; later: ${routedPartial.refetch}`));
     throw skipped;
   }
   for (const w of [...new Set(warnings)]) out.warn(w);

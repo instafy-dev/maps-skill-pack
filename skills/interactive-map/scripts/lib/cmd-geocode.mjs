@@ -2,7 +2,7 @@
 // Wikipedia's article coordinates, then an OpenStreetMap name search, each asked only while the ones before could not
 // answer); add-point appends/replaces a point in a layer file.
 import { parseArgs, makeOut, parseLngLat, haversine, round6, slugify, readJSON, writeJSON, writeGeoJSON, exists, bboxAround, UsageError, UserError } from './util.mjs';
-import { fetchJSON, overpass, isSkip, withCap, ask, lookupState } from './net.mjs';
+import { fetchJSON, overpass, isSkip, withCap, ask, lookupState, cacheFor, partialLine } from './net.mjs';
 import { openSite, checkLayerId, layerPath, layerRelPath, configLayer, titleCase, viewCenter, viewBounds, withSiteLock } from './site.mjs';
 import { emojiFor } from './kinds.mjs';
 import { fitView } from './cmd-site.mjs';
@@ -91,10 +91,10 @@ export function nameMatches(query, names, area = []) {
 
 /** Wikipedia's coordinates for articles with these exact titles (redirects followed, disambiguation pages skipped):
  *  the quickest keyless answer for a city, a country or a main station. Candidates in the search's shape. */
-async function wikipediaCoords(base, label, titles, { near, maxKm = null, type, kind, derivedFrom = titles.length, derivedMaxKm = null }) {
+async function wikipediaCoords(base, label, titles, { near, maxKm = null, type, kind, derivedFrom = titles.length, derivedMaxKm = null, cache = { cacheMaxAgeMs: 30 * 864e5 } }) {
   const u = new URL(`${base}/w/api.php`);
   for (const [k, v] of Object.entries({ action: 'query', format: 'json', redirects: '1', prop: 'coordinates|pageprops', ppprop: 'disambiguation', coprimary: 'primary', titles: titles.join('|') })) u.searchParams.set(k, v);
-  const data = await fetchJSON(u.toString(), { label, timeoutMs: 15000, retries: 1, statusRetries: 1, cacheMaxAgeMs: 30 * 864e5 });
+  const data = await fetchJSON(u.toString(), { label, timeoutMs: 15000, retries: 1, statusRetries: 1, ...cache });
   const order = new Map(titles.map((t, i) => [t.toLowerCase(), i]));
   const redirected = new Map((data?.query?.redirects || []).map((r) => [String(r.to).toLowerCase(), String(r.from).toLowerCase()]));
   const out = [];
@@ -224,15 +224,16 @@ async function overpassPlaceSearch(name, { near, limit = 5, lang } = {}) {
 export const GEOCODE_PROTOCOLS = {
   'photon-search': {
     // slow rather than down at busy times (25-40 s an answer): one long attempt beats aborting and asking again;
-    // 429/5xx still get a retry
+    // 5xx still get a retry; a 429 never does (that service is not asked again this turn)
     async lookup({ q, near, limit = 5, lang, tags = [] }, p) {
       const u = new URL(`${p.base}/api/`);
       u.searchParams.set('q', q);
       for (const t of tags) u.searchParams.append('osm_tag', t);
       u.searchParams.set('limit', String(Math.max(1, Math.min(20, limit))));
-      if (near) { u.searchParams.set('lat', String(near[1])); u.searchParams.set('lon', String(near[0])); }
+      // the bias point to 3 decimals (~100 m): it only ranks results, and nearby asks share one cached answer
+      if (near) { u.searchParams.set('lat', Number(near[1]).toFixed(3)); u.searchParams.set('lon', Number(near[0]).toFixed(3)); }
       if (lang && lang !== 'default') u.searchParams.set('lang', lang);
-      const data = await fetchJSON(u.toString(), { label: p.label, timeoutMs: p.timeout_ms, retries: 1, statusRetries: 3, cacheMaxAgeMs: 30 * 864e5 });
+      const data = await fetchJSON(u.toString(), { label: p.label, timeoutMs: p.timeout_ms, retries: 1, statusRetries: 3, ...cacheFor(p, 30 * 864e5) });
       return (data.features || []).map((f) => toCandidate(f, near));
     },
   },
@@ -240,7 +241,7 @@ export const GEOCODE_PROTOCOLS = {
     accepts: (req) => !!wikipediaQuery(req.q, req),
     async lookup(req, p) {
       const { titles, opts } = wikipediaQuery(req.q, req);
-      return (await wikipediaCoords(p.base, p.label, titles, opts)).slice(0, req.limit ?? 5);
+      return (await wikipediaCoords(p.base, p.label, titles, { ...opts, cache: cacheFor(p, 30 * 864e5) })).slice(0, req.limit ?? 5);
     },
   },
   'overpass-name': {
@@ -249,17 +250,46 @@ export const GEOCODE_PROTOCOLS = {
   },
 };
 
-/** Candidates for a name or an address from the "geocode" chain: the first provider that could answer. A provider
- *  that is down is skipped (its reason kept); none left = exit 4 (unavailable, not "no such place"). A fallback's
- *  candidates say where they came from and that the first search was unavailable. */
-export async function geocodeSearch(q, { near, limit = 5, lang, tags = [] } = {}) {
-  const r = await ask('geocode', { q, near, limit, lang, tags }, GEOCODE_PROTOCOLS);
-  const down = [...new Set(r.attempts.filter((a) => a.outcome === 'unavailable' || a.outcome === 'skipped_open').map((a) => a.label))];
+/** The fields a candidate lacks that a full place search answer has (a name search on Overpass or Wikipedia's
+ *  coordinates carry no address and no country). */
+export function missingFields(c) {
+  return [...(c.address ? [] : ['address']), ...(c.country || c.countrycode ? [] : ['country'])];
+}
+
+/** Candidates for a name or an address from the "geocode" chain: the first provider that could answer; an empty
+ *  answer asks the next one (a small venue one search lacks, another may know). A provider that is down is skipped
+ *  (its reason kept); none left = exit 4 (unavailable, not "no such place"). A fallback's candidates say where they
+ *  came from and are marked partial: data_status "partial", via, data_reason, data_missing (fields they lack).
+ *  onEmpty "stop": the caller has its own next step for an empty answer (an English duplicate, another tag set). */
+export async function geocodeSearch(q, { near, limit = 5, lang, tags = [], onEmpty = null } = {}) {
+  const r = await ask('geocode', { q, near, limit, lang, tags }, GEOCODE_PROTOCOLS, { onEmpty });
+  const down = [...new Set(r.attempts.filter((a) => a.outcome === 'unavailable' || a.outcome === 'skipped_open' || a.outcome === 'skipped_budget').map((a) => a.label))];
+  const empty = [...new Set(r.attempts.filter((a) => a.outcome === 'not_found').map((a) => a.label))];
   for (const c of r.results) {
     c.provider = r.provider;
-    c.source = `${c.source || r.label}${down.length ? ` (${down.join(', ')} unavailable)` : ''}`;
+    c.source = `${c.source || r.label}${down.length ? ` (${down.join(', ')} unavailable)` : ''}${empty.length ? ` (${empty.join(', ')} found nothing)` : ''}`;
+    const missing = missingFields(c);
+    if (missing.length) c.data_missing = missing;
+    if (r.status === 'partial') {
+      c.data_status = 'partial';
+      c.via = r.provider;
+      c.data_reason = [r.reason, missing.length ? `no ${missing.join(' or ')} from ${r.label}` : null].filter(Boolean).join('; ');
+    }
   }
   return r.results;
+}
+/** The properties a point placed from a fallback's candidate carries until a full answer replaces it (empty for a
+ *  complete candidate): data_status "partial", data_note ("… data may be incomplete"), data_missing. */
+export function partialProps(c) {
+  if (c?.data_status !== 'partial') return {};
+  return { data_status: 'partial', data_note: `${c.data_reason || 'found by a fallback source'} (data may be incomplete)`, ...(c.data_missing?.length ? { data_missing: c.data_missing } : {}) };
+}
+/** The PARTIAL: line for candidates a fallback found (null when every one is complete). */
+export function partialCandidatesLine(cands, what = 'place search') {
+  const p = cands.filter((c) => c.data_status === 'partial');
+  if (!p.length) return null;
+  const why = [...new Set(p.map((c) => c.data_reason).filter(Boolean))].join('; ');
+  return partialLine(what, why || 'answered by a fallback source', 'check the name and place on the map; a later retry may give the full answer');
 }
 /** The label of the place search as the person reads it ("OpenStreetMap search (Photon)"): its chain's first provider. */
 const searchLabel = () => lookupState('geocode').providers[0]?.label || 'the place search';
@@ -358,7 +388,7 @@ export async function geocode(argv) {
   const townish = !/\d/.test(q) && q.trim().split(/\s+/).length <= 3 && !queryType(q);
   if (source !== 'registry' && !searchErr && townish && !geocodeDegraded() && !cands.slice(0, 2).some((c) => /^(place|boundary)=/.test(c.type))) {
     try {
-      const towns = await geocodeSearch(q.replace(/\b(city|town|county|district)\b/ig, '').trim() || q, { near, limit: 3, lang: args.lang,
+      const towns = await geocodeSearch(q.replace(/\b(city|town|county|district)\b/ig, '').trim() || q, { near, limit: 3, lang: args.lang, onEmpty: 'stop',
         tags: ['place:city', 'place:town', 'place:village', 'place:suburb', 'place:quarter', 'place:neighbourhood', 'place:county', 'boundary:administrative'] });
       const known = new Set(cands.map((c) => c.osm_id));
       const add = towns.filter((c) => !known.has(c.osm_id));
@@ -369,7 +399,7 @@ export async function geocode(argv) {
     // English country names to compare with (one more search answer for the same query)
     if (!cands.some((c) => c.country_en) && !/^[a-z]{2}$/i.test(args.country.trim())) {
       try {
-        const en = await geocodeSearch(q, { near, limit: args.limit ?? 5, lang: 'en' });
+        const en = await geocodeSearch(q, { near, limit: args.limit ?? 5, lang: 'en', onEmpty: 'stop' });
         for (const c of cands) { const m = en.find((e) => e.osm_id && e.osm_id === c.osm_id); if (m?.country && m.country !== c.country) c.country_en = m.country; }
       } catch (e) { if (isSkip(e)) throw e; }
     }
@@ -400,7 +430,10 @@ export async function geocode(argv) {
     out.result({ ok: false, status: 'not_found', query: q, candidates: [], ...(reg ? { registry: [] } : {}) }, [`No results for "${q}"${searchErr ? ` (${searchErr.message})` : ''}. Try a simpler name, add the city ("… Taipei"), or the local-language name.`]);
     return 2;
   }
-  out.result({ ok: true, status: searchErr ? 'partial' : 'ok', query: q, near, candidates: cands, ...(reg ? { registry: regCands, unplaced: reg.unplaced } : {}) }, [
+  // an answer from a fallback source (the first search was down or found nothing) is partial, and says so
+  const partialNote = partialCandidatesLine(cands);
+  if (partialNote) console.error(partialNote);
+  out.result({ ok: true, status: searchErr || partialNote ? 'partial' : 'ok', query: q, near, candidates: cands, ...(partialNote ? { partial: partialNote } : {}), ...(reg ? { registry: regCands, unplaced: reg.unplaced } : {}) }, [
     ...cands.map(fmtCand),
     regCands.length ? `Taiwan lodging register (data.gov.tw 7780 + Taipei 135464; coordinates as filed by the operator):\n${regCands.map((c, i) => '  ' + fmtRegistryCand(c, i)).join('\n')}` : null,
     ...(reg?.unplaced || []).map((u) => `  Taipei register: "${u.name}" (${u.licence_id || 'no licence id'}) at ${u.address} (no coordinates)`),
@@ -515,7 +548,7 @@ async function addPointRun(argv, ctx) {
     if (cands.length && !geocodeDegraded()) {
       // English names (lang=en) for the same OSM objects, when they differ (not while the search is slow or down).
       try {
-        const en = await geocodeSearch(args.query, { near, limit: 6, lang: 'en' });
+        const en = await geocodeSearch(args.query, { near, limit: 6, lang: 'en', onEmpty: 'stop' });
         for (const c of cands) {
           const m = en.find((e) => e.osm_id && e.osm_id === c.osm_id);
           if (m && m.name && m.name !== c.name) c.name_en = m.name;
@@ -552,7 +585,7 @@ async function addPointRun(argv, ctx) {
       const q2 = stripType(args.query, qType);
       if (q2) {
         try {
-          const more = await geocodeSearch(q2, { near, limit: 4, lang: args.lang || 'default', tags: qType.tags });
+          const more = await geocodeSearch(q2, { near, limit: 4, lang: args.lang || 'default', tags: qType.tags, onEmpty: 'stop' });
           const known = new Set(cands.map((c) => c.osm_id));
           const add = more.filter((c) => !known.has(c.osm_id));
           for (const c of add) { c.name_match = nameMatches(q2, [c.name, c.name_en]) ?? null; if (c.name_match === false) c.name_match = null; c.via = 'type search'; }
@@ -706,6 +739,8 @@ async function addPointRun(argv, ctx) {
     if (args.note) props.note = args.note;
     if (chosen.osm_id) props.osm_id = chosen.osm_id;
     props.source = args.at ? 'user-provided coordinates' : args.osm ? 'OpenStreetMap' : chosen.source || 'OpenStreetMap';
+    // found by a fallback source: the point says so (and what it lacks) until a full answer replaces it
+    Object.assign(props, partialProps(chosen));
   }
   Object.assign(props, extra);
   props.id = id; // --props cannot change the id silently
@@ -777,8 +812,10 @@ async function addPointRun(argv, ctx) {
   }
 
   for (const w of warnings) out.warn(w);
+  const partialNote = !regUsed && chosen.data_status === 'partial' ? partialLine(`${layer}:${id} ${name}`, chosen.data_reason || 'found by a fallback source', `check its place on the map; re-run this add-point later for the full answer`) : null;
+  if (partialNote) console.error(partialNote);
   const altList = regUsed ? cands : cands.filter((c) => c !== chosen);
-  out.result({ ok: true, layer, file: rel, id, replaced, source: regUsed ? 'registry' : args.at ? 'user' : args.osm ? 'osm' : chosen.provider || 'search',
+  out.result({ ok: true, ...(partialNote ? { status: 'partial', partial: partialNote } : { status: 'ok' }), layer, file: rel, id, replaced, source: regUsed ? 'registry' : args.at ? 'user' : args.osm ? 'osm' : chosen.provider || 'search',
     chosen: { ...chosen, name, id }, alternatives: altList, registry_alternatives: reg ? reg.candidates.filter((c) => c !== chosen) : [],
     warnings, config: cfgChanges, view }, [
     `${replaced ? 'Replaced' : 'Added'} ${layer}:${id} — ${props.emoji} ${name}${props.name_en && props.name_en !== name ? ` (${props.name_en})` : ''}` +

@@ -105,8 +105,11 @@ test('safeEnv: an allowlist (PATH, HOME, locale, TZ, TMPDIR, SSL_CERT_*, NODE_*,
   const env = safeEnv({ UW_SITE: '/s' }, {
     PATH: '/bin', HOME: '/h', LANG: 'sv_SE.UTF-8', LC_ALL: 'C', TZ: 'Asia/Taipei', TMPDIR: '/t', SSL_CERT_FILE: '/c.pem', NODE_EXTRA_CA_CERTS: '/ca.pem',
     UW_CACHE: '/u', UW_PLAYWRIGHT: '/pw', ...JOB_SECRETS, NODE_AUTH_TOKEN: 'npm', UW_SECRET_TOKEN: 'x', AWS_SECRET_ACCESS_KEY: 'x', GITHUB_TOKEN: 'x', RANDOM: 'x',
+    // the pack's lookup settings and the runtime's stable cache folder pass (a detached host keeps the turn's state);
+    // a credential-looking name never does, whatever its prefix
+    INSTAFY_CACHE_DIR: '/c', INSTAFY_LOOKUP_PROVIDERS: '{}', INSTAFY_LOOKUP_API_KEY: 'x', INSTAFY_PROJECT_ID: 'p',
   });
-  assert.deepEqual(Object.keys(env).sort(), ['HOME', 'LANG', 'LC_ALL', 'NODE_EXTRA_CA_CERTS', 'PATH', 'SSL_CERT_FILE', 'TMPDIR', 'TZ', 'UW_CACHE', 'UW_PLAYWRIGHT', 'UW_SITE']);
+  assert.deepEqual(Object.keys(env).sort(), ['HOME', 'INSTAFY_CACHE_DIR', 'INSTAFY_LOOKUP_PROVIDERS', 'LANG', 'LC_ALL', 'NODE_EXTRA_CA_CERTS', 'PATH', 'SSL_CERT_FILE', 'TMPDIR', 'TZ', 'UW_CACHE', 'UW_PLAYWRIGHT', 'UW_SITE']);
   assert.equal(env.UW_SITE, '/s');
 });
 

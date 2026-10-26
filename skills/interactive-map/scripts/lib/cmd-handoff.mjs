@@ -12,7 +12,8 @@ import { openSite, layerPath, withSiteLock } from './site.mjs';
 import { politeFetch, pageText } from './cmd-cite.mjs';
 import { forgetMissing } from './cmd-geocode.mjs';
 import { FAR_FROM_CENTRE_KM, prefetchLodging } from './cmd-stay.mjs';
-import { isSkip, readShared, writeShared, setDeadline, withCap } from './net.mjs';
+import { isSkip, readShared, writeShared, setDeadline, withCap, partialLine } from './net.mjs';
+import { runOutOfTime, applyBudgetS } from './budget.mjs';
 import { geocodeDown } from './cmd-geocode.mjs';
 
 export const help = `handoff <handoff dir> [--site <site>] [--no-source-check] [--json]
@@ -408,8 +409,16 @@ const shellQuote = (a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${String(a).replac
 /** Run one uw command as its own process (its own time limit and turn budget). Its output (stdout and stderr, in the
  *  order written) is printed as one block when it ends, so steps that run side by side never interleave. Resolves
  *  { code, ms }. */
+/** Steps --apply did not start because its time budget was used up (INSTAFY_JOB_DEADLINE). */
+const outOfBudget = [];
 function uwStep(cmdArgs, log) {
   const started = Date.now();
+  if (runOutOfTime()) {
+    // the run's budget is used up: the step is not started (exit 4, like any skipped step) and the report says so
+    outOfBudget.push(`uw ${cmdArgs.map(shellQuote).join(' ')}`);
+    log(`\n$ uw ${cmdArgs.map(shellQuote).join(' ')}\n  skipped: --apply's time budget is used up (not started)`);
+    return Promise.resolve({ code: 4, ms: 0 });
+  }
   return new Promise((resolve) => {
     const chunks = [];
     const child = spawn(process.execPath, [UW, ...cmdArgs], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -586,7 +595,7 @@ async function applyHandoff({ args, out, items, problems, sourcesCheck }) {
   await timed(`lodging lookup, ${anchors.length} stops in one request`, 'stays', async () => {
     // a busy Overpass answers the stops' own requests no sooner: the one request gets a short limit of its own
     const r = await withCap(Number(process.env.UW_APPLY_BATCH_S ?? 60) * 1000, () => prefetchLodging(anchors));
-    if (r.asked) log(`lodging around ${r.asked} stop(s) asked in one request: ${r.answered} answered${r.answered < r.asked ? ' (the rest are asked by each stop)' : ''}`);
+    if (r.asked) log(`lodging around ${r.asked} stop(s) asked in one request: ${r.answered} answered${r.answered < r.asked ? ` (the rest are asked by each stop${r.unavailable?.reason ? `; the request was not answered: ${r.unavailable.reason}` : ''})` : ''}`);
     return { code: r.answered === r.asked ? 0 : 4 };
   });
   const staysPath = layerPath(openSite(args.site), 'stays');
@@ -767,12 +776,14 @@ async function applyHandoff({ args, out, items, problems, sourcesCheck }) {
     'Place them before replying when the turn clock allows (then uw plan … --force with every stop), else say plainly in the reply which stops are missing and that the plan is short of those nights:',
     ...missingStops.map((c) => `  uw ${[...stationArgs(c), '--timeout', '120'].map(shellQuote).join(' ')}`),
   ] : [];
-  out.result({ ok: failed.length === 0 && !missingStops.length, ran, failed, problems, facts, ...plan, unverified,
+  out.result({ ok: failed.length === 0 && !missingStops.length, ...(outOfBudget.length ? { status: 'partial', not_started: outOfBudget } : {}), ran, failed, problems, facts, ...plan, unverified,
     ...(missingStops.length ? { missing_stops: missingItems, nights: { asked: askedNights, covered: coveredNights } } : {}), ...(retryRail ? { retry_rail: retryRail } : {}), ...(retrySights.length ? { retry_sights: retrySights } : {}),
     timings: { total_ms: totalMs, concurrency: conc, phases, steps: timings } }, [
     '',
     ...(missingBlock.length ? [missingBlock[0]] : []),
     `handoff --apply: ${ran.length} step(s) done${failed.length ? `, ${failed.length} not: ${failed.join('; ')}` : ''}.`,
+    outOfBudget.length ? partialLine('handoff --apply', `${outOfBudget.length} step(s) not started: the run's time budget (${applyBudgetS()} s) was used up`,
+      `say so in the reply; run them in the next turn:\n${outOfBudget.map((c) => `  ${c}`).join('\n')}`) : null,
     timingLine,
     sourceLine,
     problems.length ? `Problems in the handoff files:\n${problems.map((p) => `  ${p}`).join('\n')}` : null,

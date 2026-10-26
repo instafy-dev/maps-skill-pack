@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { writeRegistryCache, startMock, VIA, TW_METRO } from './fixtures.mjs';
+import { writeRegistryCache, startMock, VIA, TW_METRO, NO_WIKIPEDIA } from './fixtures.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SKILL = path.join(HERE, '..', 'skills', 'interactive-map');
@@ -18,7 +18,7 @@ const UW = path.join(SKILL, 'scripts', 'uw.mjs');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'uw-honest-'));
 const cache = path.join(tmp, 'cache');
 let mock;
-const env = (extra = {}) => ({ ...process.env, UW_CACHE: cache, UW_PHOTON: mock.url, UW_OVERPASS: mock.url + '/api/interpreter', UW_OSRM: mock.url,
+const env = (extra = {}) => ({ ...process.env, ...NO_WIKIPEDIA, UW_CACHE: cache, UW_PHOTON: mock.url, UW_OVERPASS: mock.url + '/api/interpreter', UW_OSRM: mock.url,
   UW_VALHALLA: mock.url, UW_NO_CACHE: '1', UW_TURN_BUDGET: '0', ...extra });
 const uw = (args, extra) => new Promise((resolve) => {
   const p = spawn(process.execPath, [UW, ...args], { cwd: tmp, env: env(extra) });

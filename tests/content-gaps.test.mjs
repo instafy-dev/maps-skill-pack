@@ -19,6 +19,7 @@ import http from 'node:http';
 import vm from 'node:vm';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { NO_WIKIPEDIA } from './fixtures.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SKILL = path.join(HERE, '..', 'skills', 'interactive-map');
@@ -99,7 +100,7 @@ function photonAnswer(q, lang, tags) {
     ph(en ? 'Tokyo Shoes Retailing Center' : '東京靴流通センター', SHOP, 'shop', 'shoes', 96030258)];
   return [];
 }
-const env = () => ({ ...process.env, UW_CACHE: cache, UW_OVERPASS: `${mock.url}/api/interpreter`, UW_PHOTON: mock.url, UW_TURN_BUDGET: '0', UW_RETRY_PAUSE_MS: '200',
+const env = () => ({ ...process.env, ...NO_WIKIPEDIA, UW_CACHE: cache, UW_OVERPASS: `${mock.url}/api/interpreter`, UW_PHOTON: mock.url, UW_TURN_BUDGET: '0', UW_RETRY_PAUSE_MS: '200',
   UW_BASEMAP_TILES: `${mock.url}/nobasemap`,
   // its own Overpass lock, spacing and sick-server files: these tile queries never slow another test file's timing
   TMPDIR: ownTmp });

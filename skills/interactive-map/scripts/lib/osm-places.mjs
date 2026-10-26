@@ -1,13 +1,13 @@
 // The "places" lookup chain (lookup-providers.json): named OpenStreetMap objects of some kinds around points or in an
 // area. Overpass first (the full data); while it cannot answer, a reverse place search per point and tag (names and
 // positions only, at most 50 per point: a PARTIAL answer). Used by `places` and `stay`.
-import { ask, fetchJSON, isSkip, overpass, withReserve } from './net.mjs';
+import { ask, cacheFor, fetchJSON, isSkip, overpass, withReserve } from './net.mjs';
 
 /** One reverse lookup: the named objects with one osm_tag ("railway:station") within radiusM of a point, nearest
  *  first, at most `limit` (the service's cap). */
 async function reverseOne(p, [lng, lat], { radiusM, tag, limit = 50 }) {
   const u = `${p.base}/reverse?lon=${lng}&lat=${lat}&radius=${(radiusM / 1000).toFixed(3)}&limit=${limit}&osm_tag=${encodeURIComponent(tag)}`;
-  const fc = await fetchJSON(u, { label: p.label, retries: 1, timeoutMs: p.timeout_ms });
+  const fc = await fetchJSON(u, { label: p.label, retries: 1, timeoutMs: p.timeout_ms, ...cacheFor(p, 7 * 864e5) });
   return fc?.features || [];
 }
 

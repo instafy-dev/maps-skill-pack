@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { writeRegistryCache, startMock } from './fixtures.mjs';
+import { writeRegistryCache, startMock, NO_WIKIPEDIA } from './fixtures.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const UW = path.join(HERE, '..', 'skills', 'interactive-map', 'scripts', 'uw.mjs');
@@ -17,7 +17,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'uw-slow-'));
 const cache = path.join(tmp, 'cache');
 let mock;
 const run = (args) => new Promise((resolve) => {
-  const p = spawn(process.execPath, [UW, ...args], { cwd: tmp, env: { ...process.env, UW_CACHE: cache, UW_PHOTON: mock.url + '/hang', UW_OVERPASS: mock.url + '/api/interpreter', UW_NO_CACHE: '1', UW_TURN_BUDGET: '0' } });
+  const p = spawn(process.execPath, [UW, ...args], { cwd: tmp, env: { ...process.env, ...NO_WIKIPEDIA, UW_CACHE: cache, UW_PHOTON: mock.url + '/hang', UW_OVERPASS: mock.url + '/api/interpreter', UW_NO_CACHE: '1', UW_TURN_BUDGET: '0' } });
   let out = '', err = '';
   p.stdout.on('data', (d) => { out += d; }); p.stderr.on('data', (d) => { err += d; });
   const t = setTimeout(() => p.kill(), 60000);

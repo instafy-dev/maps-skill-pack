@@ -10,9 +10,22 @@
 //                                "timeout_ms": 20000 (0: the protocol keeps its own time), "cooldown_s": 600, "fail_threshold": 1, "slow_ms": 15000,
 //                                "complete": true, "health": "provider" | "host" | "none", "label": "…",
 //                                "max_concurrent": 2 } },
-//       "chains": { "<capability>": ["<id>", …] } }
+//       "chains": { "<capability>": ["<id>", …] },
+//       "chain_rules": { "<capability>": { "on_empty": "next" | "stop" } } }
 //   Code knows protocols (how to ask a kind of service), never a provider by name. `complete: false` marks a
-//   provider whose empty answer proves nothing (an exact-title lookup): the chain then asks the next one.
+//   provider whose empty answer proves nothing (an exact-title lookup).
+// - Empty answers: by default (`on_empty: "next"`) an empty answer moves on to the next provider: one search not
+//   knowing a small venue proves nothing while another source may know it. A capability whose first provider is
+//   authoritative for "none here" (places of a kind in an area) declares `on_empty: "stop"`. An override that
+//   replaces a chain keeps the rules declared before it.
+// - Honesty: an answer from any provider but the first one asked is a fallback: status "partial", `fallback: true`,
+//   `via` (who answered), `reason` (why the first could not), `missing` (fields the answer lacks). "not_found" only
+//   when a complete provider answered empty and no provider was unavailable, skipped or out of time; nothing found
+//   while one could not answer is "unavailable" (never "not found").
+// - Time: `deadlineAt` (ms since the epoch) bounds the whole chain: each attempt gets at most the time left minus
+//   what the rest of the chain needs (2 s each); a provider there is no time for is skipped with reason "budget".
+// - Rate limits: an HTTP 429 opens that provider's breaker for its cooldown (at least its Retry-After), and no
+//   command asks it again within the turn: never a retry storm against a service that asked us to slow down.
 //   "health": "none": the provider's protocol keeps its health itself (per mirror, say); the chain only reads it.
 // - Politeness: "max_concurrent" is how many lookups of that provider's host run at once on this machine, whatever
 //   process asks (one lock file per slot next to the health file); work that runs side by side queues for a slot
@@ -20,9 +33,11 @@
 // - INSTAFY_LOOKUP_PROVIDERS (JSON text, or a path to a JSON file) adds or replaces providers by id and replaces
 //   whole chains: a self-hosted instance, or a declared fake provider for an outage drill (protocol "fake").
 // - Health: a circuit breaker per provider (per provider and host with "health": "host"), kept in one small JSON
-//   file every process on the machine shares (INSTAFY_LOOKUP_STATE, default ~/.cache/instafy/lookup-health.json).
+//   file every process on the machine shares.
 //   A provider that was unavailable is skipped until its cooldown passes; a turn that started after the failure
-//   (INSTAFY_TURN_STARTED_AT) gets one fresh try, so a person's "try again" is always a real try.
+//   (INSTAFY_TURN_STARTED_AT) gets one fresh try, so a person's "try again" is always a real try, except while a
+//   Retry-After the service sent has not passed. The file lives in a folder that outlasts the turn: INSTAFY_LOOKUP_STATE,
+//   else INSTAFY_LOOKUP_CACHE_DIR, else the runtime's per-space INSTAFY_CACHE_DIR, else ~/.cache/instafy.
 // - One status contract: ok | partial | not_found | unavailable. "unavailable" (refused, timed out, busy, down:
 //   the service could not answer) is never "not_found" (it answered: there is no such thing). CLIs exit 4 for it.
 import fs from "node:fs";
@@ -34,6 +49,9 @@ export const STATUS = Object.freeze({ OK: "ok", PARTIAL: "partial", NOT_FOUND: "
 /** The exit code every lookup CLI uses for "the service could not answer" (never for "not found"). */
 export const EXIT_UNAVAILABLE = 4;
 const DEFAULTS = { timeout_ms: 20_000, cooldown_s: 600, fail_threshold: 1 };
+/** The least time an attempt is worth starting with (a provider with less left is skipped: reason "budget"). */
+export const MIN_ATTEMPT_MS = 2000;
+const ON_EMPTY = new Set(["next", "stop"]);
 
 // ---------------------------------------------------------------------------------------------------------------
 // Declarations
@@ -53,11 +71,16 @@ export function loadProviders(defaults, { env = process.env, overrides } = {}) {
   const layers = [defaults, ...(overrides ?? [readOverride(env.INSTAFY_LOOKUP_PROVIDERS)])].filter(Boolean);
   const providers = {};
   const chains = {};
+  const rules = {};
   for (const layer of layers) {
     for (const [id, p] of Object.entries(layer.providers || {})) providers[id] = { ...(providers[id] || {}), ...p, id };
     for (const [capability, list] of Object.entries(layer.chains || {})) {
       if (!Array.isArray(list)) throw new Error(`lookup chain "${capability}" must be a list of provider ids`);
       chains[capability] = list.map(String);
+    }
+    for (const [capability, rule] of Object.entries(layer.chain_rules || {})) {
+      if (rule?.on_empty != null && !ON_EMPTY.has(rule.on_empty)) throw new Error(`lookup chain "${capability}": on_empty must be "next" or "stop"`);
+      rules[capability] = { ...(rules[capability] || {}), ...rule };
     }
   }
   for (const [id, p] of Object.entries(providers)) {
@@ -66,7 +89,12 @@ export function loadProviders(defaults, { env = process.env, overrides } = {}) {
   for (const [capability, list] of Object.entries(chains)) {
     for (const id of list) if (!providers[id]) throw new Error(`lookup chain "${capability}" names "${id}", which is not declared`);
   }
-  return { providers, chains, env };
+  return { providers, chains, rules, env };
+}
+
+/** What a capability's chain does with an empty answer: "next" (default: ask the next provider) or "stop". */
+export function onEmptyOf(registry, capability) {
+  return registry.rules?.[capability]?.on_empty || "next";
 }
 
 /** A provider's settings with its defaults and its base URLs (`base_env` overrides `base`/`bases`; a comma list
@@ -87,10 +115,37 @@ export function chainOf(registry, capability) {
 // ---------------------------------------------------------------------------------------------------------------
 // Health (circuit breakers), shared by every process through one small file
 
+/** The folder lookup state (health, slots, locks) lives in: one that outlasts a turn. A hosted runtime gives each
+ *  tool turn a fresh HOME and TMPDIR, so state kept there would be forgotten every turn; INSTAFY_CACHE_DIR is the
+ *  runtime's stable per-space folder for skill packs. */
+export function stateDir(env = process.env) {
+  if (env.INSTAFY_LOOKUP_STATE) return path.dirname(env.INSTAFY_LOOKUP_STATE);
+  if (env.INSTAFY_LOOKUP_CACHE_DIR) return env.INSTAFY_LOOKUP_CACHE_DIR;
+  if (env.INSTAFY_CACHE_DIR) return path.join(env.INSTAFY_CACHE_DIR, "lookups");
+  return path.join(env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache"), "instafy");
+}
+
+/** The folder for slot and lock files (how many lookups of a service run at once on this machine): `slots` in the
+ *  state folder, else, where that cannot be written (a read-only HOME, no INSTAFY_CACHE_DIR), the system's temporary
+ *  folder, so the limit on concurrent requests to a public service still holds. */
+const slotDirs = new Map();
+export function slotsDir(env = process.env) {
+  const want = path.join(stateDir(env), "slots");
+  if (slotDirs.has(want)) return slotDirs.get(want);
+  let dir = want;
+  try {
+    fs.mkdirSync(want, { recursive: true });
+    fs.accessSync(want, fs.constants.W_OK);
+  } catch {
+    dir = path.join(os.tmpdir(), "instafy-lookup-slots");
+  }
+  slotDirs.set(want, dir);
+  return dir;
+}
+
 export function defaultStateFile(env = process.env) {
   if (env.INSTAFY_LOOKUP_STATE) return env.INSTAFY_LOOKUP_STATE;
-  const cache = env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache");
-  return path.join(cache, "instafy", "lookup-health.json");
+  return path.join(stateDir(env), "lookup-health.json");
 }
 
 const PAUSE = new Int32Array(new SharedArrayBuffer(4));
@@ -173,6 +228,8 @@ export class Health {
     const e = this.read().entries[this.key(p, where)];
     const now = this.now();
     const slow = !!(e?.slow_until && e.slow_until > now);
+    // a Retry-After the service sent holds whatever turn it is
+    if (e?.hold_until && now < e.hold_until) return { allow: false, probe: false, slow, retry_after_s: Math.max(1, Math.ceil((e.hold_until - now) / 1000)), last_error: e.last_error || null, rate_limited: !!e.rate_limited };
     if (!e?.open_until) return { allow: true, probe: false, slow };
     if (now >= e.open_until || (this.turnStartedAt && (e.opened_at || 0) < this.turnStartedAt)) return { allow: true, probe: true, slow };
     return { allow: false, probe: false, slow, retry_after_s: Math.max(1, Math.ceil((e.open_until - now) / 1000)), last_error: e.last_error || null };
@@ -194,13 +251,19 @@ export class Health {
     this.#update(this.key(p, where), (e) => ({ ...e, at: this.now(), slow_until: this.now() + p.cooldown_s * 1000 }));
   }
 
-  fail(p, message, where = {}) {
+  /** A failure. `rate_limited` (HTTP 429) always opens the breaker, for the cooldown or the Retry-After, whichever
+   *  is longer; a Retry-After also holds across a new turn. */
+  fail(p, message, where = {}, { rate_limited = false, retry_after_s = null } = {}) {
     this.#update(this.key(p, where), (e) => {
+      const now = this.now();
       const failures = (e.failures || 0) + 1;
-      const opens = failures >= (p.fail_threshold || 1);
+      const opens = rate_limited || failures >= (p.fail_threshold || 1);
+      const cooldownMs = Math.max((p.cooldown_s ?? DEFAULTS.cooldown_s) * 1000, retry_after_s > 0 ? retry_after_s * 1000 : 0);
       return {
-        ...e, at: this.now(), failures, last_error: String(message || "unavailable").slice(0, 200),
-        ...(opens ? { open_until: this.now() + p.cooldown_s * 1000, opened_at: this.now() } : {}),
+        ...e, at: now, failures, last_error: String(message || "unavailable").slice(0, 200),
+        ...(opens ? { open_until: now + cooldownMs, opened_at: now } : {}),
+        ...(rate_limited ? { rate_limited: true } : {}),
+        ...(retry_after_s > 0 ? { hold_until: now + retry_after_s * 1000 } : {}),
       };
     });
   }
@@ -231,7 +294,7 @@ const slotOwnerGone = (file) => {
 export async function withProviderSlot(p, fn, { env = process.env, waitMs = 60_000, now = () => Date.now() } = {}) {
   const slots = Math.floor(Number(p?.max_concurrent));
   if (!(slots >= 1)) return fn();
-  const dir = path.join(path.dirname(defaultStateFile(env)), "slots");
+  const dir = slotsDir(env);
   // per host: two providers of the same service (search and reverse search) share its slots
   let host = null;
   try { host = p.base ? new URL(p.base).host : null; } catch { /* not a URL */ }
@@ -277,6 +340,14 @@ export class LookupUnavailableError extends Error {
     this.attempts = attempts;
     this.retry_after_s = retry_after_s;
   }
+}
+
+/** Was this failure the service asking us to slow down (HTTP 429)? Then { retry_after_s } (null when it gave none). */
+export function rateLimitOf(error) {
+  const http = Number(error?.httpStatus ?? (typeof error?.status === "number" ? error.status : NaN));
+  if (http !== 429 && error?.rateLimited !== true) return null;
+  const ra = Number(error?.retryAfterS ?? error?.retry_after_s);
+  return { retry_after_s: Number.isFinite(ra) && ra > 0 ? Math.ceil(ra) : null };
 }
 
 const UNAVAILABLE_CODES = new Set(["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "EHOSTUNREACH", "ENETUNREACH", "EAI_AGAIN", "ENOTFOUND", "EPIPE", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_SOCKET", "timeout", "unavailable"]);
@@ -336,20 +407,28 @@ async function withTimeout(promise, ms, label) {
 
 /**
  * Ask a capability's chain. `protocols` maps a protocol name to { lookup(request, provider, ctx), accepts?(request,
- * provider) }; `lookup` resolves an array of results, or { results, partial, notes, meta }. Every provider is asked at most
- * once.
- * Resolves { status, results, provider, attempts, retry_after_s }:
- *   ok / partial: the first provider that found something (partial: it says its answer is incomplete);
- *   not_found: a complete provider answered and found nothing;
- *   unavailable: no provider could answer (each one's reason is in `attempts`).
+ * provider) }; `lookup` resolves an array of results, or { results, partial, notes, meta, missing }. Every provider is
+ * asked at most once. `deadlineAt` (ms since the epoch, optional) bounds the whole chain; `onEmpty` overrides the
+ * capability's rule for one request.
+ * Resolves { status, results, provider, label, attempts, retry_after_s, via, fallback, missing, reason }:
+ *   ok: the first provider asked found something, and says its answer is complete;
+ *   partial: something was found, but by a fallback (an earlier provider was down, out of time or found nothing), or
+ *     the provider says its answer is incomplete (`partial`, `missing`, or `complete: false`);
+ *   not_found: a complete provider answered and found nothing, and no provider failed to answer;
+ *   unavailable: nothing found, and at least one provider could not answer (each one's reason is in `attempts`).
  * A "fatal" error (bad request, policy) is thrown as is; so is a "deadline" one, after marking the provider slow.
  */
-export async function runChain(capability, request, { registry, health = new Health(), protocols = {}, where = {}, log = null } = {}) {
+export async function runChain(capability, request, { registry, health = new Health(), protocols = {}, where = {}, log = null, deadlineAt = null, now = () => Date.now(), onEmpty: askedOnEmpty = null } = {}) {
   const ids = chainOf(registry, capability);
+  // a caller with its own next step for an empty answer (another tag set, the same search in English) says "stop"
+  const onEmpty = askedOnEmpty && ON_EMPTY.has(askedOnEmpty) ? askedOnEmpty : onEmptyOf(registry, capability);
   const attempts = [];
   let retryAfter = null;
   let emptyAnswer = null;
-  for (const id of ids) {
+  const couldNotAnswer = () => attempts.filter((a) => a.outcome === STATUS.UNAVAILABLE || a.outcome === "skipped_open" || a.outcome === "skipped_budget");
+  const askedBefore = () => attempts.filter((a) => a.outcome !== "skipped");
+  const reasonOf = (list) => list.map((a) => `${a.label} ${a.outcome === STATUS.NOT_FOUND ? "found nothing" : a.outcome === "skipped_budget" ? "had no time left" : `unavailable${a.detail ? ` (${a.detail})` : ""}`}`).join("; ");
+  for (const [n, id] of ids.entries()) {
     const p = resolveProvider(registry, id);
     const protocol = p.protocol === "fake" ? fakeProtocol : protocols[p.protocol];
     const attempt = { provider: id, label: p.label };
@@ -361,27 +440,63 @@ export async function runChain(capability, request, { registry, health = new Hea
     const at = { base: p.base, ...where };
     const state = mirrored ? mirrorState(health, p, where) : health.check(p, at);
     if (!state.allow) {
-      attempts.push({ ...attempt, outcome: "skipped_open", detail: `down, retry in ${state.retry_after_s} s`, retry_after_s: state.retry_after_s });
+      attempts.push({ ...attempt, outcome: "skipped_open", detail: `${state.rate_limited ? "rate-limited" : "down"}, retry in ${state.retry_after_s} s`, retry_after_s: state.retry_after_s });
       retryAfter = retryAfter == null ? state.retry_after_s : Math.min(retryAfter, state.retry_after_s);
       continue;
+    }
+    // the time budget: a provider with less than a minimal try left is not asked; while there is room, each one
+    // leaves a minimal try for every provider after it (when there is not, it gets all that is left and the
+    // command's own deadline ends it, as "out of time", never as "this service is down")
+    let reservedMs = null;
+    if (deadlineAt != null) {
+      const left = deadlineAt - now();
+      if (left < MIN_ATTEMPT_MS) {
+        attempts.push({ ...attempt, outcome: "skipped_budget", detail: "no time left in this command" });
+        log?.(`${p.label} not asked: no time left in this command`);
+        continue;
+      }
+      // a minimal try for each later provider, and a little slack so the cut-off provider's end still leaves it
+      const reserve = (ids.length - n - 1) * (MIN_ATTEMPT_MS + 500);
+      if (reserve > 0 && left - reserve >= Math.max(2 * MIN_ATTEMPT_MS, left * 0.6)) reservedMs = left - reserve;
     }
     let t0 = Date.now();
     try {
       // a slot of the provider first (its own health, its own slots): the time limit counts from the slot
-      const ask = () => { t0 = Date.now(); return withTimeout(Promise.resolve(protocol.lookup(request, p, { health, where: at, attempt })), p.timeout_ms > 0 ? p.timeout_ms + 5000 : 0, p.label); };
-      const answer = mirrored ? await ask() : await withProviderSlot(p, ask, { env: registry.env || process.env });
+      const own = p.timeout_ms > 0 ? p.timeout_ms + 5000 : 0;
+      const budgetCut = reservedMs != null && (!(own > 0) || reservedMs < own);
+      const limit = budgetCut ? reservedMs : own;
+      // cut short to leave time for the next provider: slow (asked later first), not down
+      const ask = () => { t0 = Date.now(); return withTimeout(Promise.resolve(protocol.lookup(request, p, { health, where: at, attempt })), limit, p.label)
+        .catch((error) => { if (budgetCut && error?.code === "timeout") error.slow = true; throw error; }); };
+      const answer = mirrored ? await ask() : await withProviderSlot(p, ask, { env: registry.env || process.env, waitMs: deadlineAt != null ? Math.max(0, Math.min(60_000, (deadlineAt - now()) / 2)) : 60_000 });
       const ms = Date.now() - t0;
       if (!mirrored) health.ok(p, ms, at);
       const results = Array.isArray(answer) ? answer : answer?.results || [];
-      const partial = !Array.isArray(answer) && !!answer?.partial;
+      const missing = Array.isArray(answer) ? [] : Array.isArray(answer?.missing) ? answer.missing : [];
+      const ownPartial = (!Array.isArray(answer) && !!answer?.partial) || missing.length > 0;
       if (results.length) {
+        // anyone asked before this one (down, out of time, or found nothing) makes this answer a fallback
+        const before = askedBefore();
+        const fallback = before.length > 0;
+        const partial = ownPartial || fallback || p.complete === false;
         attempts.push({ ...attempt, outcome: partial ? STATUS.PARTIAL : STATUS.OK, ms });
         const notes = Array.isArray(answer) ? [] : answer?.notes || [];
         const meta = Array.isArray(answer) ? null : answer?.meta ?? null;
-        return { status: partial ? STATUS.PARTIAL : STATUS.OK, results, notes, meta, provider: id, label: p.label, attempts, retry_after_s: null };
+        const why = [
+          ...(fallback ? [`fallback: ${reasonOf(before)}`] : []),
+          ...(p.complete === false ? [`${p.label} gives an incomplete answer`] : []),
+          ...(missing.length ? [`missing: ${missing.join(", ")}`] : []),
+        ];
+        return {
+          status: partial ? STATUS.PARTIAL : STATUS.OK, results, notes, meta, provider: id, label: p.label, attempts, retry_after_s: null,
+          via: [id], fallback, missing, reason: why.join("; ") || null,
+        };
       }
       attempts.push({ ...attempt, outcome: STATUS.NOT_FOUND, ms });
-      if (p.complete !== false) { emptyAnswer = { provider: id, label: p.label }; break; }
+      if (p.complete !== false) {
+        emptyAnswer ||= { provider: id, label: p.label };
+        if (onEmpty === "stop") break;
+      }
     } catch (error) {
       const kind = classify(error);
       const detail = String(error?.message || error).replace(new RegExp(`^${p.label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:\\s*`), "").slice(0, 160);
@@ -389,24 +504,33 @@ export async function runChain(capability, request, { registry, health = new Hea
       if (kind === "slow") {
         if (!mirrored) health.slow(p, at);
         attempts.push({ ...attempt, outcome: STATUS.UNAVAILABLE, detail, ms: Date.now() - t0 });
-        log?.(`${p.label} too slow (${detail})${ids.indexOf(id) < ids.length - 1 ? "; asking the next one" : ""}`);
+        log?.(`${p.label} too slow (${detail})${n < ids.length - 1 ? "; asking the next one" : ""}`);
         continue;
       }
       if (kind === "not_found") {
         attempts.push({ ...attempt, outcome: STATUS.NOT_FOUND, detail, ms: Date.now() - t0 });
-        if (p.complete !== false) { emptyAnswer = { provider: id, label: p.label }; break; }
+        if (p.complete !== false) {
+          emptyAnswer ||= { provider: id, label: p.label };
+          if (onEmpty === "stop") break;
+        }
         continue;
       }
       if (kind === "fatal") throw error;
-      if (!mirrored) health.fail(p, detail, at);
-      attempts.push({ ...attempt, outcome: STATUS.UNAVAILABLE, detail, ms: Date.now() - t0 });
-      log?.(`${p.label} unavailable (${detail})${ids.indexOf(id) < ids.length - 1 ? "; asking the next one" : ""}`);
+      // asked to slow down (429): not asked again this turn by any command (its breaker opens at once)
+      const limited = rateLimitOf(error);
+      if (!mirrored) health.fail(p, detail, at, limited ? { rate_limited: true, retry_after_s: limited.retry_after_s } : {});
+      if (limited?.retry_after_s) retryAfter = retryAfter == null ? limited.retry_after_s : Math.min(retryAfter, limited.retry_after_s);
+      attempts.push({ ...attempt, outcome: STATUS.UNAVAILABLE, detail: limited ? `rate-limited (HTTP 429)${limited.retry_after_s ? `, retry after ${limited.retry_after_s} s` : ""}` : detail, ms: Date.now() - t0 });
+      log?.(`${p.label} ${limited ? "asked us to slow down (HTTP 429): not asked again this turn" : `unavailable (${detail})`}${n < ids.length - 1 ? "; asking the next one" : ""}`);
     }
   }
-  if (emptyAnswer) return { status: STATUS.NOT_FOUND, results: [], provider: emptyAnswer.provider, label: emptyAnswer.label, attempts, retry_after_s: null };
-  const asked = attempts.filter((a) => a.outcome === STATUS.UNAVAILABLE || a.outcome === "skipped_open").length;
-  if (!asked && attempts.some((a) => a.outcome === STATUS.NOT_FOUND)) return { status: STATUS.NOT_FOUND, results: [], provider: null, attempts, retry_after_s: null };
-  return { status: STATUS.UNAVAILABLE, results: [], provider: null, attempts, retry_after_s: retryAfter };
+  const failed = couldNotAnswer();
+  if (failed.length) {
+    return { status: STATUS.UNAVAILABLE, results: [], provider: null, attempts, retry_after_s: retryAfter, via: [], fallback: false, missing: [], reason: reasonOf(failed) };
+  }
+  if (emptyAnswer) return { status: STATUS.NOT_FOUND, results: [], provider: emptyAnswer.provider, label: emptyAnswer.label, attempts, retry_after_s: null, via: [emptyAnswer.provider], fallback: false, missing: [], reason: null };
+  if (attempts.some((a) => a.outcome === STATUS.NOT_FOUND)) return { status: STATUS.NOT_FOUND, results: [], provider: null, attempts, retry_after_s: null, via: [], fallback: false, missing: [], reason: null };
+  return { status: STATUS.UNAVAILABLE, results: [], provider: null, attempts, retry_after_s: retryAfter, via: [], fallback: false, missing: [], reason: "no provider could answer this request" };
 }
 
 /** runChain, but "unavailable" throws LookupUnavailableError (exit 4); ok/partial/not_found resolve. */

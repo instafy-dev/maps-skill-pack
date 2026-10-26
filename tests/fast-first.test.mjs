@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { writeRegistryCache, startMock, VIA } from './fixtures.mjs';
+import { writeRegistryCache, startMock, VIA, NO_WIKIPEDIA } from './fixtures.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SKILL = path.join(HERE, '..', 'skills', 'interactive-map');
@@ -18,7 +18,7 @@ const UW = path.join(SKILL, 'scripts', 'uw.mjs');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'uw-fast-'));
 const cache = path.join(tmp, 'cache');
 let mock;
-const baseEnv = () => ({ ...process.env, UW_CACHE: cache, UW_PHOTON: mock.url, UW_OVERPASS: mock.url + '/api/interpreter', UW_OSRM: mock.url,
+const baseEnv = () => ({ ...process.env, ...NO_WIKIPEDIA, UW_CACHE: cache, UW_PHOTON: mock.url, UW_OVERPASS: mock.url + '/api/interpreter', UW_OSRM: mock.url,
   UW_VALHALLA: mock.url, UW_NO_CACHE: '1', UW_TURN_BUDGET: '0' });
 const run = (args, env = {}) => new Promise((resolve) => {
   const t0 = Date.now();
@@ -157,7 +157,13 @@ test('enrich: OSRM hangs after 2 routes → partial metrics are written (exit 4,
   const h = Object.values(hotels('pa'));
   assert.equal(h.filter((p) => typeof p.walk_min_mrt === 'number').length, 2);
   assert.ok(h.every((p) => typeof p.cafes_800m === 'number' && typeof p.nearest_mrt_m === 'number'));
-  assert.ok(JSON.parse(fs.readFileSync(file('pa', 'data/metrics.json'), 'utf8')).metrics.walk_min_mrt, 'metrics.json written');
+  const walk = JSON.parse(fs.readFileSync(file('pa', 'data/metrics.json'), 'utf8')).metrics.walk_min_mrt;
+  assert.ok(walk, 'metrics.json written');
+  // times for 2 of 3 hotels: never compared as complete ("longest walk to the MRT" may be the one never routed)
+  assert.equal(walk.partial, true);
+  assert.equal(walk.caveat, 'Walk times partial');
+  assert.match(walk.partial_reason, /walk_min_mrt missing for 1 of 3/);
+  assert.match(r.err, /^PARTIAL: walk_min_mrt in hotels — .* — data may be incomplete; the verdict says "Walk times partial"/m);
   const q = await uw(QUESTION('pa'));
   assert.equal(q.code, 0, q.err);
   assert.ok(q.json.warnings.some((w) => /walk_min_mrt" is missing on 1/.test(w)));

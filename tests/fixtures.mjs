@@ -6,6 +6,10 @@ import http from 'node:http';
 
 export const VIA = [121.52455, 25.057824];
 
+/** The tests' place search is a local mock; Wikipedia's article coordinates (a fallback of the geocode chain, asked
+ *  when the search finds nothing) are not part of these fixtures, so the tests never reach the live service. */
+export const NO_WIKIPEDIA = { INSTAFY_LOOKUP_PROVIDERS: JSON.stringify({ providers: { 'wikipedia-coords': { enabled: false } } }) };
+
 const row = (o) => ({ alt: [], licField: 'HotelLicenseNumber', cls: 3, city: '臺北市', phones: [], rooms: null, pmin: null, pmax: null, status: 1, web: null, upd: null, ...o });
 export const NATIONAL = {
   v: 2, as_of: '2026-10-12', fetched_at: new Date().toISOString(), source_url: 'fixture',

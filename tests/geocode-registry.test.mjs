@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { writeRegistryCache, startMock, VIA } from './fixtures.mjs';
+import { writeRegistryCache, startMock, VIA, NO_WIKIPEDIA } from './fixtures.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPTS = path.join(HERE, '..', 'skills', 'interactive-map', 'scripts');
@@ -16,7 +16,7 @@ const UW = path.join(SCRIPTS, 'uw.mjs');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'uw-test-'));
 const cache = path.join(tmp, 'cache');
 let mock;
-const env = () => ({ ...process.env, UW_CACHE: cache, UW_PHOTON: mock.url, UW_OVERPASS: mock.url + '/api/interpreter', UW_NO_CACHE: '1' });
+const env = () => ({ ...process.env, ...NO_WIKIPEDIA, UW_CACHE: cache, UW_PHOTON: mock.url, UW_OVERPASS: mock.url + '/api/interpreter', UW_NO_CACHE: '1' });
 // async: the mock server runs in this process, so a blocking spawnSync would deadlock it
 const run = (args) => new Promise((resolve) => {
   const p = spawn(process.execPath, [UW, ...args], { cwd: tmp, env: env() });

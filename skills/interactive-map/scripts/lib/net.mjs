@@ -6,9 +6,15 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { sleep, UserError } from './util.mjs';
-import { Health, STATUS, chainHealth, chainOf, loadProviders, resolveProvider, runChain } from './lookup.mjs';
+import { Health, STATUS, chainHealth, chainOf, loadProviders, resolveProvider, runChain, slotsDir } from './lookup.mjs';
 
-export const UA = 'instafy-map-pack/0.2 (+https://instafy.dev)';
+/** Who is asking, with a contact URL, as public services' usage policies ask (Nominatim, Overpass, OpenFreeMap…).
+ *  INSTAFY_LOOKUP_CONTACT (a URL or an e-mail, no secret) adds the operator's own contact. */
+export function userAgent(env = process.env) {
+  const extra = String(env.INSTAFY_LOOKUP_CONTACT || '').replace(/[^\w@.:/+~%=?&#-]/g, '').slice(0, 120);
+  return `instafy-map-pack/0.2 (+https://github.com/instafy-dev/maps-skill-pack; contact: https://github.com/instafy-dev/maps-skill-pack/issues${extra ? `; operator: ${extra}` : ''})`;
+}
+export const UA = userAgent();
 
 // The declared providers and chains (defaults: the free community services, fine for prototypes and personal maps;
 // reference/data-sources.md). base_env (UW_PHOTON, UW_OVERPASS, …) or INSTAFY_LOOKUP_PROVIDERS point them elsewhere.
@@ -73,9 +79,28 @@ function pruneAnswers(maxAgeMs = 14 * 864e5) {
  *  older than maxAgeMs. */
 export function readShared(sub, parts, maxAgeMs) { return cacheGet(cacheKey(parts), maxAgeMs, sharedCacheDir(sub)); }
 export function writeShared(sub, parts, value) { cachePut(cacheKey(parts), value, sharedCacheDir(sub)); }
-/** The cache every site on this machine shares (UW_CACHE, default ~/.cache/uw): data that changes slowly (rail track
- *  tiles) is fetched once, not once per site. */
-export const sharedCacheDir = (sub) => path.join(process.env.UW_CACHE || path.join(os.homedir(), '.cache', 'uw'), sub);
+/** The cache every site on this machine shares: data that changes slowly (rail track tiles) is fetched once, not once
+ *  per site. UW_CACHE, else the runtime's stable per-space folder (INSTAFY_CACHE_DIR: a hosted tool turn's HOME is new
+ *  every turn), else ~/.cache/uw. */
+export function sharedCacheRoot(env = process.env) {
+  if (env.UW_CACHE) return env.UW_CACHE;
+  if (env.INSTAFY_CACHE_DIR) return path.join(env.INSTAFY_CACHE_DIR, 'interactive-map');
+  return path.join(os.homedir(), '.cache', 'uw');
+}
+export const sharedCacheDir = (sub) => path.join(sharedCacheRoot(), sub);
+/** fetchJSON's cache options for a provider: its declared cache policy (lookup-providers.json "cache": { allowed,
+ *  ttl_s }, set from each service's caching terms), else `fallbackMs`. */
+export function cacheFor(p, fallbackMs) {
+  const c = p?.cache;
+  if (c?.allowed === false) return { cache: false };
+  const ttl = Number(c?.ttl_s);
+  return { cache: true, cacheMaxAgeMs: Number.isFinite(ttl) && ttl > 0 ? ttl * 1000 : fallbackMs };
+}
+
+/** The one line every command prints for a result made from incomplete data (a fallback source, a step out of time,
+ *  a service that could not answer). The reply names each one; a page with one is never described as complete. */
+export const partialLine = (what, why, retry = 'a retry later may give the full answer') =>
+  `PARTIAL: ${what} — ${String(why || 'incomplete').replace(/\s+/g, ' ').trim()} — data may be incomplete; ${retry}`;
 
 const DEFAULT_TIMEOUT = 60000;
 export const debug = (...m) => { if (process.env.UW_DEBUG) console.error('[uw]', ...m); };
@@ -138,8 +163,11 @@ export async function withCap(capMs, fn) {
  * label, attempts }: ok / partial / not_found. When no provider could answer it throws a SkipError (exit 4, status
  * "unavailable") naming each one's reason; a provider skipped for its cooldown is named as "down".
  */
-export async function ask(capability, request, protocols, { where = {}, quiet = false } = {}) {
-  const r = await runChain(capability, request, { registry: LOOKUPS, health: lookupHealth, protocols, where, log: quiet ? null : (line) => console.error(`  ${line}`) });
+export async function ask(capability, request, protocols, { where = {}, quiet = false, onEmpty = null } = {}) {
+  // the chain as a whole stays inside the command's time: a provider there is no time left for is skipped (budget)
+  const left = timeLeft();
+  const r = await runChain(capability, request, { registry: LOOKUPS, health: lookupHealth, protocols, where, onEmpty, log: quiet ? null : (line) => console.error(`  ${line}`),
+    deadlineAt: Number.isFinite(left) ? Date.now() + left : null });
   if (r.status !== STATUS.UNAVAILABLE) return r;
   const reasons = r.attempts.filter((a) => a.outcome !== 'skipped').map((a) => `${a.label}: ${a.detail || a.outcome}`);
   const primary = r.attempts.find((a) => a.outcome !== 'skipped')?.label || capability;
@@ -148,6 +176,20 @@ export async function ask(capability, request, protocols, { where = {}, quiet = 
 /** { available, slow, degraded, retry_after_s, providers } for a capability: long jobs leave optional lookups for
  *  later while its first provider is down or slow (degraded). */
 export const lookupState = (capability, where = {}) => chainHealth(capability, { registry: LOOKUPS, health: lookupHealth, where });
+// A service that answered 429 (too many requests) is not asked again by any uw command this turn (one breaker per
+// host in the shared health file, held at least for its Retry-After): never a retry storm, never a workaround.
+const RATE_LIMIT = { id: 'rate-limit', label: 'rate limit', cooldown_s: 600, fail_threshold: 1 };
+const originOf = (url) => { try { return new URL(url).origin; } catch { return String(url); } };
+/** Is this host holding us off after a 429? Throws the SkipError (exit 4) that says so. */
+function refuseIfRateLimited(url, label) {
+  const h = lookupHealth.check(RATE_LIMIT, { base: originOf(url) });
+  if (!h.allow) throw new SkipError(label, `asked us to slow down (HTTP 429) earlier; not asked again for ${h.retry_after_s} s`, { unavailable: true, rateLimited: true, retry_after_s: h.retry_after_s });
+}
+function noteRateLimited(url, retryAfterS) {
+  lookupHealth.fail(RATE_LIMIT, 'HTTP 429', { base: originOf(url) }, { rate_limited: true, retry_after_s: retryAfterS > 0 ? retryAfterS : null });
+}
+const retryAfterOf = (headers) => { const ra = Number(headers?.get?.('retry-after')); return Number.isFinite(ra) && ra > 0 ? Math.ceil(ra) : null; };
+
 /** sleep before a retry, or end now when the wait would run past the deadline */
 async function waitOrSkip(ms, label) {
   if (ms >= timeLeft() - 1000) throw deadlineSkip(label);
@@ -166,6 +208,7 @@ export async function fetchJSON(url, opts = {}) {
     const hit = cacheGet(key, cacheMaxAgeMs);
     if (hit) return hit;
   }
+  refuseIfRateLimited(url, label);
   const h = { 'User-Agent': UA, ...headers };
   if (acceptJson && !h.Accept) h.Accept = 'application/json';
   let lastErr;
@@ -178,7 +221,14 @@ export async function fetchJSON(url, opts = {}) {
     const t = setTimeout(() => ctrl.abort(), ms);
     try {
       const { res, text } = await tracked(fetch(url, { method, body, headers: h, signal: ctrl.signal }).then(async (r) => ({ res: r, text: await r.text() })));
-      if (res.status === 429 || res.status >= 500) {
+      if (res.status === 429) {
+        // asked to slow down: stop now, for this host, for the turn (no retry)
+        const ra = retryAfterOf(res.headers);
+        noteRateLimited(url, ra);
+        noteService(label, true);
+        throw Object.assign(new HttpError(label, 429, `rate-limited${ra ? `; retry after ${ra} s` : ''}`), { rateLimited: true, retryAfterS: ra });
+      }
+      if (res.status >= 500) {
         lastErr = new HttpError(label, res.status, text);
         noteService(label, true);
         statusFailures++;
@@ -194,7 +244,7 @@ export async function fetchJSON(url, opts = {}) {
       if (cache) cachePut(key, data);
       return data;
     } catch (e) {
-      if ((e instanceof HttpError && e.fatal) || isSkip(e)) throw e;
+      if ((e instanceof HttpError && (e.fatal || e.rateLimited)) || isSkip(e)) throw e;
       if (e?.cause?.code === 'ENOTFOUND') throw new UserError(`${label}: cannot resolve host ${new URL(url).host} (offline, or the host does not exist)`);
       if (e.name === 'AbortError' && timeLeft() <= 1000) throw deadlineSkip(label);
       lastErr = e.name === 'AbortError' ? new Error(`${label}: timed out after ${Math.round(ms / 1000)}s`) : e;
@@ -208,6 +258,7 @@ export async function fetchJSON(url, opts = {}) {
 // no response cache here (callers keep their own dataset cache, e.g. ~/.cache/uw/<adapter>/).
 export async function fetchBuffer(url, opts = {}) {
   const { timeoutMs = 120000, retries = 3, label = new URL(url).host, headers = {} } = opts;
+  refuseIfRateLimited(url, label);
   let lastErr;
   noteService(label);
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -218,11 +269,12 @@ export async function fetchBuffer(url, opts = {}) {
     try {
       const { res, buf } = await tracked(fetch(url, { headers: { 'User-Agent': UA, ...headers }, signal: ctrl.signal, redirect: 'follow' })
         .then(async (r) => ({ res: r, buf: Buffer.from(await r.arrayBuffer()) })));
-      if (res.status === 429 || res.status >= 500) { lastErr = new HttpError(label, res.status, buf.subarray(0, 300).toString('utf8')); noteService(label, true); continue; }
+      if (res.status === 429) { const ra = retryAfterOf(res.headers); noteRateLimited(url, ra); throw Object.assign(new HttpError(label, 429, `rate-limited${ra ? `; retry after ${ra} s` : ''}`), { rateLimited: true, retryAfterS: ra }); }
+      if (res.status >= 500) { lastErr = new HttpError(label, res.status, buf.subarray(0, 300).toString('utf8')); noteService(label, true); continue; }
       if (!res.ok) throw new HttpError(label, res.status, buf.subarray(0, 300).toString('utf8'), true);
       return { buf, status: res.status, headers: Object.fromEntries(res.headers.entries()) };
     } catch (e) {
-      if ((e instanceof HttpError && e.fatal) || isSkip(e)) throw e;
+      if ((e instanceof HttpError && (e.fatal || e.rateLimited)) || isSkip(e)) throw e;
       if (e?.cause?.code === 'ENOTFOUND') throw new UserError(`${label}: cannot resolve host ${new URL(url).host} (offline?)`);
       if (e.name === 'AbortError' && timeLeft() <= 1000) throw deadlineSkip(label);
       lastErr = e.name === 'AbortError' ? new Error(`${label}: timed out after ${Math.round(ms / 1000)}s`) : e;
@@ -250,10 +302,14 @@ export class HttpError extends UserError {
 
 // ---------------------------------------------------------------------------
 // Overpass: at most `max_concurrent` queries at a time on this machine (the provider's declared slots, default 1; one
-// lock file per slot in os.tmpdir()), each started at least 1 s after the last one ended.
-const LOCK = path.join(os.tmpdir(), 'uw-overpass.lock');
-const STAMP = path.join(os.tmpdir(), 'uw-overpass.last');
-const slotFile = (i) => (i ? `${LOCK}.${i}` : LOCK);
+// lock file per slot next to the lookup health file, a folder that outlasts the turn, else the temporary folder),
+// each started at least 1 s after the last one ended.
+const lockDir = () => slotsDir();
+const LOCK = () => path.join(lockDir(), 'uw-overpass.lock');
+const STAMP = () => path.join(lockDir(), 'uw-overpass.last');
+const slotFile = (i) => (i ? `${LOCK()}.${i}` : LOCK());
+/** The most one Overpass call may take, across every round and mirror (a turn must never reach its hard limit). */
+export const OVERPASS_CALL_MAX_MS = 90_000;
 /** How many Overpass queries may run at once on this machine (lookup-providers.json "max_concurrent"). */
 export const overpassSlots = () => Math.max(1, Math.min(8, Math.floor(Number(overpassProvider()?.max_concurrent) || 1)));
 
@@ -269,6 +325,7 @@ async function withOverpassSlot(fn) {
   // wait for a free slot at most half the time this one has left, then go ahead without one
   const deadline = Date.now() + Math.min(120000, Math.max(0, timeLeft() / 2));
   const slots = overpassSlots();
+  try { fs.mkdirSync(lockDir(), { recursive: true }); } catch { /* proceed without a slot */ }
   let fd = null, held = null;
   outer: while (fd === null) {
     for (let i = 0; i < slots; i++) {
@@ -283,10 +340,10 @@ async function withOverpassSlot(fn) {
   }
   try {
     let last = 0;
-    try { last = Number(fs.readFileSync(STAMP, 'utf8')) || 0; } catch {}
+    try { last = Number(fs.readFileSync(STAMP(), 'utf8')) || 0; } catch {}
     const wait = last + 1000 - Date.now();
     if (wait > 0) await waitOrSkip(wait, 'Overpass');
-    try { return await fn(); } finally { try { fs.writeFileSync(STAMP, String(Date.now())); } catch {} }
+    try { return await fn(); } finally { try { fs.writeFileSync(STAMP(), String(Date.now())); } catch {} }
   } finally {
     if (fd !== null) { try { fs.closeSync(fd); fs.unlinkSync(held); } catch {} if (lockHeld === held) lockHeld = null; }
   }
@@ -300,7 +357,11 @@ const mirrorHealth = (ep) => lookupHealth.check(overpassProvider(), { base: ep }
 
 // Run an Overpass QL query. Returns { elements, ... }. Uses cache, endpoint fallback, backoff.
 // shared: { dir, maxAgeMs }: also keep the answer in a cache every site shares (sharedCacheDir), e.g. rail track tiles.
-export async function overpass(query, { timeoutS = 90, cacheMaxAgeMs = 3 * 864e5, onEndpoint, quick = false, shared = null } = {}) {
+// One call takes at most OVERPASS_CALL_MAX_MS over every round and mirror, whatever limit the command has.
+export function overpass(query, opts = {}) {
+  return withCap(OVERPASS_CALL_MAX_MS, () => overpassCall(query, opts));
+}
+async function overpassCall(query, { timeoutS = 90, cacheMaxAgeMs = 3 * 864e5, onEndpoint, quick = false, shared = null } = {}) {
   const q0 = query.includes('[out:json]') ? query : `[out:json][timeout:${timeoutS}];\n${query}`;
   const key = overpassKey(q0);
   const hit = cacheGet(key, cacheMaxAgeMs) || (shared ? cacheGet(key, shared.maxAgeMs, shared.dir) : null);
@@ -344,7 +405,7 @@ export async function overpass(query, { timeoutS = 90, cacheMaxAgeMs = 3 * 864e5
         if (isSick(ep) && live.some((x) => !isSick(x))) share = Math.min(share, 20000);
         limitMs = Math.max(1000, Math.min((timeoutS + 30) * 1000, share));
         // the server-side [timeout:N] never asks for more than the time left (busy servers refuse long queries first)
-        const q = q0.replace(/\[timeout:(\d+)\]/, (m, n) => `[timeout:${Math.max(10, Math.min(Number(n), Math.floor(limitMs / 1000)))}]`);
+        const q = q0.replace(/\[timeout:(\d+)\]/, (m, n) => `[timeout:${Math.max(10, Math.min(Number(n), Math.floor(limitMs / 1000) - 5))}]`);
         onEndpoint?.(ep, attempt);
         const t0 = Date.now();
         const res = await withOverpassSlot(async () => {
@@ -357,11 +418,19 @@ export async function overpass(query, { timeoutS = 90, cacheMaxAgeMs = 3 * 864e5
               headers: { 'User-Agent': UA, 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
               body: 'data=' + encodeURIComponent(q),
               signal: ctrl.signal,
-            }).then(async (r) => ({ status: r.status, text: await r.text() })));
+            }).then(async (r) => ({ status: r.status, retryAfter: retryAfterOf(r.headers), text: await r.text() })));
           } finally { clearTimeout(t); }
         });
         debug(`overpass ${host(ep)} round ${attempt + 1}: HTTP ${res.status} in ${Date.now() - t0} ms, ${res.text.length} bytes`);
-        if (res.status === 429 || res.status >= 500) {
+        if (res.status === 429) {
+          // asked to slow down: this mirror is not asked again this turn, by this command or any other (no retry)
+          errors.push(`${host(ep)} HTTP 429 (rate-limited; not asked again this turn)`);
+          dead.add(ep); down.add(ep);
+          const ra = Number(res.retryAfter);
+          lookupHealth.fail(op, 'HTTP 429', { base: ep }, { rate_limited: true, retry_after_s: ra > 0 ? ra : null });
+          continue;
+        }
+        if (res.status >= 500) {
           errors.push(`${host(ep)} HTTP ${res.status}`);
           noteService('Overpass', true);
           // a mirror that fails every query within ~2 s is broken, not busy: stop asking it this run
@@ -424,8 +493,10 @@ const BATCH_HEADER = /^\s*\[out:json\](?:\[timeout:\d+\])?\s*;\s*/;
  * query must be plain "[out:json][timeout:N];" + statements ending in its own out; queries with other settings are
  * asked one by one. A marker element (make uwbatch) ends each query's part of the answer; every part is cached under
  * the key the query alone would have, so a later uw command that asks one of them is answered from the cache.
- * Queries already cached are not asked again. Resolves an array (same order) of { elements } or null (not answered:
- * the caller asks the usual way). Never throws for a busy service: a failed batch just answers nothing.
+ * Queries already cached are not asked again. Resolves an array (same order) of { elements }, or null for a query
+ * not asked (cached elsewhere, or alone); `unavailable` on the array (and `{ unavailable: true, reason }` in place of
+ * each null) says the batch was asked and not answered, so callers can say so instead of failing silently. Never
+ * throws for a busy service: each caller then asks its own query the usual way.
  */
 export async function overpassBatch(queries, { timeoutS = 60, cacheMaxAgeMs = 3 * 864e5 } = {}) {
   const norm = queries.map((q) => (q.includes('[out:json]') ? q : `[out:json][timeout:${timeoutS}];\n${q}`));
@@ -436,9 +507,14 @@ export async function overpassBatch(queries, { timeoutS = 60, cacheMaxAgeMs = 3 
   const body = todo.map((i, n) => `${norm[i].replace(BATCH_HEADER, '').trim()}\nmake uwbatch i="${n}";\nout;`).join('\n');
   const limit = Math.min(180, Math.max(timeoutS, 25 * todo.length));
   let data;
+  const notAnswered = (reason) => {
+    debug(`overpass batch of ${todo.length} not answered: ${reason}`);
+    for (const i of todo) out[i] = { unavailable: true, reason: String(reason).slice(0, 200) };
+    return Object.assign(out, { unavailable: { asked: todo.length, reason: String(reason).slice(0, 200) } });
+  };
   try { data = await overpass(`[out:json][timeout:${limit}];\n${body}`, { timeoutS: limit, cacheMaxAgeMs }); }
   // busy, down, out of time or a query the server refused: each command asks its own query the usual way
-  catch (e) { debug(`overpass batch of ${todo.length} not answered: ${e.message}`); return out; }
+  catch (e) { return notAnswered(e.message); }
   const parts = todo.map(() => []);
   let n = 0, markers = 0;
   for (const el of data?.elements || []) {
@@ -446,7 +522,7 @@ export async function overpassBatch(queries, { timeoutS = 60, cacheMaxAgeMs = 3 
     if (n < parts.length) parts[n].push(el);
   }
   // an answer cut short (fewer markers than queries) proves nothing about the missing parts
-  if (markers !== todo.length) return out;
+  if (markers !== todo.length) return notAnswered(`the answer was cut short (${markers} of ${todo.length} parts)`);
   todo.forEach((i, k) => { const value = { elements: parts[k] }; cachePut(keys[i], value); out[i] = value; });
   return out;
 }

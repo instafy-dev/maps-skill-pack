@@ -6,8 +6,8 @@
 import fs from 'node:fs';
 import { parseArgs, makeOut, parseLngLat, haversine, round6, slugify, writeGeoJSON, writeJSON, readJSON, exists, UsageError, UserError } from './util.mjs';
 import { openSite, checkLayerId, configLayer, layerPath, layerRelPath, resolvePoint, addAttribution, titleCase, viewCenter, withSiteLock } from './site.mjs';
-import { isSkip, withCap, overpassBatch } from './net.mjs';
-import { geocodeSearch, countryMatches, forgetMissing } from './cmd-geocode.mjs';
+import { isSkip, withCap, overpassBatch, partialLine } from './net.mjs';
+import { geocodeSearch, countryMatches, forgetMissing, partialProps } from './cmd-geocode.mjs';
 import { placesSearch } from './osm-places.mjs';
 import { walkTable } from './route-lookups.mjs';
 import { adapterFor } from '../adapters/lib/areas.mjs';
@@ -160,11 +160,12 @@ export async function station(argv) {
     const placeTags = ['place:city', 'place:town', 'place:municipality', 'place:county', 'place:village', 'place:suburb'];
     const centreQuery = args.country && !String(args.city).includes(',') ? `${args.city}, ${args.country}` : String(args.city);
     try {
-      const lookup = (tags) => Promise.all([
-        geocodeSearch(centreQuery, { near: viewCenter(site), limit: 5, tags }),
-        args.country ? geocodeSearch(centreQuery, { near: viewCenter(site), limit: 5, lang: 'en', tags }) : Promise.resolve([]),
+      // the first tag set has a next step of its own (the province tags); the English one only adds country names
+      const lookup = (tags, onEmpty = null) => Promise.all([
+        geocodeSearch(centreQuery, { near: viewCenter(site), limit: 5, tags, onEmpty }),
+        args.country ? geocodeSearch(centreQuery, { near: viewCenter(site), limit: 5, lang: 'en', tags, onEmpty: 'stop' }) : Promise.resolve([]),
       ]);
-      let [local, en] = await lookup(placeTags);
+      let [local, en] = await lookup(placeTags, 'stop');
       // a capital that is mapped as its own state or province (東京都 is place=province; Berlin, Vienna are states)
       if (!local.length) [local, en] = await lookup(['place:state', 'place:province', 'place:region']);
       for (const c of local) { const m = en.find((e) => e.osm_id && e.osm_id === c.osm_id); if (m?.country && m.country !== c.country) c.country_en = m.country; }
@@ -184,7 +185,8 @@ export async function station(argv) {
   const tags = ['railway:station', 'railway:halt'];
   const queries = kind === 'hsr' ? [`${city} HSR`, city] : [city];
   const byId = new Map();
-  const ask = (q, lang, t = tags) => geocodeSearch(q, { near, limit: 12, lang, tags: t }).catch((e) => { if (isSkip(e)) throw e; out.warn(`place search (${lang}): ${e.message}`); return []; });
+  // the English search only adds names to what the local one finds: an empty answer there asks no fallback
+  const ask = (q, lang, t = tags) => geocodeSearch(q, { near, limit: 12, lang, tags: t, onEmpty: lang === 'en' ? 'stop' : null }).catch((e) => { if (isSkip(e)) throw e; out.warn(`place search (${lang}): ${e.message}`); return []; });
   const lists = await Promise.all(queries.flatMap((q) => [ask(q, 'default').then((l) => ['default', l]), ask(q, 'en').then((l) => ['en', l])]));
   for (const [lang, list] of lists.sort((a, b) => (a[0] === 'default' ? -1 : 1) - (b[0] === 'default' ? -1 : 1))) {
     for (const c of list) {
@@ -240,6 +242,8 @@ export async function station(argv) {
   const centreKm = centre ? haversine(centre, c.coord) / 1000 : null;
   const props = { id, name: c.name, ...(nameEn ? { name_en: nameEn } : {}), kind: 'train_station', emoji: c.hsr ? '🚄' : '🚉',
     station_of: city, station_kind: c.hsr ? 'hsr' : 'rail', osm_id: c.osm_id || undefined, address: c.address || undefined, source: c.source || 'OpenStreetMap',
+    // found by a fallback source (the first search was down or found nothing): the point says so
+    ...partialProps(c),
     ...(args.nights != null ? { nights: args.nights } : {}),
     ...(centreKm != null && !(centreExtentKm > BIG_PLACE_KM) ? { centre_km: Math.round(centreKm * 10) / 10, centre_lnglat: centre.map(round6) } : {}) };
   for (const k of Object.keys(props)) if (props[k] === undefined) delete props[k];
@@ -252,7 +256,9 @@ export async function station(argv) {
   addAttribution(site, '© OpenStreetMap contributors (ODbL)');
   const fmt = (x, i) => `${i === idx ? '*' : ' '} ${i + 1}. ${x.name}${x.name_en && x.name_en !== x.name ? ` (${x.name_en})` : ''}${x.hsr ? ' [high-speed]' : ''} @ ${x.coord.join(',')}` +
     `${near ? ` (${(haversine(near, x.coord) / 1000).toFixed(1)} km from --near)` : ''} score ${x.score}`;
-  out.result({ ok: true, layer, file: w.rel, feature: props, coord: feat.geometry.coordinates, candidates: ranked.slice(0, 5).map((x) => ({ name: x.name, name_en: x.name_en, coord: x.coord, score: x.score, hsr: x.hsr })), registered: reg },
+  const partialNote = c.data_status === 'partial' ? partialLine(`${layer}:${id} ${c.name}`, c.data_reason || 'found by a fallback source', 'check the station on the map; re-run this station later for the full answer') : null;
+  if (partialNote) console.error(partialNote);
+  out.result({ ok: true, ...(partialNote ? { status: 'partial', partial: partialNote } : { status: 'ok' }), layer, file: w.rel, feature: props, coord: feat.geometry.coordinates, candidates: ranked.slice(0, 5).map((x) => ({ name: x.name, name_en: x.name_en, coord: x.coord, score: x.score, hsr: x.hsr })), registered: reg },
     [`Added ${layer}:${id} — ${props.emoji} ${c.name}${props.name_en ? ` (${props.name_en})` : ''} @ ${feat.geometry.coordinates.join(',')}${args.nights != null ? ` · ${args.nights} night(s)` : ''}`,
       farLine,
       ranked.length > 1 ? 'Alternatives (--pick N):' : null, ...(ranked.length > 1 ? ranked.slice(0, 5).map(fmt) : []), reg]);
@@ -326,8 +332,8 @@ const LODGING_TIMEOUT_S = 40;
 export async function prefetchLodging(points, { radius = 800 } = {}) {
   const qs = points.filter((p) => Array.isArray(p) && !adapterFor('lodging-register', p)).map((p) => lodgingQuery(p, radius));
   if (qs.length < 2) return { asked: 0, answered: 0 };
-  const r = await overpassBatch(qs, { timeoutS: LODGING_TIMEOUT_S }).catch(() => qs.map(() => null));
-  return { asked: qs.length, answered: r.filter(Boolean).length };
+  const r = await overpassBatch(qs, { timeoutS: LODGING_TIMEOUT_S }).catch((e) => Object.assign(qs.map(() => null), { unavailable: { asked: qs.length, reason: e.message } }));
+  return { asked: qs.length, answered: r.filter((x) => x && !x.unavailable).length, unavailable: r.unavailable || null };
 }
 
 async function osmCandidates(at, radius, out) {
@@ -460,7 +466,7 @@ export async function stay(argv) {
   for (const c of picks) {
     if (c.name_en) continue;
     try {
-      const hits = await withCap(6000, () => geocodeSearch(c.name, { near: c.coord, limit: 3, lang: 'en', tags: ['tourism:hotel', 'tourism:hostel', 'tourism:guest_house', 'tourism:motel'] }));
+      const hits = await withCap(6000, () => geocodeSearch(c.name, { near: c.coord, limit: 3, lang: 'en', onEmpty: 'stop', tags: ['tourism:hotel', 'tourism:hostel', 'tourism:guest_house', 'tourism:motel'] }));
       const h = hits.find((x) => haversine(x.coord, c.coord) <= 120 && /[A-Za-z]{3}/.test(x.name) && x.name !== c.name);
       if (h) { c.name_en = h.name; c.name_en_source = 'OpenStreetMap'; }
     } catch (e) { if (isSkip(e)) break; }
