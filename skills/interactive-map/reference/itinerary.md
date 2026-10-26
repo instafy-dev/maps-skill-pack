@@ -98,9 +98,8 @@ turn clock prints how many are empty or thin. While they are and time is left, a
 comes first.
 
 1. **Sights with sources, 2-3 per city.** There is no search tool: start from the city's Wikivoyage page
-   (`instafy web cite https://en.wikivoyage.org/wiki/<City> --grep "<what you need>"`, sections See/Do; outside
-   Instafy `uw cite`), then open the official tourism site, the attraction's own site, a national park or Wikipedia
-   and check it is current (closures, renovations, seasonal hours). A refused site (it bans agents, robots.txt, a bot
+   (`uw cite https://en.wikivoyage.org/wiki/<City> --grep "<what you need>"`, sections See/Do), then open the
+   official tourism site, the attraction's own site, a national park or Wikipedia and check it is current (closures, renovations, seasonal hours). A refused site (it bans agents, robots.txt, a bot
    check) is a plain link, never fetched another way. At most about 8 pages per city. Then per sight:
    `uw add-point <site> --layer sights --query "<local-language name>" --country "<Country>" --strict-name --near <that station's lng,lat> --id <slug> --props '{"stop":"<station id>","source_url":"https://…","source":"<site name>","why":"<what the page says to do there>"}'`
    (exit 2 = no hit carries the name: retry once with the local name, else list it as unverified; food spots go on

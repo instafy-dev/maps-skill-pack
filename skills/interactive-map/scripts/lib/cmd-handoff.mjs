@@ -30,7 +30,7 @@ export const help = `handoff <handoff dir> [--site <site>] [--no-source-check] [
   A lane that covered several stops ("Hualien and Taitung") puts "stop": "<City>" on each place, leg and fact.
   Products: "model" (the generation researched), "previous" (an older one it replaces), "successor" (only when the
   researched model is not the newest: flagged), prices[{store, amount, currency, kind?, source_url, retrieved_at}]
-  copied from a page that shows them (\`instafy web cite\` prints a page's schema.org price). The source check reads
+  copied from a page that shows them (\`uw cite <url> --grep price\` shows the page's price lines). The source check reads
   each price's page again: a price it does not show is dropped to the unverified list. Printed under "Prices seen on
   their pages" for the builder to carry to the page with the store, link and day.
 

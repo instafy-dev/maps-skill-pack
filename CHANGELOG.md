@@ -3,6 +3,11 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.1 (2026-10-26)
+
+- `SKILL.md`, `reference/itinerary.md` and `uw handoff --help` source facts with the pack's own `uw cite`; they
+  named an Instafy command that released Instafy does not have.
+
 ## 0.1.0 (2026-10-26)
 
 First public release of the interactive-map skill pack, moved out of the Instafy runtime into its own repository.

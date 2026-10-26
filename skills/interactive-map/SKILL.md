@@ -25,7 +25,7 @@ Define once per shell: `uw() { node <this skill's folder>/scripts/uw.mjs "$@"; }
 4. Keep credits (`attribution`, photo and open-data credits).
 5. Edit `map.config.json`, `style.json`, `custom.js`, `bound.json`; never `engine/` or `"uw"` blocks. Fix a feature
    with `uw set <site> <layer>:<id> …`.
-6. One network command at a time, small areas. No Google APIs, Nominatim or scraping (links are fine). No search tool: source facts with `instafy web cite <url>` (`uw cite` outside Instafy; link +
+6. One network command at a time, small areas. No Google APIs, Nominatim or scraping (links are fine). No search tool: source facts with `uw cite <url> --grep <what>` (link +
    date; a refused URL is a plain link, then try another source); unsourced = unverified.
 7. Never type a price or licence number. Never present a filed rate as a price, permitted hours as opening hours,
    or one register's answer as all.

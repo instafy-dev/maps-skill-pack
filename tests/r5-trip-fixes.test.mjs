@@ -88,7 +88,7 @@ test('a leg with no sourced time gets a labelled estimate from its distance, nev
 });
 
 test('uw new refuses an ask longer than the heading holds instead of cutting it', async () => {
-  const long = "We're going to Taiwan for two weeks in late October, can you help plan the trip with hotels and trains?";
+  const long = 'Two weeks around an island by train, with a hotel in each town: can you plan the route, stays and trains?';
   const r = await uw(['new', 'long-ask', '--title', 'Taiwan by train', '--ask', long]);
   assert.equal(r.code, 2, r.err);
   assert.match(r.err, /write the question yourself in ≤ 70/);
