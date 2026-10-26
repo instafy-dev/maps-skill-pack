@@ -160,11 +160,12 @@ export async function station(argv) {
     const placeTags = ['place:city', 'place:town', 'place:municipality', 'place:county', 'place:village', 'place:suburb'];
     const centreQuery = args.country && !String(args.city).includes(',') ? `${args.city}, ${args.country}` : String(args.city);
     try {
-      const lookup = (tags) => Promise.all([
-        geocodeSearch(centreQuery, { near: viewCenter(site), limit: 5, tags }),
-        args.country ? geocodeSearch(centreQuery, { near: viewCenter(site), limit: 5, lang: 'en', tags }) : Promise.resolve([]),
+      // the first tag set has a next step of its own (the province tags); the English one only adds country names
+      const lookup = (tags, onEmpty = null) => Promise.all([
+        geocodeSearch(centreQuery, { near: viewCenter(site), limit: 5, tags, onEmpty }),
+        args.country ? geocodeSearch(centreQuery, { near: viewCenter(site), limit: 5, lang: 'en', tags, onEmpty: 'stop' }) : Promise.resolve([]),
       ]);
-      let [local, en] = await lookup(placeTags);
+      let [local, en] = await lookup(placeTags, 'stop');
       // a capital that is mapped as its own state or province (東京都 is place=province; Berlin, Vienna are states)
       if (!local.length) [local, en] = await lookup(['place:state', 'place:province', 'place:region']);
       for (const c of local) { const m = en.find((e) => e.osm_id && e.osm_id === c.osm_id); if (m?.country && m.country !== c.country) c.country_en = m.country; }
@@ -184,7 +185,8 @@ export async function station(argv) {
   const tags = ['railway:station', 'railway:halt'];
   const queries = kind === 'hsr' ? [`${city} HSR`, city] : [city];
   const byId = new Map();
-  const ask = (q, lang, t = tags) => geocodeSearch(q, { near, limit: 12, lang, tags: t }).catch((e) => { if (isSkip(e)) throw e; out.warn(`place search (${lang}): ${e.message}`); return []; });
+  // the English search only adds names to what the local one finds: an empty answer there asks no fallback
+  const ask = (q, lang, t = tags) => geocodeSearch(q, { near, limit: 12, lang, tags: t, onEmpty: lang === 'en' ? 'stop' : null }).catch((e) => { if (isSkip(e)) throw e; out.warn(`place search (${lang}): ${e.message}`); return []; });
   const lists = await Promise.all(queries.flatMap((q) => [ask(q, 'default').then((l) => ['default', l]), ask(q, 'en').then((l) => ['en', l])]));
   for (const [lang, list] of lists.sort((a, b) => (a[0] === 'default' ? -1 : 1) - (b[0] === 'default' ? -1 : 1))) {
     for (const c of list) {
@@ -326,8 +328,8 @@ const LODGING_TIMEOUT_S = 40;
 export async function prefetchLodging(points, { radius = 800 } = {}) {
   const qs = points.filter((p) => Array.isArray(p) && !adapterFor('lodging-register', p)).map((p) => lodgingQuery(p, radius));
   if (qs.length < 2) return { asked: 0, answered: 0 };
-  const r = await overpassBatch(qs, { timeoutS: LODGING_TIMEOUT_S }).catch(() => qs.map(() => null));
-  return { asked: qs.length, answered: r.filter(Boolean).length };
+  const r = await overpassBatch(qs, { timeoutS: LODGING_TIMEOUT_S }).catch((e) => Object.assign(qs.map(() => null), { unavailable: { asked: qs.length, reason: e.message } }));
+  return { asked: qs.length, answered: r.filter((x) => x && !x.unavailable).length, unavailable: r.unavailable || null };
 }
 
 async function osmCandidates(at, radius, out) {
@@ -460,7 +462,7 @@ export async function stay(argv) {
   for (const c of picks) {
     if (c.name_en) continue;
     try {
-      const hits = await withCap(6000, () => geocodeSearch(c.name, { near: c.coord, limit: 3, lang: 'en', tags: ['tourism:hotel', 'tourism:hostel', 'tourism:guest_house', 'tourism:motel'] }));
+      const hits = await withCap(6000, () => geocodeSearch(c.name, { near: c.coord, limit: 3, lang: 'en', onEmpty: 'stop', tags: ['tourism:hotel', 'tourism:hostel', 'tourism:guest_house', 'tourism:motel'] }));
       const h = hits.find((x) => haversine(x.coord, c.coord) <= 120 && /[A-Za-z]{3}/.test(x.name) && x.name !== c.name);
       if (h) { c.name_en = h.name; c.name_en_source = 'OpenStreetMap'; }
     } catch (e) { if (isSkip(e)) break; }

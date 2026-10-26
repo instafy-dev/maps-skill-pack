@@ -77,6 +77,10 @@ are in `reference/recipes.md`.
 |---|---|
 | `UW_OVERPASS`, `UW_PHOTON`, `UW_OSRM`, `UW_VALHALLA`, `UW_OPENMETEO`, `UW_WIKIPEDIA`, `UW_PANORAMAX`, `UW_TRANSIT_URL`, `UW_BASEMAP_TILES` | Point a data source at another instance (a self-hosted server or a gateway) |
 | `UW_CACHE`, `UW_NO_CACHE` | Cache folder for fetched data, or turn the cache off |
+| `INSTAFY_CACHE_DIR` | A folder that outlasts the turn, set by the Instafy runtime per space: lookup health, rate-limit holds, slots and shared answers live there (a hosted tool turn's HOME is new every turn) |
+| `INSTAFY_LOOKUP_PROVIDERS`, `INSTAFY_LOOKUP_STATE`, `INSTAFY_LOOKUP_CACHE_DIR` | Add or replace lookup providers and chains (JSON or a file), and where lookup state is kept |
+| `INSTAFY_LOOKUP_CONTACT` | The operator's contact (a URL or e-mail) added to the User-Agent every request carries |
+| `UW_MAX_COMMAND_S`, `UW_APPLY_BUDGET_S` | Lower the ceiling of one command (540 s) or of a whole `handoff --apply` run (420 s); never raise them |
 | `UW_PLAYWRIGHT`, `UW_BROWSER_CHANNEL` | Playwright module path and browser channel for `uw snapshot` |
 | `UW_PUBLIC_URL` | Extra host names `uw serve` / `uw host` answer for (e.g. a tunnel) |
 | `UW_DEBUG` | Verbose errors |
@@ -91,7 +95,11 @@ platform-scale traffic. `DATA-SOURCES.md` has the licences, limits and a product
 ## Limitations
 
 - The default services are free community servers with fair-use limits. Heavy use gets slow answers or refusals;
-  the CLI then skips that step and says so. For real traffic, point the `UW_*` variables at your own instances.
+  the CLI then skips that step and says so, and a service that answers 429 is not asked again that turn. They are
+  light helpers for pins, routes and tiles; facts come from the pages the agent reads (`instafy web read`, `uw cite`).
+  For real traffic, point the `UW_*` variables at your own instances.
+- An answer from a fallback source (the first search was down or found nothing) is labelled `partial` ("data may be
+  incomplete"), and verdicts made from incomplete data never say shortest or longest.
 - Coverage follows OpenStreetMap. Places, opening hours and lines can be missing or out of date, and the
   calm-vs-lively estimate is a heuristic from mapped features, not a measurement.
 - Official register adapters exist only for some datasets (`uw adapter list`); elsewhere lodging comes from OSM.

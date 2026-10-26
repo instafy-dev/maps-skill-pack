@@ -69,6 +69,9 @@ function build() {
     engines: { node: '>=22' },
     skills: ['SKILL.md'],
     entry: 'scripts/uw.mjs',
+    // the settings the pack reads (README "Settings"): a runtime may pass these from its own environment to the
+    // pack's processes (names that look like credentials never pass). An exact name, or a prefix ending in "_*".
+    env: ['UW_*', 'INSTAFY_LOOKUP_*'],
     ...tree,
   };
 }

@@ -14,6 +14,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { NO_WIKIPEDIA } from './fixtures.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SKILL = path.join(HERE, '..', 'skills', 'interactive-map');
@@ -111,7 +112,7 @@ function startMock() {
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({ server, hits, close, url: `http://127.0.0.1:${server.address().port}` })));
 }
 const env = (extra = {}) => {
-  const e = { ...process.env, UW_CACHE: path.join(tmp, 'cache-default'), UW_PHOTON: mock.url, UW_OVERPASS: mock.url + '/api/interpreter', UW_OSRM: mock.url, UW_VALHALLA: mock.url,
+  const e = { ...process.env, ...NO_WIKIPEDIA, UW_CACHE: path.join(tmp, 'cache-default'), UW_PHOTON: mock.url, UW_OVERPASS: mock.url + '/api/interpreter', UW_OSRM: mock.url, UW_VALHALLA: mock.url,
     UW_TURN_BUDGET: '0', INSTAFY_LOOKUP_STATE: path.join(tmp, 'lookup-health.json'), TMPDIR: path.join(tmp, 'os-tmp'), UW_RETRY_PAUSE_MS: '0', UW_APPLY_RAIL_TIMEOUT: '20', ...extra };
   for (const k of ['INSTAFY_TURN_STARTED_AT', 'INSTAFY_TURN_DEADLINE', 'INSTAFY_TURN_CONTINUE_FILE', 'INSTAFY_STEP_TIMINGS_FILE', 'UW_NO_CACHE', 'UW_JOB_TIMINGS']) if (!(k in extra)) delete e[k];
   for (const k of Object.keys(e)) if (e[k] === undefined) delete e[k];

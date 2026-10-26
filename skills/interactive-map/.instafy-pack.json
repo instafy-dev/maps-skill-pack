@@ -12,7 +12,11 @@
     "SKILL.md"
   ],
   "entry": "scripts/uw.mjs",
-  "files": 105,
-  "bytes": 3096306,
-  "tree_sha256": "ac5152dc7d01d92f601edf7116f63c705448b997a4341cf59863b959369f6a38"
+  "env": [
+    "UW_*",
+    "INSTAFY_LOOKUP_*"
+  ],
+  "files": 106,
+  "bytes": 3123837,
+  "tree_sha256": "b92c1fc5a51830886f5544cdc6b2373118d7d01f6376eec259833a37d471d363"
 }

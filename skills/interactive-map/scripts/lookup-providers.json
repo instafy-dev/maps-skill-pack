@@ -1,6 +1,6 @@
 {
   "schema": "instafy.lookup-providers@1",
-  "about": "Every outside lookup the map pack makes, as data (lib/lookup.mjs). A chain lists the providers of one capability in the order they are asked; a provider that is down is skipped for its cooldown by every uw command (one shared health file), and a new turn asks it again. base_env points a provider at another instance (a platform gateway, a self-hosted server). INSTAFY_LOOKUP_PROVIDERS adds or replaces providers and chains, e.g. a declared fake provider (protocol \"fake\") for an outage drill. Defaults are the free community services: fine for prototypes and personal maps (reference/data-sources.md).",
+  "about": "Every outside lookup the map pack makes, as data (lib/lookup.mjs). A chain lists the providers of one capability in the order they are asked; a provider that is down is skipped for its cooldown by every uw command (one shared health file in a folder that outlasts the turn), and a new turn asks it again. An empty answer moves on to the next provider unless chain_rules says on_empty \"stop\" (an authoritative \"none here\"); an answer from a fallback is labelled partial. An HTTP 429 (asked to slow down) stops that provider for the turn, never a retry. cache.ttl_s is how long an answer may be reused (each service's caching terms). base_env points a provider at another instance (a self-hosted server). INSTAFY_LOOKUP_PROVIDERS adds or replaces providers and chains, e.g. a declared fake provider (protocol \"fake\") for an outage drill. Defaults are free community services with fair-use policies: light helpers for pins, routes and tiles, not a data source for facts (facts come from pages read with instafy web read; reference/data-sources.md).",
   "providers": {
     "photon": {
       "protocol": "photon-search",
@@ -10,7 +10,11 @@
       "timeout_ms": 60000,
       "slow_ms": 15000,
       "cooldown_s": 600,
-      "max_concurrent": 2
+      "max_concurrent": 2,
+      "cache": {
+        "allowed": true,
+        "ttl_s": 2592000
+      }
     },
     "wikipedia-coords": {
       "protocol": "wikipedia-coords",
@@ -20,7 +24,11 @@
       "timeout_ms": 15000,
       "cooldown_s": 600,
       "complete": false,
-      "max_concurrent": 2
+      "max_concurrent": 2,
+      "cache": {
+        "allowed": true,
+        "ttl_s": 2592000
+      }
     },
     "osm-name-search": {
       "protocol": "overpass-name",
@@ -39,7 +47,11 @@
       "timeout_ms": 0,
       "cooldown_s": 600,
       "health": "none",
-      "max_concurrent": 2
+      "max_concurrent": 2,
+      "cache": {
+        "allowed": true,
+        "ttl_s": 259200
+      }
     },
     "photon-reverse": {
       "protocol": "photon-reverse",
@@ -50,7 +62,11 @@
       "slow_ms": 8000,
       "cooldown_s": 600,
       "complete": false,
-      "max_concurrent": 2
+      "max_concurrent": 2,
+      "cache": {
+        "allowed": true,
+        "ttl_s": 2592000
+      }
     },
     "osrm": {
       "protocol": "osrm",
@@ -59,7 +75,11 @@
       "base_env": "UW_OSRM",
       "timeout_ms": 30000,
       "cooldown_s": 300,
-      "max_concurrent": 2
+      "max_concurrent": 2,
+      "cache": {
+        "allowed": true,
+        "ttl_s": 604800
+      }
     },
     "valhalla": {
       "protocol": "valhalla",
@@ -68,7 +88,11 @@
       "base_env": "UW_VALHALLA",
       "timeout_ms": 45000,
       "cooldown_s": 300,
-      "max_concurrent": 2
+      "max_concurrent": 2,
+      "cache": {
+        "allowed": true,
+        "ttl_s": 604800
+      }
     },
     "motis": {
       "protocol": "motis",
@@ -76,7 +100,11 @@
       "base_env": "UW_TRANSIT_URL",
       "timeout_ms": 25000,
       "cooldown_s": 300,
-      "max_concurrent": 2
+      "max_concurrent": 2,
+      "cache": {
+        "allowed": true,
+        "ttl_s": 86400
+      }
     },
     "open-meteo-air": {
       "protocol": "open-meteo",
@@ -85,7 +113,11 @@
       "base_env": "UW_OPENMETEO",
       "timeout_ms": 30000,
       "cooldown_s": 300,
-      "max_concurrent": 2
+      "max_concurrent": 2,
+      "cache": {
+        "allowed": true,
+        "ttl_s": 10800
+      }
     }
   },
   "chains": {
@@ -116,5 +148,16 @@
     "air": [
       "open-meteo-air"
     ]
+  },
+  "chain_rules": {
+    "geocode": {
+      "on_empty": "next"
+    },
+    "places": {
+      "on_empty": "stop"
+    },
+    "osm-query": {
+      "on_empty": "stop"
+    }
   }
 }

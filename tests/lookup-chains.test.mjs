@@ -51,7 +51,7 @@ test('a declared outage of the place search is "unavailable" (exit 4), never "no
   assert.match(cfg.missing[0].tried.join(' '), /busy: skipped|unavailable/);
 });
 
-test('chains are data: a declared provider answers in place of the default one, and its answer says where it came from', async () => {
+test('chains are data: a declared provider answers in place of the default one, and its answer says where it came from and that it is partial', async () => {
   const env = {
     INSTAFY_LOOKUP_STATE: freshState(),
     ...declared({
@@ -64,9 +64,12 @@ test('chains are data: a declared provider answers in place of the default one, 
   };
   const g = await uw(['geocode', 'Shibuya Station', '--json'], env);
   assert.equal(g.code, 0, g.err);
-  assert.equal(g.json.status, 'ok');
+  // a fallback's answer is never presented as complete
+  assert.equal(g.json.status, 'partial');
   assert.equal(g.json.candidates[0].provider, 'backup');
+  assert.equal(g.json.candidates[0].data_status, 'partial');
   assert.match(g.json.candidates[0].source, /Backup search \(Primary search unavailable\)/);
+  assert.match(g.err, /PARTIAL: place search — fallback: Primary search unavailable.* — data may be incomplete/);
 });
 
 test('one health file for every command: a provider found down is not asked again this turn; the next turn asks it once more', async () => {

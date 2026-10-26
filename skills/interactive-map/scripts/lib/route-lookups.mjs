@@ -2,7 +2,7 @@
 // `isochrone` (Valhalla-style), `transit` (MOTIS-style journey planners), `air` (Open-Meteo-style). This file says
 // how each protocol is asked; who is asked, in what order, is data. A provider that is down is skipped for its
 // cooldown by every uw command, and none left = exit 4 (unavailable), never "no route".
-import { ask, fetchJSON } from './net.mjs';
+import { ask, cacheFor, fetchJSON } from './net.mjs';
 
 const OSRM_PROFILES = { foot: ['routed-foot', 'foot'], bike: ['routed-bike', 'bike'], car: ['routed-car', 'driving'] };
 export const OSRM_MODES = Object.keys(OSRM_PROFILES);
@@ -13,12 +13,12 @@ export const ROUTING_PROTOCOLS = {
     async lookup({ service, mode = 'foot', coords, query = '', retries, timeoutMs }, p) {
       const [prefix, profile] = OSRM_PROFILES[mode];
       const url = `${p.base}/${prefix}/${service}/v1/${profile}/${coords.map((c) => `${c[0]},${c[1]}`).join(';')}${query ? `?${query}` : ''}`;
-      return [await fetchJSON(url, { label: p.label, timeoutMs: timeoutMs ?? p.timeout_ms, ...(retries != null ? { retries } : {}) })];
+      return [await fetchJSON(url, { label: p.label, timeoutMs: timeoutMs ?? p.timeout_ms, ...cacheFor(p, 7 * 864e5), ...(retries != null ? { retries } : {}) })];
     },
   },
   valhalla: {
     async lookup({ body }, p) {
-      return [await fetchJSON(`${p.base}/isochrone?json=${encodeURIComponent(JSON.stringify(body))}`, { label: p.label, timeoutMs: p.timeout_ms })];
+      return [await fetchJSON(`${p.base}/isochrone?json=${encodeURIComponent(JSON.stringify(body))}`, { label: p.label, timeoutMs: p.timeout_ms, ...cacheFor(p, 7 * 864e5) })];
     },
   },
   motis: {
@@ -27,7 +27,7 @@ export const ROUTING_PROTOCOLS = {
       const root = base || p.base;
       const q = new URL(`${root}/api/v5/plan`);
       for (const [k, v] of Object.entries(params)) q.searchParams.set(k, v);
-      const plan = await fetchJSON(q.toString(), { label: new URL(root).host, timeoutMs: p.timeout_ms, cacheMaxAgeMs: 864e5 });
+      const plan = await fetchJSON(q.toString(), { label: new URL(root).host, timeoutMs: p.timeout_ms, ...cacheFor(p, 864e5) });
       return [{ plan, url: q.toString(), host: new URL(root).host }];
     },
   },
@@ -35,7 +35,9 @@ export const ROUTING_PROTOCOLS = {
     async lookup({ params, cacheMaxAgeMs }, p) {
       const u = new URL(`${p.base}/v1/air-quality`);
       for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
-      return [await fetchJSON(u.toString(), { label: p.label, timeoutMs: p.timeout_ms, cacheMaxAgeMs })];
+      const policy = cacheFor(p, cacheMaxAgeMs);
+      // the caller's age limit, never longer than the provider's terms allow
+      return [await fetchJSON(u.toString(), { label: p.label, timeoutMs: p.timeout_ms, ...policy, ...(policy.cache && cacheMaxAgeMs ? { cacheMaxAgeMs: Math.min(cacheMaxAgeMs, policy.cacheMaxAgeMs ?? cacheMaxAgeMs) } : {}) })];
     },
   },
 };

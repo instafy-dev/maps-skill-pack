@@ -3,6 +3,32 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## Unreleased
+
+- **Empty answers ask the next provider.** An empty answer from the place search moves on down the `geocode` chain
+  (Wikipedia's coordinates, then the OpenStreetMap name search), so a small venue the first search lacks can still be
+  found. `lookup-providers.json` gains `chain_rules`: `places` keeps `on_empty: "stop"`, because an empty Overpass
+  answer is authoritative there. `not_found` now means a complete provider answered empty and no provider failed;
+  nothing found while one could not answer is `unavailable`.
+- **Partial results say so.** An answer from a fallback provider is `"status": "partial"`, with `via`, `data_reason`
+  and `data_missing`; `geocode` and `add-point` print `PARTIAL: … — data may be incomplete` and the point carries
+  `data_status: "partial"`. `enrich --route-to` that routed only some options marks those walk times partial, so the
+  verdict never calls one the shortest or longest. `overpassBatch` reports a batch that was not answered.
+- **Time budget.** No command runs longer than 540 s: `--timeout 0` is that ceiling, not "no limit". `handoff
+  --apply` has 420 s for the whole run, and the steps it starts inherit the deadline through
+  `INSTAFY_JOB_DEADLINE`. A lookup chain keeps time back for its fallbacks, and one Overpass call takes at most 90 s
+  across every mirror.
+- **Polite to public services.** An HTTP 429 is never retried. That service, or that Overpass mirror, is not asked
+  again by any command that turn, and not before its Retry-After. The User-Agent names a contact URL, and
+  `INSTAFY_LOOKUP_CONTACT` adds the operator's. Providers declare `cache.ttl_s` from their caching terms. Photon's
+  bias point is rounded to about 100 m, so nearby searches share a cached answer.
+- **State that outlasts the turn.** Lookup health, rate-limit holds, slots, the Overpass lock and the shared answers
+  live in `INSTAFY_CACHE_DIR`, the runtime's per-space folder, when it is set. `.instafy-pack.json` declares the
+  settings the pack reads (`"env": ["UW_*", "INSTAFY_LOOKUP_*"]`), so a runtime can pass them to the pack's processes.
+- `SKILL.md` and `reference/data-sources.md`: facts come from pages the agent reads (`instafy web read` and the
+  `instafy-web-research` skill, else `uw cite`). The map lookups only place pins, routes and areas, and a sign-in,
+  CAPTCHA or 429 is final for the turn.
+
 ## 0.1.1 (2026-10-26)
 
 - `SKILL.md`, `reference/itinerary.md` and `uw handoff --help` source facts with the pack's own `uw cite`; they

@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { UsageError } from './lib/util.mjs';
 import { setDeadline, isSkip, releaseOverpassLock, networkActive } from './lib/net.mjs';
+import { commandLimitS, runOutOfTime, jobDeadlineValue, maxCommandS } from './lib/budget.mjs';
 
 const [major] = process.versions.node.split('.').map(Number);
 if (major < 22) {
@@ -51,7 +52,8 @@ const COMMANDS = {
 // commands with their own --detach (a server that keeps running); every other command runs as a background job with it
 const OWN_DETACH = new Set(['host', 'serve']);
 
-// Network commands get a time limit (seconds): --timeout <s> overrides it, --timeout 0 = none. Phase-A commands
+// Network commands get a time limit (seconds): --timeout <s> overrides it, --timeout 0 = the longest allowed
+// (lib/budget.mjs: no command runs past 9 minutes, the host's turn or the run it belongs to). Phase-A commands
 // (places, enrich, add-point) are short so the first useful map is quick; slow enrichments (feel, areas…) get longer.
 // Past the limit the command is SKIPPED: exit 4, one "skipped: …" line, files and config left valid.
 export const NET_TIMEOUT_S = { geocode: 45, handoff: 90, 'add-point': 90, places: 45, enrich: 30, lines: 60, route: 30, legs: 45, isochrone: 45, station: 45, stay: 120, cite: 30, transit: 30,
@@ -62,7 +64,7 @@ const OPTIONAL = new Set(['lines', 'route', 'legs', 'isochrone', 'air', 'feel', 
 // (INSTAFY_TURN_STARTED_AT / INSTAFY_TURN_DEADLINE, ISO times), those are used, minus a reply margin. Otherwise a
 // "turn" starts at the first uw command on a site after ≥ UW_TURN_GAP s (default 150) of no uw commands, and network
 // commands never run past UW_TURN_BUDGET s (default 480) into it, so there is always time left to validate, serve and
-// reply. UW_TURN_BUDGET=0 turns it off.
+// reply. UW_TURN_BUDGET=0 turns the turn budget off (a background job); the command ceiling still holds.
 const REPLY_MARGIN_S = 120;
 // a network command ends this long before the host's hard turn limit, whatever --timeout it was given
 const HOST_MARGIN_S = 45;
@@ -134,7 +136,7 @@ Typical flow, fast first (coordinates only ever come from geocode output, never 
 In zsh/bash, define:  uw() { node /path/to/skills/interactive-map/scripts/uw.mjs "$@"; }   (or run scripts/uw)
 
 Points are written as [lng,lat] (longitude first). Refs are <layer>:<featureId>.
-Global flags: --json (machine-readable output), --help, --timeout <s> (network commands; 0 = no limit),
+Global flags: --json (machine-readable output), --help, --timeout <s> (network commands; 0 = the longest allowed),
   --detach (run as a background job; follow it with uw wait <job>).
 Default limits (s): ${Object.entries(NET_TIMEOUT_S).map(([k, v]) => `${k} ${v}`).join(', ')}.
 Exit codes: 0 ok, 1 error, 2 usage error / needs a decision, 3 snapshot skipped (no Playwright: screenshots were NOT
@@ -191,26 +193,30 @@ async function main() {
       if (!m) { kept.push(rest[i]); continue; }
       const v = m[1] ?? rest[++i];
       given = Number(v);
-      if (v === undefined || !Number.isFinite(given) || given < 0) throw new UsageError(`--timeout expects seconds (e.g. --timeout 60; 0 = no limit), got "${v ?? ''}"`);
+      if (v === undefined || !Number.isFinite(given) || given < 0) throw new UsageError(`--timeout expects seconds (e.g. --timeout 60; 0 = the longest allowed, ${maxCommandS()} s), got "${v ?? ''}"`);
     }
     rest = kept;
-    // handoff --apply paces itself: every step it runs is a uw command with its own limit, and its own lookups get one
+    // handoff --apply paces itself: every step it runs is a uw command with its own limit, and the whole run has one
+    // total budget (lib/budget.mjs) its steps inherit through INSTAFY_JOB_DEADLINE
     const selfPaced = cmd === 'handoff' && rest.includes('--apply');
-    let limit = selfPaced ? 0 : given ?? NET_TIMEOUT_S[cmd];
-    // the turn budget caps the default limit (an explicit --timeout is the caller's own choice)
+    if (runOutOfTime()) {
+      const line = `skipped: the run this step belongs to has used its time budget; the map works without it. Say which steps were skipped, then offer: ${retryLine(cmd, rest, NET_TIMEOUT_S[cmd])}`;
+      throw Object.assign(new Error(line), { name: 'SkipError', exitCode: 4, line });
+    }
+    let turnLeftS = null;
     if (!selfPaced && given == null && clock && TURN_BUDGET_S > 0) {
-      const left = TURN_BUDGET_S - clock.elapsedS;
-      if (OPTIONAL.has(cmd) && left < 20) {
-        const line = `skipped: ${mmss(clock.elapsedS)} of this turn are used (budget ${mmss(TURN_BUDGET_S)}); the map works without it. Validate, serve and reply now, then offer this as a follow-up: ${retryLine(cmd, rest, limit)}`;
+      turnLeftS = TURN_BUDGET_S - clock.elapsedS;
+      if (OPTIONAL.has(cmd) && turnLeftS < 20) {
+        const line = `skipped: ${mmss(clock.elapsedS)} of this turn are used (budget ${mmss(TURN_BUDGET_S)}); the map works without it. Validate, serve and reply now, then offer this as a follow-up: ${retryLine(cmd, rest, NET_TIMEOUT_S[cmd])}`;
         throw Object.assign(new Error(line), { name: 'SkipError', exitCode: 4, line });
       }
-      limit = Math.min(limit, Math.max(10, left));
     }
-    // ... but not the host's hard turn limit: no command outlives the turn it runs in (a job started with --detach
-    // runs outside the turn's clock when a continuation turn can pick it up, see jobs.mjs)
-    if (!selfPaced && limit > 0 && HOST_TURN && process.env.UW_TURN_BUDGET == null) {
-      limit = Math.min(limit, Math.max(10, Math.floor((HOST_TURN.deadline - Date.now()) / 1000) - HOST_MARGIN_S));
-    }
+    // no command outlives the turn it runs in (a job started with --detach runs outside the turn's clock when a
+    // continuation turn can pick it up, see jobs.mjs), and none has no limit at all
+    const limit = commandLimitS({ defaultS: NET_TIMEOUT_S[cmd], given, selfPaced, turnLeftS,
+      hostDeadlineMs: HOST_TURN && process.env.UW_TURN_BUDGET == null ? HOST_TURN.deadline : null, hostMarginS: HOST_MARGIN_S });
+    // the steps a self-paced run starts end with it
+    if (selfPaced) process.env.INSTAFY_JOB_DEADLINE = jobDeadlineValue(Date.now() + limit * 1000);
     ctx.limit = limit; ctx.cmd = cmd; ctx.rest = rest;
     setDeadline(limit * 1000);
     if (limit > 0) {

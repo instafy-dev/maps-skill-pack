@@ -5,7 +5,9 @@
 // Same policy as instafy-bind's script executor (packages/instafy-bind/src/executors/script.mjs).
 
 const KEEP = new Set(['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'LANGUAGE', 'TZ', 'TMPDIR', 'TEMP', 'TMP', 'SYSTEMROOT', 'USERPROFILE']);
-const KEEP_PREFIX = /^(LC_[A-Z_]+|SSL_CERT_(FILE|DIR)|NODE_[A-Z0-9_]+|UW_[A-Z0-9_]+)$/;
+// the pack's own settings (UW_*, INSTAFY_LOOKUP_*) and the runtime's stable cache folder (lookup state that outlasts
+// the turn: a detached host's lookups share it)
+const KEEP_PREFIX = /^(LC_[A-Z_]+|SSL_CERT_(FILE|DIR)|NODE_[A-Z0-9_]+|UW_[A-Z0-9_]+|INSTAFY_LOOKUP_[A-Z0-9_]+|INSTAFY_CACHE_DIR)$/;
 // NODE_OPTIONS can preload code into every child (--require/--import); NODE_AUTH_TOKEN is an npm credential
 const DROP = new Set(['NODE_OPTIONS', 'NODE_AUTH_TOKEN', 'NODE_REPL_EXTERNAL_MODULE']);
 // even an allowed prefix never passes a name that looks like a credential (UW_SOME_TOKEN, NODE_…_KEY)

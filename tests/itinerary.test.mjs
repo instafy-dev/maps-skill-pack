@@ -12,7 +12,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { writeRegistryCache } from './fixtures.mjs';
+import { writeRegistryCache, NO_WIKIPEDIA } from './fixtures.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SKILL = path.join(HERE, '..', 'skills', 'interactive-map');
@@ -100,7 +100,7 @@ function startMock() {
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({ server, hits, url: `http://127.0.0.1:${server.address().port}` })));
 }
 
-const baseEnv = () => ({ ...process.env, UW_CACHE: cache, UW_PHOTON: mock.url, UW_OVERPASS: mock.url + '/api/interpreter', UW_OSRM: mock.url, UW_VALHALLA: mock.url,
+const baseEnv = () => ({ ...process.env, ...NO_WIKIPEDIA, UW_CACHE: cache, UW_PHOTON: mock.url, UW_OVERPASS: mock.url + '/api/interpreter', UW_OSRM: mock.url, UW_VALHALLA: mock.url,
   UW_NO_CACHE: '1', UW_TURN_BUDGET: '0' });
 const uw = (args, env = {}) => new Promise((resolve) => {
   const p = spawn(process.execPath, [UW, ...args], { cwd: tmp, env: { ...baseEnv(), ...env } });

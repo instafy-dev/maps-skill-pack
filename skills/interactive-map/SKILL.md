@@ -25,8 +25,9 @@ Define once per shell: `uw() { node <this skill's folder>/scripts/uw.mjs "$@"; }
 4. Keep credits (`attribution`, photo and open-data credits).
 5. Edit `map.config.json`, `style.json`, `custom.js`, `bound.json`; never `engine/` or `"uw"` blocks. Fix a feature
    with `uw set <site> <layer>:<id> …`.
-6. One network command at a time, small areas. No Google APIs, Nominatim or scraping (links are fine). No search tool: source facts with `uw cite <url> --grep <what>` (link +
-   date; a refused URL is a plain link, then try another source); unsourced = unverified.
+6. Facts come from pages you read (`instafy web read <url>`, skill `instafy-web-research`; else `uw cite <url>
+   --grep <what>`); unsourced = unverified. `uw` only places pins, routes: one network command at a time, small
+   areas; no Google APIs, Nominatim, scraping. Sign-in, CAPTCHA, 429: stop.
 7. Never type a price or licence number. Never present a filed rate as a price, permitted hours as opening hours,
    or one register's answer as all.
 8. Each item the request names is on the map, or the reply names it as missing: `uw new … --expect "A,B:2"` makes
@@ -85,9 +86,9 @@ After each: re-run the step-7 command and `uw validate <site> --signal`. Exit 4:
 **Phase C: reply** in 3-6 lines, even if your host asks for one sentence (this is it). No paths (`sites/…`,
 `handoff/…`), "validates" or "validation"; sources by name in one line; say what is unverified. Start with the
 verdict as `uw question` printed it (the pick and why, by name, no map letter; then the persona line),
-the `Assumed:` line, what is estimated or partial, every `Tell the user` line (a register match: name the
-listing, never ask to confirm), anything "Not found yet" (what was searched; they can send its address), "Open it
-from the card" (step 9; elsewhere the URL). End with a ```suggestions block, a chip per line: skipped or
+the `Assumed:` line, what is estimated or partial (PARTIAL: "may be incomplete"), every `Tell the user` line
+(a register match: name the listing, never ask to confirm), anything "Not found yet" (what was searched; they can
+send its address), "Open it from the card" (step 9; elsewhere the URL). End with a ```suggestions block, a chip per line: skipped or
 unavailable steps ("Try the café search again", "Add the calm/lively layer").
 
 ## Config and later changes
@@ -96,7 +97,7 @@ unavailable steps ("Try the café search again", "Add the calm/lively layer").
   site or card), `uw validate <site>`, then `uw reload <site> --note "<what changed>"`: open viewers update and keep
   their place. Same after any later change to a site someone may have open. Trips: `reference/itinerary.md`
   "Later changes to a trip".
-- With a question, layers that are not the answer become dots. If S1/S2 fail, give the busiest layer `"tier": "context"`.
+- With a question, other layers become dots. If S1/S2 fail, give the busiest layer `"tier": "context"`.
 - Titles, colours, `theme`, `compare`, `notes`: `reference/config.md`.
 - Do things (only if planned): `bound.json` intents + `"bind": true`; handlers `pack:check_registry`,
   `pack:find_hotels_nearby` or your own `handlers/<name>.mjs` (recipe 27).
@@ -107,7 +108,7 @@ unavailable steps ("Try the café search again", "Add the calm/lively layer").
 ## When things fail
 
 - "outside", "mismatch", "far": a wrong match; fix the query.
-- Exit 4: go on; retry only an item the request named, once, as printed. Say what could not be looked up.
+- Exit 4: go on; retry only a named item, once, as printed. Say what could not be looked up.
 
 ## Reference
 

@@ -57,7 +57,7 @@ tiles. For any tile where Overpass could not give the rail (busy, timed out or e
 basemap's own vector tiles instead. Code: `scripts/lib/cmd-lines.mjs` `basemapRail`.
 - **Which features:** the OpenMapTiles `transportation` layer, class `rail`, subclass `rail` or `narrow_gauge`, with no `service` tag (yards and sidings dropped).
 - **Zoom:** the most detailed zoom from z10 down to z6 that keeps the area at or under **40 tiles** (`MAX_BASEMAP_TILES`). That is about z8 for a country and z10 for a region.
-- **Fetching:** one request at a time, with the pack's User-Agent `instafy-map-pack/0.2 (+https://instafy.dev)`. Up to 2 retries with backoff on 429/5xx.
+- **Fetching:** one request at a time, with the pack's User-Agent `instafy-map-pack/0.2 (+https://github.com/instafy-dev/maps-skill-pack; contact: https://github.com/instafy-dev/maps-skill-pack/issues)`. Up to 2 retries with backoff on 5xx; a 429 is never retried, and that host is not asked again this turn.
 - **Caching:** each tile is kept **30 days** in the shared cache (`UW_CACHE`, default `~/.cache/uw/basemap-tiles/`). A later run reads only tiles that are missing or older than that. The TileJSON is cached for 1 day.
 - **Output:** one merged, simplified line feature: `basemap: true`, `hsr_unknown: true`, no line names. The layer is marked PARTIAL.
 - **Other servers:** `UW_BASEMAP_TILES` points at any other OpenMapTiles-schema TileJSON.
