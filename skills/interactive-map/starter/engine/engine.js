@@ -12,6 +12,7 @@ import {
   h, clamp, fill, fmtHour, fmtMetric, fmtNum, humanize, inWindow, center, bbox, lineCoords, cumulative, along, distM,
   pointInGeom, round6, debounce, rafThrottle, reducedMotion, prefersDark, timeIcon,
   BASIS, normBasis, fmtDate, fmtAge, fmtMoney, safeUrl, MODE_EMOJI, CAT_COLORS, THEME_COLORS, parseColor, featureName, selectPayload, word,
+  pageDescription,
 } from './util.js';
 import { Question, guessMetric, mentionLayer, shortName } from './question.js';
 import { RecordStore, expired, stale, itemFeature, offerGroup } from './records.js';
@@ -1633,6 +1634,7 @@ async function boot() {
     }
     selLayersReady();
     revealLayersReady();
+    describePage();
     for (const id of hash.off) if (E.layers.byId.has(id)) E.userVis.set(id, false);
     for (const id of hash.on) if (E.layers.byId.has(id)) E.userVis.set(id, true);
     for (const L of E.layers.list) applyVisibility(L);
@@ -1814,6 +1816,15 @@ function planSummary() {
   const days = E.config.plan?.days?.length || 0;
   const parts = [days ? `${days} days` : known === ids.length || known >= ids.length - 1 ? `${nights} nights` : null, `${legs.length} ${legs.length === 1 ? 'ride' : 'rides'}${modes ? ' by ' + modes : ''}`, start ? `${loop ? 'loop from' : 'from'} ${start}` : null];
   return { text: parts.filter(Boolean).join(' · '), cites: ['plan.legs'] };
+}
+/** `<meta name="description">` for link previews ("Trip · 3 days · 14 places"): numbers and fixed words only; the
+ *  places are the points on the map, not the background dots (`tier: "context"`). */
+function describePage() {
+  const places = (E.layers?.list || []).filter((L) => L.type === 'points' && !L.error && L.tier !== 'context')
+    .reduce((n, L) => n + (L.data?.features?.length || 0), 0);
+  let meta = document.head.querySelector('meta[name="description"]');
+  if (!meta) { meta = document.createElement('meta'); meta.name = 'description'; document.head.append(meta); }
+  meta.content = pageDescription(E.config, places);
 }
 /** find-area heading from the plan's first walk: "🚶 Walk: 3 stops · 2.1 km · 31 min (routed)" */
 function routeSummary() {

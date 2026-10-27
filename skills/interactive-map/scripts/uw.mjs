@@ -136,7 +136,8 @@ Typical flow, fast first (coordinates only ever come from geocode output, never 
   uw.mjs adapter tw-hotels trip --layer hotels --records         (Taiwan; uw.mjs adapter list for others)
   uw.mjs doorstep trip --layer hotels && uw.mjs photos trip --layer hotels
 
-In zsh/bash, define:  uw() { node /path/to/skills/interactive-map/scripts/uw.mjs "$@"; }   (or run scripts/uw)
+In Instafy, uw is on PATH in every shell. Elsewhere put this scripts/ folder on PATH (its uw shim runs uw.mjs),
+or run node scripts/uw.mjs.
 
 Points are written as [lng,lat] (longitude first). Refs are <layer>:<featureId>.
 Global flags: --json (machine-readable output), --help, --timeout <s> (network commands; 0 = the longest allowed),

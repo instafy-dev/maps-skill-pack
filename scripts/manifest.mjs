@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { ACTIVITY, BIN, activityProblems, binProblems } from './pack-commands.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const root = path.join(repo, 'skills', 'interactive-map');
@@ -59,6 +60,8 @@ function build() {
   const tree = treeDigest(root);
   if (tree.files > MAX_FILES) fail(`${tree.files} files, over the ${MAX_FILES}-file limit`);
   if (tree.bytes > MAX_BYTES) fail(`${tree.bytes} bytes, over the ${MAX_BYTES}-byte limit`);
+  const problems = [...binProblems(BIN, root), ...activityProblems(ACTIVITY, BIN)];
+  if (problems.length) fail(`commands:\n  ${problems.join('\n  ')}`);
   return {
     schema: 1,
     name,
@@ -68,10 +71,15 @@ function build() {
     homepage: 'https://github.com/instafy-dev/maps-skill-pack',
     engines: { node: '>=22' },
     skills: ['SKILL.md'],
+    // the launcher a runtime writes into each space (for skills that run `node <skill folder>/scripts/uw.mjs`)
     entry: 'scripts/uw.mjs',
+    // commands a runtime puts on PATH in every shell (scripts/pack-commands.mjs)
+    bin: BIN,
     // the settings the pack reads (README "Settings"): a runtime may pass these from its own environment to the
     // pack's processes (names that look like credentials never pass). An exact name, or a prefix ending in "_*".
     env: ['UW_*', 'INSTAFY_LOOKUP_*'],
+    // a short, fixed label per `uw` subcommand for the chat's activity line (scripts/pack-commands.mjs)
+    activity: ACTIVITY,
     ...tree,
   };
 }

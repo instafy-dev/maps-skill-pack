@@ -1,6 +1,6 @@
 ---
 name: interactive-map
-description: REQUIRED for any request that involves a map (choosing hotels or areas, places nearby, walks, routes, trips, recolouring map features). Before writing anything, read .agents/skills/interactive-map/SKILL.md in full and build with its uw commands (node .agents/skills/interactive-map/scripts/uw.mjs new <dir> ...). Never hand-write map HTML or embed a Google Maps iframe; never type coordinates yourself.
+description: REQUIRED for any request that involves a map (choosing hotels or areas, places nearby, walks, routes, trips, recolouring map features). Before writing anything, read .agents/skills/interactive-map/SKILL.md in full and build with its uw commands (uw new <dir> ...). Never hand-write map HTML or embed a Google Maps iframe; never type coordinates yourself.
 routing_keywords: [map, maps, walk, walking, walkable, neighbourhood, neighbourhoods, neighborhood, neighborhoods, district, area, hotel, hotels, hostel, apartment, apartments, airbnb, stay, where to stay, closest, nearest, distance, commute, route, road trip, trip, travel, itinerary, day trip, food spots, places, nearby, cafes, coffee, restaurants, gym, gyms, office, beach, bike, cycling, noisy, noise, quiet, railways, pins, layers, visualise, visualize, air quality, street view, licence, karta, kartan, hotell, hotellen, boende, promenad, närmast, resa, område, stadsdel, kvarter, bo, lugna, nätter, mapa, 地図, マップ]
 context_parent: instafy-skill-router
 ---
@@ -10,10 +10,9 @@ context_parent: instafy-skill-router
 A site is a folder: `index.html`, `map.config.json` (content), `style.json`, `custom.js`, `data/` (written by
 commands), `bound.json` (optional: buttons that ask an agent), `engine/` (kit-owned, never edit).
 
-Define once per shell: `uw() { node <this skill's folder>/scripts/uw.mjs "$@"; }`. Every command has
-`--help` and `--json`. Exit 0 ok, 1 error, 2 not found / needs your decision, 3 snapshot skipped,
+Run `uw <command>`: it is on PATH in every shell (on `uw: not found`, run `node <this skill's folder>/scripts/uw.mjs`).
+Every command has `--help` and `--json`. Exit 0 ok, 1 error, 2 not found / needs your decision, 3 snapshot skipped,
 **4 unavailable** (a service busy, slow or down; not a wrong name: the map is valid; go on).
-
 
 ## Hard rules
 
@@ -64,13 +63,13 @@ Long commands: `--detach`, then `uw wait` (exit 75: again).
    "NOTHING MEASURED YET SEPARATES": say "too close to call so far"; run the step it names.
 8. `uw fit <site>`, then `uw validate <site> --signal`; fix every error.
 9. Preview: `uw host <site> --host 0.0.0.0 --port 4173 --detach` (outlives the turn; runs bound.json buttons).
-   In Instafy (the `instafy` command exists): `instafy preview open --port 4173 --title "<site
-   title>" --json` (gallery: `--path /<site>/`): Studio shows a private Open card. Exit 2 = the server is not up:
-   re-run `--detach` once, retry. Then `instafy preview check --port 4173 --phone` (same `--path`): fix every
-   error it lists; open the PNG it names. Never post a URL, not even localhost; say "Open it from the card".
+   With the `instafy` command: `instafy preview open --port 4173 --title "<site title>" --json` (gallery:
+   `--path /<site>/`): a card shows it. Exit 2 = the server is not up: re-run `--detach` once, retry. Then
+   `instafy preview check --port 4173 --phone` (same `--path`): fix every error it lists; open the PNG it names.
+   Never post a URL (not even localhost): "Open it from the card".
    Public link only on request (`instafy tunnel start --port 4173 --name map --json`, post its `url`).
 
-**Phase B: refine (in this order, one at a time, while the turn time printed by question/validate allows)**
+**Phase B: refine (in order, one at a time, while the time printed by question/validate allows)**
 After each: re-run the step-7 command and `uw validate <site> --signal`. Exit 4: note it for Phase C.
 - First, each layer printed PARTIAL (verdict note "MRT data partial"): run the re-fetch it names, then step 6.
   Never call an option shortest/longest on partial data.
@@ -94,9 +93,9 @@ unavailable steps ("Try the café search again", "Add the calm/lively layer").
 ## Config and later changes
 
 - **The message names an open surface** (the prompt's "Open surface" block): edit that site in place (never a new
-  site or card), `uw validate <site>`, then `uw reload <site> --note "<what changed>"`: open viewers update and keep
-  their place. Same after any later change to a site someone may have open. Trips: `reference/itinerary.md`
-  "Later changes to a trip".
+  site or card), `uw validate <site>`, then `uw reload <site> --note "<what changed>"`: open viewers update in
+  place; then step 9's `instafy preview check` (refreshes the card's picture). Same after any later change to a site
+  someone may have open. Trips: `reference/itinerary.md` "Later changes to a trip".
 - With a question, other layers become dots. If S1/S2 fail, give the busiest layer `"tier": "context"`.
 - Titles, colours, `theme`, `compare`, `notes`: `reference/config.md`.
 - Do things (only if planned): `bound.json` intents + `"bind": true`; handlers `pack:check_registry`,
