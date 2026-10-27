@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "name": "interactive-map",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Interactive maps, trips and place lookups as an Instafy skill pack",
   "license": "AGPL-3.0-only",
   "homepage": "https://github.com/instafy-dev/maps-skill-pack",
@@ -12,11 +12,168 @@
     "SKILL.md"
   ],
   "entry": "scripts/uw.mjs",
+  "bin": {
+    "uw": "scripts/uw.mjs"
+  },
   "env": [
     "UW_*",
     "INSTAFY_LOOKUP_*"
   ],
+  "activity": {
+    "uw": {
+      "add-point": {
+        "live": "Looking up places",
+        "done": {
+          "one": "looked up a place",
+          "other": "looked up {n} places",
+          "some": "looked up places"
+        }
+      },
+      "cite": {
+        "live": "Reading a source",
+        "done": {
+          "one": "read a source",
+          "other": "read {n} sources",
+          "some": "read sources"
+        }
+      },
+      "places": {
+        "live": "Finding places nearby",
+        "done": "found places nearby"
+      },
+      "enrich": {
+        "live": "Working out walks and routes",
+        "done": "worked out walks and routes"
+      },
+      "route": {
+        "live": "Working out walks and routes",
+        "done": "worked out walks and routes"
+      },
+      "legs": {
+        "live": "Working out walks and routes",
+        "done": "worked out walks and routes"
+      },
+      "isochrone": {
+        "live": "Working out walks and routes",
+        "done": "worked out walks and routes"
+      },
+      "lines": {
+        "live": "Looking up transit",
+        "done": "looked up transit"
+      },
+      "station": {
+        "live": "Looking up transit",
+        "done": "looked up transit"
+      },
+      "transit": {
+        "live": "Looking up transit",
+        "done": "looked up transit"
+      },
+      "stay": {
+        "live": "Finding places to stay",
+        "done": "found places to stay"
+      },
+      "handoff": {
+        "live": "Reading the research notes",
+        "done": "read the research notes"
+      },
+      "plan": {
+        "live": "Planning the days",
+        "done": "planned the days"
+      },
+      "feel": {
+        "live": "Judging calm and lively areas",
+        "done": "judged calm and lively areas"
+      },
+      "areas": {
+        "live": "Judging calm and lively areas",
+        "done": "judged calm and lively areas"
+      },
+      "air": {
+        "live": "Adding details",
+        "done": "added details"
+      },
+      "wiki": {
+        "live": "Adding details",
+        "done": "added details"
+      },
+      "doorstep": {
+        "live": "Adding details",
+        "done": "added details"
+      },
+      "photos": {
+        "live": "Adding details",
+        "done": "added details"
+      },
+      "adapter": {
+        "live": "Adding details",
+        "done": "added details"
+      },
+      "question": {
+        "live": "Weighing the options",
+        "done": "weighed the options"
+      },
+      "validate": {
+        "live": "Checking the map",
+        "done": "built the map",
+        "role": "outcome",
+        "when": "success"
+      },
+      "new": {
+        "live": "Working on the map",
+        "role": "quiet"
+      },
+      "geocode": {
+        "live": "Working on the map",
+        "role": "quiet"
+      },
+      "fit": {
+        "live": "Working on the map",
+        "role": "quiet"
+      },
+      "set": {
+        "live": "Working on the map",
+        "role": "quiet"
+      },
+      "snapshot": {
+        "live": "Working on the map",
+        "role": "quiet"
+      },
+      "host": {
+        "live": "Working on the map",
+        "role": "quiet"
+      },
+      "serve": {
+        "live": "Working on the map",
+        "role": "quiet"
+      },
+      "reload": {
+        "live": "Working on the map",
+        "role": "quiet"
+      },
+      "upgrade": {
+        "live": "Working on the map",
+        "role": "quiet"
+      },
+      "lookups": {
+        "live": "Working on the map",
+        "role": "quiet"
+      },
+      "wait": {
+        "live": "Working on the map",
+        "role": "quiet"
+      },
+      "doctor": {
+        "live": "Working on the map",
+        "role": "quiet"
+      },
+      "*": {
+        "live": "Working on the map",
+        "role": "quiet"
+      }
+    }
+  },
   "files": 106,
-  "bytes": 3126798,
-  "tree_sha256": "93f6dae981f68713a2c227f0344a46c66c334034932a84a95f5efb54fece4abf"
+  "bytes": 3128306,
+  "tree_sha256": "1ca42fe2e98072106925c6f3f516d3c3c833a976d9eb04a570c552b3ca0e49f7"
 }

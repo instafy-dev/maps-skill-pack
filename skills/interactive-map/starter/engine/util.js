@@ -372,3 +372,14 @@ export function selectPayload(L, f, labels = 'en', id = f?.properties?.id) {
   return { layer: L.id, id, ref: `${L.id}:${id}`, name: featureName(f?.properties, labels) || L.title || '', feature: f };
 }
 export const capFirst = (s) => (s ? String(s).charAt(0).toUpperCase() + String(s).slice(1) : '');
+
+/** The page's description (`<meta name="description">`, what a link preview shows): what the map is and how much it
+ *  holds, from numbers and fixed words only, never a title or a place name. "Trip · 3 days · 14 places" for a map with
+ *  a plan, "Map · 14 places" otherwise; a part that does not apply is left out. `places` = the points on the map. */
+export function pageDescription(config, places) {
+  const days = Array.isArray(config?.plan?.days) ? config.plan.days.length : 0;
+  const count = (n, one, many) => (n > 0 ? `${n} ${n === 1 ? one : many}` : null);
+  const kind = config?.plan && typeof config.plan === 'object' ? 'Trip' : 'Map';
+  const n = Number.isInteger(places) && places > 0 ? places : 0;
+  return [kind, count(days, 'day', 'days'), count(n, 'place', 'places')].filter(Boolean).join(' · ');
+}

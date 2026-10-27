@@ -3,6 +3,24 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.3 (2026-10-27)
+
+- **`uw` is a command.** `.instafy-pack.json` declares `"bin": {"uw": "scripts/uw.mjs"}`, so a runtime that knows
+  `bin` puts `uw` on PATH in every shell. `SKILL.md`, `reference/recipes.md`, the README and `uw help` say to run
+  `uw <command>` and no longer define a `uw()` shell function, which the agent wrote again before every command
+  because each command runs in a fresh shell. Where a shell does not find `uw`, `SKILL.md` says to run
+  `node <this skill's folder>/scripts/uw.mjs`; `entry` stays, so older runtimes keep their launcher.
+- **Activity labels.** The manifest's `activity` table gives each `uw` subcommand a short, fixed label for a chat's
+  activity line: "Looking up places" while `add-point` runs, then "looked up 14 places"; `validate` that exits 0 is
+  "built the map"; setup steps (`new`, `fit`, `serve` …) are quiet. Labels are plain words only a count fills in,
+  checked by `scripts/pack-commands.mjs` (`node scripts/manifest.mjs --check`), never text from a command's output.
+- **The page says what it is.** The engine sets `<meta name="description">` from numbers and fixed words only:
+  "Trip · 3 days · 14 places", or "Map · 14 places" (context dots are not counted). A link preview, such as
+  Instafy's preview card, shows it; the title and place names never go in it. `uw upgrade <site>` brings it to an
+  existing site.
+- `SKILL.md`: after a later change and `uw reload`, run step 9's `instafy preview check` (it refreshes the preview
+  card's picture where Instafy supports it).
+
 ## 0.1.2 (2026-10-26)
 
 - **Empty answers ask the next provider.** An empty answer from the place search moves on down the `geocode` chain

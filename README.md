@@ -18,14 +18,16 @@ repository; until then, import it by hand as below). The runtime image and the d
 of `skills/interactive-map/` (a tagged tarball checked against its sha256 and the manifest's `tree_sha256`). On each
 turn the runtime writes the managed `SKILL.md` and a small `uw.mjs` launcher into the space at
 `.agents/skills/interactive-map/`, keeps them out of the space's git history, and only does so when a Node that meets
-the manifest's `engines.node` is available. The agent then reads `SKILL.md` and runs `uw` from there.
+the manifest's `engines.node` is available. The manifest's `bin` puts the `uw` command on PATH in every shell, so the
+agent reads `SKILL.md` and runs `uw <command>`. Its `activity` table gives each `uw` command a short, fixed label
+("Looking up places", "looked up 14 places") that Instafy can show while the agent works.
 
 ## Import it by hand
 
 To add a pinned copy to a space yourself (or to try a newer tag), import the skill folder:
 
 ```
-/skills import https://github.com/instafy-dev/maps-skill-pack/tree/v0.1.2/skills/interactive-map
+/skills import https://github.com/instafy-dev/maps-skill-pack/tree/v0.1.3/skills/interactive-map
 ```
 
 This copies the folder into the space (`/skills import` takes up to 256 files and 8 MB; the pack is about 106 files
@@ -40,7 +42,7 @@ Taiwan", "cafés within a 10-minute walk of my hotel".
 Node 22 or later. Nothing to install.
 
 ```sh
-uw() { node "$PWD/skills/interactive-map/scripts/uw.mjs" "$@"; }   # zsh and bash (or use skills/interactive-map/scripts/uw)
+export PATH="$PWD/skills/interactive-map/scripts:$PATH"   # its `uw` shim runs scripts/uw.mjs (zsh and bash)
 uw doctor                                              # Node, network services, Playwright
 uw geocode "Amsterdam"                                 # pick a centre from the output
 uw new my-map --title "Amsterdam cafés" --center 4.8897,52.3740 --zoom 13

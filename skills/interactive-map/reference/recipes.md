@@ -1,7 +1,7 @@
 # Recipes
 
-Short how-tos. `uw` = the shell function from SKILL.md (`uw() { node <skill>/scripts/uw.mjs "$@"; }`), `S` = the
-site folder. After each one: `uw validate S`, then `uw snapshot S` and look at both PNGs. Full key list: `config.md`.
+Short how-tos. `uw` = the pack's command (on PATH in every shell; see SKILL.md), `S` = the site folder. After
+each one: `uw validate S`, then `uw snapshot S` and look at both PNGs. Full key list: `config.md`.
 
 ## 0. Full example (v0.2): "which of these 2 hotels?" with a verdict
 This is the flow the pack's smoke test runs (11 Oct 2026, Taipei), in fast-first order: Phase A gives a lettered
