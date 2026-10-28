@@ -3,6 +3,26 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.8 (2026-10-28)
+
+Fixes from the third 28 Oct 2026 drive ("3 days in Lisbon … what to see each day", on a phone).
+
+- **Every day has something to see.** `uw plan … --sights sights,food,daytrips` ran before any place was pinned,
+  `uw validate` only warned that the days were empty, and the reply shipped two full days with nothing on them. A plan
+  made with `--sights` now keeps those layers (`"sights"` in the plan), and `uw validate` fails while a full day has
+  no sourced place ("2 of 2 full days have nothing to see"), just as it fails for a stop asked for that is not on the
+  map. `uw plan` says so when `--sights` names layers with no place yet, instead of "No --sights". The trip guide pins
+  2-3 sourced places per day before the plan, and a place the lookup cannot pin goes on its day with its page's link.
+  A plan without `--sights` (where to stay, not what to see) keeps the warning.
+- **A stay's card in plain words.** "2 min walk (routed, 161 m) to Baixa · hotel in OpenStreetMap, 4★ (OSM tag)" is
+  now "2 min walk to Baixa · hotel, 4★" ("about 2 min walk" when the walk is estimated). How each part is known (161 m
+  along the streets, routed on OpenStreetMap; kind and stars as mapped) is under the card's collapsed "How we know",
+  from a new `how` property any command can write.
+- **The Map key's credits are one tap away.** The key ended with "Walking times: OSRM (FOSSGIS) on OpenStreetMap" and
+  the other credits; they now sit under a collapsed "Sources", as on a card, and the map's ⓘ still shows them.
+- **The sheet's title wraps.** On a phone it was cut after one line ("Where to stay and what to see each …"); it now
+  takes two lines before it is cut, as in the side panel.
+
 ## 0.1.7 (2026-10-28)
 
 Fixes to 0.1.6.

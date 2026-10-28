@@ -166,7 +166,9 @@ colours and from the interaction blue: validate warns when a layer colour is wit
 `note`, `description`, `url`/`website` (Website button), `image` (https thumbnail on the card) with `image_credit`
 (author · licence, shown under it) and `image_page`, `opening_hours`,
 `time_from`/`time_to`, `for` (linkedTo / route link), `route` (id of a route layer to walk from this place),
-`duration_min`, `distance_km`, `source` (card footer). Legs: `mode`, `emoji`, `duration`, `from_name`, `to_name`,
+`duration_min`, `distance_km`, `source` (card footer), `how` (up to 4 `{label, text}`: where the parts of `note`
+come from, e.g. `uw stay`'s walk basis and metres, shown under the card's collapsed "How we know" so `note` stays in
+plain words). Legs: `mode`, `emoji`, `duration`, `from_name`, `to_name`,
 `duration_source`. Grid: `calm_day`, `calm_night`, `lively_day`, `lively_night`, `green`, `amenities` (0-1),
 `n_cafe`, `n_food`, `n_gym`, `n_night`, `n_trees`.
 
@@ -419,6 +421,8 @@ An item's `url` (https only) is the page its facts came from: shown as "Wikipedi
 the host name) under the item. An item's `check` (≤ 80 characters) is what is not checked about it, said as on the
 pages: "Not checked · which trails are open · where to check ↗" (`check_url`, https). A trip's plan is written by
 `uw plan` (dates, nights, legs, stays, sights; see itinerary.md); add one short `text` per day by hand.
+`"sights": ["sights", "food"]` (written by `uw plan --sights`) says the trip is about what to see each day: `uw validate`
+fails while a full day has no item with a `url`.
 `"depart": true` marks the day after the last night (`uw plan` writes it): nothing is planned on it, its row says
 "Departure", and the page's "N days" does not count it. A day's places should lie together: `uw validate` warns when
 one is far from the day's other places or nearer another day's (thresholds: `scripts/plan-checks.json`).

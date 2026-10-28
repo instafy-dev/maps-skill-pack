@@ -85,6 +85,34 @@ test('plan (CLI): one stop is a stay of 3 nights: dated days, no travel day to i
   assert.doesNotMatch(v.out + v.err, /day places|still empty/);
 });
 
+// The 28 Oct drive ("3 days in Lisbon … what to see each day"): `uw plan … --sights sights,food,daytrips` ran before any
+// place was pinned, `uw validate` only warned, and the reply shipped two full days with nothing to see.
+test('validate: a plan made with --sights fails while a full day has nothing to see, and passes once each has a place', async () => {
+  const { dir, cfgPath } = await makeSite('lx-bare');
+  fs.writeFileSync(path.join(dir, 'data', 'sights.geojson'), JSON.stringify({ type: 'FeatureCollection', features: [] }));
+  const plan = await run(['plan', 'lx-bare', '--stops', 'stops', '--ids', 'lisbon', '--nights', '3', '--start', '2026-10-29', '--stays', 'stays', '--sights', 'sights,food,daytrips']);
+  assert.equal(plan.code, 0, plan.err + plan.out);
+  assert.match(plan.out, /--sights sights,food,daytrips: no place in them yet, so every full day is empty and uw validate fails/);
+  assert.doesNotMatch(plan.out, /No --sights/, 'the plan was given --sights');
+  assert.deepEqual(JSON.parse(fs.readFileSync(cfgPath, 'utf8')).plan.sights, ['sights', 'food', 'daytrips']);
+  assert.equal((await run(['fit', 'lx-bare'])).code, 0);
+  const bare = await run(['validate', 'lx-bare']);
+  assert.notEqual(bare.code, 0, 'a day with nothing to see is an error, not a warning');
+  assert.match(bare.out + bare.err, /2 of 2 full days have nothing to see \(no sourced place\): Fri 30 Oct · Lisbon, Sat 31 Oct · Lisbon/);
+  // the same days without --sights (an ask about where to stay, not what to see): only the warning, as before
+  await run(['plan', 'lx-bare', '--stops', 'stops', '--ids', 'lisbon', '--nights', '3', '--start', '2026-10-29', '--stays', 'stays', '--force']);
+  const stayOnly = await run(['validate', 'lx-bare']);
+  assert.equal(stayOnly.code, 0, stayOnly.out + stayOnly.err);
+  assert.match(stayOnly.out + stayOnly.err, /2 of 2 full days are still empty/);
+  // the places pinned, the plan rebuilt with --sights: every full day has something to see
+  fs.writeFileSync(path.join(dir, 'data', 'sights.geojson'), JSON.stringify({ type: 'FeatureCollection', features: LISBON.places.map((p) => point(p.id, p.coord, { name: p.name, stop: 'lisbon', ...src(p) })) }));
+  await run(['plan', 'lx-bare', '--stops', 'stops', '--ids', 'lisbon', '--nights', '3', '--start', '2026-10-29', '--stays', 'stays', '--sights', 'sights,food,daytrips', '--force']);
+  assert.equal((await run(['fit', 'lx-bare'])).code, 0);
+  const full = await run(['validate', 'lx-bare']);
+  assert.equal(full.code, 0, full.out + full.err);
+  assert.doesNotMatch(full.out + full.err, /nothing to see|still empty/);
+});
+
 test('plan (CLI): places that fit no day are named, never dropped quietly', async () => {
   await makeSite('lx4');
   const r = await run(['plan', 'lx4', '--stops', 'stops', '--ids', 'lisbon', '--nights', '1', '--start', '2026-10-30', '--stays', 'stays', '--sights', 'sights', '--per-day', '2', '--json']);

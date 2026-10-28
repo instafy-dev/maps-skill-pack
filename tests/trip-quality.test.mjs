@@ -105,7 +105,8 @@ test('a routed station walk that goes round the block falls back to the straight
   assert.equal(shangri.walk_basis, 'routed', 'a normal detour stays routed');
   const picks = rankStays([hotelTainan, shangri, { name: '泊川', walk_basis: 'routed', walk_m: 787, walk_min: 11, group: 'hotel', rooms: 40, coord: [120.22, 22.99] }], { max: 2 });
   assert.equal(picks[0].name, '台南大飯店', 'the hotel opposite the main exit ranks first');
-  assert.match(picks[0].why, /4 min walk \(est\., 320 m\)/);
+  assert.match(picks[0].why, /^about 4 min walk to /);
+  assert.equal(picks[0].how[0].text, '320 m, estimated from the straight line (the routed walk went round the station)');
   // close places are left alone (a 2.5× detour over 100 m is normal)
   assert.equal(reconcileStationWalk({ walk_basis: 'routed', walk_m: 400, walk_min: 5 }, 120).walk_basis, 'routed');
 });

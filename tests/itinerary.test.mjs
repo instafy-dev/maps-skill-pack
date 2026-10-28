@@ -212,18 +212,21 @@ test('station --kind hsr: a station with the plain city name is recognised as hi
 
 // ---------------------------------------------------------------------------
 // uw stay
-test('rankStays: walk time ranks, B&Bs and tiny places pay a penalty, one pick per building, reasons say routed or est.', () => {
+test('rankStays: walk time ranks, B&Bs and tiny places pay a penalty, one pick per building, reasons in plain words', () => {
   const c = (name, m, o = {}) => ({ name, coord: east(m), walk_min: Math.max(1, Math.round(m / 80)), walk_m: m, walk_basis: 'routed', registered: true, cls: 'hotel', group: 'hotel', rooms: 50, ...o });
   const picks = rankStays([
     c('B&B next door', 60, { group: 'bnb', cls: 'bnb', rooms: 4 }), c('Alpha', 150), c('Alpha annex', 152), c('Big', 400, { cls: 'tourist_hotel', rooms: 300 }), c('Tiny', 100, { rooms: 6 }),
   ], { max: 3, to: 'Shuanglian' });
   assert.deepEqual(picks.map((p) => p.name), ['Alpha', 'Tiny', 'Big']);
-  assert.match(picks[0].why, /^2 min walk \(routed, 150 m\) to Shuanglian · registered hotel, 50 rooms$/);
+  assert.match(picks[0].why, /^2 min walk to Shuanglian · registered hotel, 50 rooms$/);
+  assert.deepEqual(picks[0].how, [{ label: 'Walk', text: '150 m along the streets, routed on OpenStreetMap (OSRM, FOSSGIS)' }]);
   assert.match(picks[2].why, /registered tourist hotel, 300 rooms/);
   const est = rankStays([c('Est', 300, { walk_basis: 'est.' })], { to: 'X' });
-  assert.match(est[0].why, /\(est\., 300 m\)/);
+  assert.match(est[0].why, /^about 4 min walk to X · /);
+  assert.equal(est[0].how[0].text, '300 m, estimated from the straight line');
   const osm = rankStays([c('Nord', 200, { registered: false, osm_kind: 'hotel', stars: '4' })], { to: 'X' });
-  assert.match(osm[0].why, /hotel in OpenStreetMap, 4★ \(OSM tag\)/);
+  assert.match(osm[0].why, /^3 min walk to X · hotel, 4★$/);
+  assert.deepEqual(osm[0].how.map((x) => x.label), ['Walk', 'Kind and stars']);
 });
 
 test('stay (Taiwan): register lodging by routed walk to the station, closed listings out, reasons, English name from OSM, per-stop reruns', async () => {
@@ -240,7 +243,8 @@ test('stay (Taiwan): register lodging by routed walk to the station, closed list
   assert.equal(picks[0].name_en, 'Alpha Hotel', 'English name from OpenStreetMap');
   assert.equal(picks[0].id, 'sl-alpha-hotel');
   assert.equal(picks[0].walk_basis, 'routed');
-  assert.match(picks[0].why, /^\d+ min walk \(routed, \d+ m\) to Shuanglian · registered hotel, 120 rooms$/);
+  assert.match(picks[0].why, /^\d+ min walk to Shuanglian · registered hotel, 120 rooms$/);
+  assert.match(picks[0].how[0].text, /^\d+ m along the streets, routed on OpenStreetMap/);
   assert.match(picks[1].why, /registered hotel \(a hostel by its name\), 20 rooms/);
   assert.match(picks[2].why, /registered tourist hotel, 300 rooms/);
   assert.equal(picks[0].stop, 'sl');
@@ -269,7 +273,7 @@ test('stay (Taiwan): register lodging by routed walk to the station, closed list
   // routing down: the walks are straight-line estimates, said so
   const e = await uw(['stay', 'tw', '--near', 'stations:sl', '--json'], { UW_OSRM: mock.url + '/osrm404' });
   assert.equal(e.code, 0, e.err);
-  assert.ok(e.json.picks.every((p) => p.walk_basis === 'est.' && /\(est\., /.test(p.why)));
+  assert.ok(e.json.picks.every((p) => p.walk_basis === 'est.' && /^about \d+ min walk to /.test(p.why) && /estimated from the straight line/.test(p.how[0].text)));
 });
 
 test('stay (elsewhere): OpenStreetMap lodging; Photon stands in when Overpass is busy (marked partial)', async () => {
@@ -281,7 +285,8 @@ test('stay (elsewhere): OpenStreetMap lodging; Photon stands in when Overpass is
   const names = r.json.picks.map((p) => p.name);
   assert.equal(names[0], 'Hotel Nord');
   assert.ok(!names.includes(undefined));
-  assert.match(r.json.picks[0].why, /hotel in OpenStreetMap, 4★ \(OSM tag\)/);
+  assert.match(r.json.picks[0].why, /hotel, 4★$/);
+  assert.doesNotMatch(r.json.picks[0].why, /OpenStreetMap|OSM|routed|est\./);
   assert.equal(r.json.picks[0].osm_id, 'osm-n501');
   assert.ok(cfgOf('ams').attribution.some((a) => /OpenStreetMap/.test(a)));
   const busy = await uw(['stay', 'ams', '--near', 'stations:cs', '--json', '--timeout', '30'], { UW_OVERPASS: mock.url + '/busy/api/interpreter' });

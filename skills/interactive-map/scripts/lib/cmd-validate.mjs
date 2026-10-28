@@ -482,7 +482,16 @@ export async function run(argv) {
     }
     if (Array.isArray(days)) {
       const gaps = emptyPlanDays(cfg.plan);
-      if (gaps.full >= 2 && gaps.empty * 2 > gaps.full)
+      // a plan made with --sights is a trip about what to see each day: a full day with nothing sourced on it is not
+      // finished, just as an expected stop that is not on the map is not (a 28 Oct drive replied with its days empty)
+      const sightLayers = cfg.plan?.sights;
+      if (sightLayers !== undefined && !(Array.isArray(sightLayers) && sightLayers.every((x) => typeof x === 'string')))
+        E(CFG, '$.plan.sights', 'sights must be the layer ids uw plan --sights was given', 'rebuild: uw plan … --sights sights,food --force');
+      const bareDays = Array.isArray(sightLayers) && sightLayers.length ? gaps.bare : [];
+      if (bareDays.length)
+        E(CFG, '$.plan.days', `${bareDays.length} of ${gaps.full} full days have nothing to see (no sourced place): ${bareDays.slice(0, 4).join(', ')}${bareDays.length > 4 ? ' …' : ''}`,
+          `pin 2-3 places a page you read names for each of those days (reference/itinerary.md Phase B step 1: uw add-point ${args._[0]} --layer ${sightLayers[0]} … with {"stop":…,"source_url":…}), then uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --force; a place the lookup cannot pin goes on its day as {"text": "<name>", "url": "<its page>", "source": "<site>"}`);
+      else if (gaps.full >= 2 && gaps.empty * 2 > gaps.full)
         W(CFG, '$.plan.days', `${gaps.empty} of ${gaps.full} full days are still empty ("Day in …"): a traveller gets nothing to do on them`, 'add 2-3 sourced sights per stop (reference/itinerary.md Phase B step 1), then uw plan … --sights sights --force and one short sourced text per day');
       else if (gaps.full >= 2 && gaps.thin * 2 > gaps.full)
         W(CFG, '$.plan.days', `${gaps.thin} of ${gaps.full} full days have fewer than 2 sourced items: one sight per stop is not a day worth following`, 'add sights until each stop has 2-3 with a source page (reference/itinerary.md Phase B step 1), then uw plan … --sights sights --force');
