@@ -1,14 +1,15 @@
 // `set`: edit a feature's properties (note, name, metrics…) or remove it, without geocoding or re-fetching anything.
-import { parseArgs, makeOut, writeGeoJSON, UsageError, UserError } from './util.mjs';
+import { parseArgs, makeOut, writeGeoJSON, propsArg, UsageError, UserError } from './util.mjs';
 import { openSite, loadLayer, layerPath } from './site.mjs';
 
-export const help = `set <dir> <layer>:<id> [--note "…"] [--name "…"] [--emoji 🏨] [--props '{"price":120}'] [--unset key1,key2] [--remove] [--json]
+export const help = `set <dir> <layer>:<id> [--note "…"] [--name "…"] [--emoji 🏨] [--props '{"price":120}' | --props-file <file|->] [--unset key1,key2] [--remove] [--json]
   Changes properties of one feature in data/<layer>.geojson in place (other properties, metrics and geometry stay), or
   removes it (--remove). No network. Use it to fix a note, label or prop after add-point / enrich instead of re-running them.
-  Geometry and "id" cannot be changed here (re-run add-point for a different place).`;
+  Geometry and "id" cannot be changed here (re-run add-point for a different place).
+  Text with an apostrophe or quotes: --props-file - <<'JSON', the object on the next line, then JSON (no shell quoting).`;
 
 export async function run(argv) {
-  const args = parseArgs(argv, { note: 'string', name: 'string', emoji: 'string', props: 'string', unset: 'string', remove: 'bool' },
+  const args = parseArgs(argv, { note: 'string', name: 'string', emoji: 'string', props: 'string', 'props-file': 'string', unset: 'string', remove: 'bool' },
     { positionals: [2, 2], command: 'set' });
   if (args.help) return console.log(help);
   const out = makeOut(args);
@@ -28,12 +29,8 @@ export async function run(argv) {
     fc.features.splice(i, 1);
     changed = ['(removed)'];
   } else {
-    let extra = {};
-    if (args.props) {
-      try { extra = JSON.parse(args.props); } catch (e) { throw new UsageError(`--props is not valid JSON (${e.message}). Example: --props '{"price":120}'`); }
-      if (!extra || typeof extra !== 'object' || Array.isArray(extra)) throw new UsageError('--props must be a JSON object');
-      if ('id' in extra) throw new UsageError('--props cannot change "id" (refs, votes and the URL hash use it)');
-    }
+    const extra = propsArg(args);
+    if ('id' in extra) throw new UsageError('--props cannot change "id" (refs, votes and the URL hash use it)');
     if (args.note !== undefined) extra.note = args.note;
     if (args.name !== undefined) extra.name = args.name;
     // a Latin --name is also the English label when the feature has one (else OSM's old name_en keeps showing)

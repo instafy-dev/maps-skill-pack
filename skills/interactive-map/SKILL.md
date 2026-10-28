@@ -23,7 +23,8 @@ Every command has `--help` and `--json`. Exit 0 ok, 1 error, 2 not found / needs
    Estimates say "est.". Never call a place unsafe, dirty, illegal or unlicensed (a miss is "not found").
 4. Keep credits (`attribution`, photo and open-data credits).
 5. Edit `map.config.json`, `style.json`, `custom.js`, `bound.json`; never `engine/` or `"uw"` blocks. Fix a feature
-   with `uw set <site> <layer>:<id> …`.
+   with `uw set <site> <layer>:<id> …`. Props with words go on stdin (`--props-file - <<'JSON'`, the object, then
+   `JSON`): an apostrophe breaks single-quoted JSON.
 6. Facts come from pages you read (`instafy web read <url>`, skill `instafy-web-research`; else `uw cite <url>
    --grep <what>`); unsourced = unverified. `uw` only places pins, routes: one network command at a time, small
    areas; no Google APIs, Nominatim, scraping. Sign-in, CAPTCHA, 429: stop.
@@ -38,21 +39,20 @@ Hosted turns stop at 10 min: map + verdict + link early, reply with time to spar
 `uw question` and `uw validate` print the time used and left; under ~3 min left: start nothing slow, reply.
 Long commands: `--detach`, then `uw wait` (exit 75: again).
 
-**Trip** (nights in one or more places): follow `reference/itinerary.md` instead of steps 4-8.
+**Trip** (days or nights somewhere: "3 days in Lisbon", "what to see each day"): `reference/itinerary.md`, not steps
+4-8 ("One base" for one place): a Plan tab, days by area, real stays; never days in place notes.
 
 **Phase A: a useful map (≤ 4 min)**
 1. Plan (no tools, never ask: fill gaps for the `Assumed:` line): `kind` (choose-one | find-place |
    find-area | plan-route | explore), `ask` (≤ 70 chars), 2-5 options (pins A-E), ≤ 4 criteria with weights 0-3
    (quiet, MRT walk, cafés…), lenses (sleep, night, move, morning).
    Write title, ask and notes in the user's language; Swedish: `--lang sv` in step 3.
-   Days in one place ("3 days in Lisbon"): a one-base trip, `reference/itinerary.md`.
 2. `uw geocode "<district, city>"` → `lng,lat`. Exit 4: go on without `--center`/`--near`.
 3. `uw new <site> --title "…" --ask "<ask>" --center <lng,lat> --zoom 13`
 4. `uw add-point <site> --layer hotels --query "<name>, <city>" --near <lng,lat> --id <slug>` per option. Keep each
    `Tell the user` line. Address sent later: `--query "延平北路三段 4號" --name "<name>" --kind hotel`.
 5. Places for the 1-2 things asked most, small radius:
    `uw places <site> --layer mrt --kinds mrt_station --around hotels --radius 800`, same with `--layer cafes --kinds cafe`.
-   Overpass busy: a fallback fills in (PARTIAL).
 6. `uw enrich <site> --layer hotels --route-to mrt --nearest mrt --count cafes`.
    They ask about licences: where a lodging register covers the area (`uw adapter list --at <lng,lat>`), run it
    with `--layer hotels --records` (licence chip).
@@ -67,14 +67,14 @@ Long commands: `--detach`, then `uw wait` (exit 75: again).
    can restart the map; gallery: `--path /<site>/`). Exit 2 = the server is not up: re-run `--detach` once. Then
    `instafy preview check --port 4173 --phone` (same `--path`): fix every error it lists; open the PNG it names.
    Never post a URL (not even localhost): "Open it from the card".
-   Public link only on request (`instafy tunnel start --port 4173 --name map --json`, post its `url`).
+   Public link only on request (`instafy-frontend-previews`).
 
 **Phase B: refine (in order, one at a time, while the time printed by question/validate allows)**
 After each: re-run the step-7 command and `uw validate <site> --signal`. Exit 4: note it for Phase C.
 - First, each layer printed PARTIAL (verdict note "MRT data partial"): run the re-fetch it names, then step 6.
   Never call an option shortest/longest on partial data.
 - `uw snapshot <site> --signal` (~45 s; exit 3 = no browser, fine): fix failed rules; look at `snapshots/*.png`.
-- Region extras: `uw adapter list --at <lng,lat>` (open data for the area) and `reference/regions/<country>.md`.
+- Region extras: `reference/regions/<country>.md`.
 - Calm/lively, day and night (Overpass, 1-3 min):
   `uw isochrone <site> --layer walk --from layer:hotels --minutes 10`, `uw feel <site> --around hotels`,
   `uw enrich <site> --layer hotels --feel --feel-within walk`,
@@ -82,12 +82,13 @@ After each: re-run the step-7 command and `uw validate <site> --signal`. Exit 4:
 - `uw doorstep <site> --layer hotels` (faces the door), `uw photos <site> --layer hotels` (30-60 s).
 - Also `lines`, `route`, `legs`, `wiki`, `air` when they help.
 
-**Phase C: reply** in 3-6 lines, even if your host asks for one sentence (this is it). No paths (`sites/…`,
-`handoff/…`), "validates" or "validation"; sources by name in one line; say what is unverified. Start with the
+**Phase C: reply** in 3-6 lines, even if your host asks for one sentence (this is it). No paths, "validates",
+commands, services or exit codes (Overpass, Photon, OSRM, "exit 4"): say it plainly ("the place search was busy");
+sources by publisher (OpenStreetMap, Wikipedia) in one line; say what is unverified. Start with the
 verdict as `uw question` printed it (the pick and why, by name, no map letter; then the persona line),
 the `Assumed:` line, what is estimated or partial (PARTIAL: "may be incomplete"), every `Tell the user` line
 (a register match: name the listing, never ask to confirm), anything "Not found yet" (what was searched; they can
-send its address), "Open it from the card" (step 9; elsewhere the URL). End with a ```suggestions block, a chip per line: skipped or
+send its address), "Open it from the card" (step 9). End with a ```suggestions block, a chip per line: skipped or
 unavailable steps ("Try the café search again", "Add the calm/lively layer").
 
 ## Config and later changes
@@ -97,7 +98,6 @@ unavailable steps ("Try the café search again", "Add the calm/lively layer").
   place; then step 9's `instafy preview check` (refreshes the card's picture). Same after any later change to a site
   someone may have open. Trips: `reference/itinerary.md` "Later changes to a trip".
 - With a question, other layers become dots. If S1/S2 fail, give the busiest layer `"tier": "context"`.
-- Titles, colours, `theme`, `compare`, `notes`: `reference/config.md`.
 - Do things (only if planned): `bound.json` intents + `"bind": true`; handlers `pack:check_registry`,
   `pack:find_hotels_nearby` or your own `handlers/<name>.mjs` (recipe 27).
 - No map (a plan or list): `instafy bind init sites/<slug> --starter timeline|ranked`.
@@ -107,7 +107,7 @@ unavailable steps ("Try the café search again", "Add the calm/lively layer").
 ## When things fail
 
 - "outside", "mismatch", "far": a wrong match; fix the query.
-- Exit 4: go on; retry only a named item, once, as printed. Say what could not be looked up.
+- Exit 4: go on; retry a named item once, as printed.
 
 ## Reference
 

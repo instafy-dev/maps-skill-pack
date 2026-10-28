@@ -83,6 +83,33 @@ export const humanize = (k) => FEEL_LABELS[k] || (/_area$/.test(k) && FEEL_LABEL
   || String(k).replace(/^(walk|ride)_min_(.+)$/, (_, m, l) => `${m === 'ride' ? 'Ride' : 'Walk'} to ${l}`).replace(/^nearest_(.+)_m$/, 'To $1').replace(/_(\d+)min$/, ' ≤$1 min').replace(/_(\d+)m$/, ' ≤$1 m')
   .replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
 
+/** OpenStreetMap's own classes for areas and boundaries, in the words a visitor uses ("Suburb" is a neighbourhood in
+ *  town, "Administrative" any area with a border); null: no word at all (a bare "Yes" or "House" says nothing). */
+const KIND_WORDS = {
+  suburb: 'Neighbourhood', quarter: 'Neighbourhood', neighbourhood: 'Neighbourhood', neighborhood: 'Neighbourhood', city_block: 'Neighbourhood',
+  borough: 'District', district: 'District', administrative: 'Area', political: 'Area', locality: 'Area', region: 'Area', county: 'Area',
+  state: 'Area', province: 'Area', municipality: 'Town', city: 'City', town: 'Town', village: 'Village', hamlet: 'Village',
+  isolated_dwelling: 'Village', islet: 'Island', yes: null, house: null, building: null, address: null,
+};
+/** A place's kind as its card and list say it: plain words for map classes, else the kind itself ("food_court" →
+ *  "Food court"). */
+export const kindLabel = (k) => {
+  const text = String(k ?? '').trim(), key = text.toLowerCase();
+  if (!key) return '';
+  if (Object.prototype.hasOwnProperty.call(KIND_WORDS, key)) return KIND_WORDS[key] || '';
+  return text.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+};
+/** A card's source line: map data reads "Map data © OpenStreetMap" (never which search found it), any other source its
+ *  own name without the lookup in brackets ("Wikipedia (its article's coordinates)" → "Source: Wikipedia"); a place a
+ *  fallback found adds "data may be incomplete". */
+export function sourceLine(p) {
+  const raw = typeof p?.source === 'string' ? p.source.trim() : '';
+  const osm = /^openstreetmap\b/i.test(raw) || (!raw && /^osm-[nwr]\d+/.test(String(p?.id ?? '')));
+  const name = osm ? '' : raw.replace(/\s*\([^)]*\)/g, '').trim();
+  const parts = [osm ? 'Map data © OpenStreetMap' : name ? `Source: ${name}` : '', p?.data_status === 'partial' ? 'data may be incomplete' : ''];
+  return parts.filter(Boolean).join(' · ');
+}
+
 export function fmtHour(h) {
   const hh = Math.floor(((h % 24) + 24) % 24), mm = Math.round((h - Math.floor(h)) * 60);
   return String(hh).padStart(2, '0') + ':' + String(mm === 60 ? 0 : mm).padStart(2, '0');

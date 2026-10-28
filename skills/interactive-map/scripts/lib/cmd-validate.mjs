@@ -497,6 +497,11 @@ export async function run(argv) {
     if (off.length) E(CFG, '$.expect', `asked for but not on the map: ${describeItems(off)} (${expected.length - gaps.length} of ${expected.length} expected items are covered)`,
       `place each one (a trip stop: uw station … --city "<name>" --country "<country>" --nights N, or uw add-point … --query "<name>"; a lookup that timed out: run its retry command), then uw plan … --force; if none can be placed this turn, the reply says plainly which are missing and why`);
     if (unplanned.length) E(CFG, '$.plan.days', `on the map but in no day of the plan: ${describeItems(unplanned)}`, 'rebuild the plan with every stop: uw plan … --ids <all stop ids in travel order> --nights … --force');
+    // nights asked for are a trip: its days are the plan (the map's Plan tab), never a day's text inside a place's note
+    const stays = expected.filter((e) => e.nights != null);
+    if (stays.length && !(Array.isArray(cfg.plan?.days) && cfg.plan.days.length))
+      E(CFG, '$.plan', `a trip (${describeItems(stays)}) with no plan: its days go in the plan, which the map shows as its own tab, not in place notes`,
+        `follow reference/itinerary.md ("One base" for days in one place): places to stay (uw stay), 2-3 sourced places a day grouped by area, then uw plan ${args._[0]} --stops … --ids … --nights … --stays stays --sights sights`);
   }
   // --- a "Not found yet" entry for a place that is on the map after all: the page would say it is missing while it
   // shows it (r11: a stop placed on handoff --apply's second try kept the entry its first pass wrote)
