@@ -373,7 +373,8 @@ html, body {
 }
 .uw-head { display: flex; align-items: center; gap: 10px; padding: 0 16px 2px; min-height: 40px; }
 .uw-titles { flex: 1; min-width: 0; }
-.uw-title { margin: 0; font: 700 18px/1.2 var(--uw-font); letter-spacing: -0.015em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* two lines before it is cut, on phones too: "Where to stay and what to see each …" lost the ask's last word */
+.uw-title { margin: 0; font: 700 18px/1.22 var(--uw-font); letter-spacing: -0.015em; white-space: normal; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .uw-sub { margin: 2px 0 0; font: 400 13px/1.25 var(--uw-font); color: var(--uw-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .uw-air {
   /* a 34 px pill drawn inside a 44 px tap box (transparent borders, background clipped to the padding box) */
@@ -384,8 +385,6 @@ html, body {
 .uw-air-dot { width: 9px; height: 9px; border-radius: 50%; box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 8%, transparent); }
 .uw-air-word { color: var(--uw-muted); font-weight: 500; }
 /* phones: the title matters more than the category word (the dot colour and the tap toast still say it) */
-/* side panel has room for a two-line title */
-.uw-root.is-side .uw-title { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.22; }
 .uw-root.is-side .uw-head { align-items: flex-start; }
 @media (max-width: 430px) { .uw-root:not(.is-side) .uw-air-word { display: none; } .uw-root:not(.is-side) .uw-title { font-size: 17px; } }
 

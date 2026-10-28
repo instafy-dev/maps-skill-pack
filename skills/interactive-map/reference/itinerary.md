@@ -48,8 +48,9 @@ train, and never mention HSR. Neighbouring cities (Porto–Braga, Osaka–Kyoto)
 two city stations: never route a short hop out to an HSR station and back.
 
 **3. Stays by the station**, per stop: `uw stay <site> --near stations:<id>` (3 picks within 800 m, ranked by walking
-time, each with a reason: "3 min walk (routed, 212 m) to Porto São Bento · hotel in OpenStreetMap"; a route that
-goes round the station is replaced by the straight-line estimate, marked "est."). Where a lodging register covers the
+time, each with a reason in plain words: "3 min walk to Porto São Bento · hotel"; a route that goes round the station
+is replaced by the straight-line estimate, "about 3 min walk"; how each part is known is on the card, under "How we
+know"). Where a lodging register covers the
 area it comes first (licensed, open listings); elsewhere OpenStreetMap hotels, hostels and guest houses. Pass
 `--kinds hotel` unless the user asked for hostels or said the budget is tight (an unknown party counts as hotels);
 travellers who want character or a small place `--prefer any` (no penalty for B&Bs and small hotels). Call each
@@ -96,9 +97,11 @@ fill in.
 
 ## Phase B: make it worth following (one step at a time, while the turn clock shows more than ~3 min left)
 
-A plan whose full days say only "Day in …" is not finished: `uw validate` warns when most of them are empty, and the
-turn clock prints how many are empty or thin. While they are and time is left, add sights rather than reply. Step 1
-comes first.
+A plan whose full days say only "Day in …" is not finished. When the ask is what to see or do each day (a trip of
+days: "3 days in Lisbon", "what to see each day"), build the plan with `--sights`: then `uw validate` fails while a
+full day has no sourced place, as it fails for a stop asked for that is not on the map. Without `--sights` it warns
+when most full days are empty, and the turn clock prints how many are empty or thin. While any is and time is left,
+add sights rather than reply. Step 1 comes first.
 
 1. **Sights with sources, 2-3 per city.** There is no search tool: start from the city's Wikivoyage page
    (`uw cite https://en.wikivoyage.org/wiki/<City> --grep "<what you need>"`, sections See/Do), then open the
@@ -140,8 +143,9 @@ comes first.
    `uw add-point <site> --layer stays --query "<area>, <City>" --kind area --id <area slug> --props-file - <<'JSON'`, then
    `{"stop":"<slug>","note":"Area to stay in: <why, from the page>"}` and `JSON` on their own lines (the days start
    there), and the reply says places to stay were not looked up yet.
-3. **Places by area**: per day an area worth the day (a neighbourhood, a district a ride away, a day trip), 2-3 sourced
-   places in it (Phase B step 1, with `"stop":"<slug>"`). Never put a place on a day because a list had room.
+3. **Places by area**, before the plan: per day an area worth the day (a neighbourhood, a district a ride away, a day
+   trip), 2-3 sourced places in it (Phase B step 1, with `"stop":"<slug>"`). Never put a place on a day because a
+   list had room. Every full day gets its places before the reply: `uw validate` fails while one has none.
 4. **Plan**: `uw plan <site> --stops stops --ids <slug> --nights N --start <date> --stays stays --sights sights,food,daytrips`.
    Every day is a loop from the base: a stop's places are grouped by area (the closest share a day, in walking
    order, the area nearest the base first; the arrival day takes one when the other days would hold more than 2

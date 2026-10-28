@@ -1093,8 +1093,10 @@ function renderLayersTab() {
   const order = []; const by = new Map();
   for (const L of E.layers.list) { if (!by.has(L.group)) { by.set(L.group, []); order.push(L.group); } by.get(L.group).push(L); }
   const srcs = [OSM, OFM, OMT, ...(E.config.attribution || []), ...E.layers.list.map((L) => L.attribution).filter(Boolean)];
-  const extra = h('p.uw-note.uw-foot'); extra.innerHTML = 'Sources: ' + [...new Set(srcs)].join(' · ');
-  E.ui.renderLayers(order.map((g) => ({ title: g, layers: by.get(g) })), extra);
+  // the credits name services and licences ("Walking times: OSRM (FOSSGIS)"): kept one tap away, collapsed like a
+  // card's "How we know", so the key itself is the layers in plain words (the map's ⓘ shows them too)
+  const list = h('p.uw-note.uw-foot'); list.innerHTML = [...new Set(srcs)].join(' · ');
+  E.ui.renderLayers(order.map((g) => ({ title: g, layers: by.get(g) })), E.ui.disclosure('Sources', list, 'sources'));
 }
 function compareModel() {
   const c = E.config.compare; if (!c) return null;
@@ -2545,6 +2547,12 @@ function sourceActs(L, p) {
   if (su && su !== tt) out.push({ emoji: '📄', label: 'Source', href: su });
   return out;
 }
+/** A place's own "how": where its reason's parts come from ([{label, text}], e.g. uw stay's walk basis and metres),
+ *  shown under the card's collapsed "How we know" so the card itself reads in plain words. */
+function ownHow(p) {
+  return (Array.isArray(p.how) ? p.how : []).filter((x) => x && typeof x.label === 'string' && typeof x.text === 'string' && x.label.trim() && x.text.trim())
+    .slice(0, 4).map((x) => ({ label: x.label.trim().slice(0, 40), text: x.text.trim().slice(0, 160) }));
+}
 function showFeatureCard2(L, f, o = {}) {
   const p = f.properties, item = itemOf(L, f), Q = E.Q, card = L.def.card || {};
   const opt = Q?.optionById(L.id, p.id) || null;
@@ -2593,10 +2601,10 @@ function showFeatureCard2(L, f, o = {}) {
     const m = metricMeta(k); const b = barFor(L, k, p[k], m);
     return { label: m.label + (m.basis === 'estimated' && !/est\.|estimate/.test(m.label) ? ' (estimate)' : ''), value: E.Q ? E.Q.fmt(k, p[k]) : fmtMetric(p[k], m), len: b.len, color: 'var(--uw-muted-bar)' };
   });
-  const how = (why?.cites || keys).filter((k, i, a) => a.indexOf(k) === i).slice(0, 8).map((k) => {
+  const how = [...ownHow(p), ...(why?.cites || keys).filter((k, i, a) => a.indexOf(k) === i).slice(0, 8).map((k) => {
     const m = metricMeta(k);
     return { label: m.label, text: [m.source ? m.source + (m.scale ? ` (${m.scale})` : '') : m.scale, BASIS[m.basis]?.word || m.basis, m.as_of ? 'as of ' + fmtDate(m.as_of) : null].filter(Boolean).join(' · ') || 'from the map data' };
-  });
+  })];
   // actions: Pick, Nope, Walk it, then bound intents (ui: card); up to 4 visible, the rest under ⋯
   const v = voteInfo(p.id);
   // 👍 / 👎 decide between the answers; a night market or an MRT station is context, not a candidate

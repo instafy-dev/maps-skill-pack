@@ -27,7 +27,8 @@ export const help = `plan <dir> --stops <layer> --start YYYY-MM-DD [--ids taipei
   gives), ≤ 140 characters. The day after the last night is the departure ("depart": true, "Leave <stop>."): nothing
   is planned on it. Prints a warning for a place that is far from its day's other places or closer to another day's
   (plan-checks.json). Refuses to replace an existing plan without --force. Days with no sourced place keep "Day in …":
-  add places.`;
+  add places. --sights also says the trip is about what to see each day: the plan keeps those layers ("sights"), and
+  \`uw validate\` fails while a full day has no sourced place.`;
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -62,9 +63,14 @@ export function emptyPlanDays(plan) {
   const days = Array.isArray(plan?.days) ? plan.days : [];
   const full = days.filter((d, i) => (i > 0 || days.length === 1) && !String(d?.title || '').includes('→') && !isDepartDay(d));
   const empty = full.filter((d) => (!Array.isArray(d.items) || d.items.length === 0) && SKELETON_DAY.test(String(d.text || '')));
-  const sourced = (d) => (Array.isArray(d.items) ? d.items : []).filter((it) => typeof it?.url === 'string' && /^https?:\/\//.test(it.url) && !/^Base: /.test(String(it.text || ''))).length;
-  const thin = full.filter((d) => sourced(d) < 2);
-  return { empty: empty.length, thin: thin.length, full: full.length, days: days.length };
+  const thin = full.filter((d) => sourcedItems(d) < 2);
+  // nothing to see: not one sourced place (a pinned place with its page, or a place with only its page's link)
+  const bare = full.filter((d) => sourcedItems(d) === 0).map((d) => String(d.title || ''));
+  return { empty: empty.length, thin: thin.length, full: full.length, days: days.length, bare };
+}
+/** A day's items that link to the page their facts came from (the base stay's own site is not a place to see). */
+function sourcedItems(d) {
+  return (Array.isArray(d?.items) ? d.items : []).filter((it) => typeof it?.url === 'string' && /^https?:\/\//.test(it.url) && !/^Base: /.test(String(it.text || ''))).length;
 }
 
 /** The route with nights and dates, one line, for the reply ("Taipei 3 → Hualien 2 → … (Tue 20 Oct – Tue 3 Nov)"):
@@ -446,7 +452,10 @@ export async function run(argv) {
   const legs = withLayer(args.legs), stays = withLayer(args.stays), sights = parseList(args.sights || '').flatMap((id) => withLayer(id));
   const cfg = readJSON(site.cfgPath);
   if (cfg.plan && !args.force) throw new UserError('map.config.json already has a "plan"; pass --force to rebuild it (hand-written day texts are replaced)');
-  const plan = buildPlan({ stops: stopsIn, nights: nightsIn, start: args.start, legs, stays, sights, perDay, title: args.title || 'Plan' });
+  const built = buildPlan({ stops: stopsIn, nights: nightsIn, start: args.start, legs, stays, sights, perDay, title: args.title || 'Plan' });
+  // --sights: the ask is what to see each day, so validate fails while a full day has no sourced place
+  const sightLayers = parseList(args.sights || '');
+  const plan = sightLayers.length ? { title: built.title, sights: sightLayers, days: built.days } : built;
   cfg.plan = plan;
   writeJSON(site.cfgPath, cfg, { pretty: true });
   // nights per stop feature (summed over visits): the numbered stops show one dot per night
@@ -472,7 +481,8 @@ export async function run(argv) {
     `${stops.length === 1 ? 'Stay' : 'Route'} for the reply (say the night split; it is an assumption unless the user fixed it): ${route}`,
     stays.length ? null : `No --stays: days focus on the ${stops.length === 1 ? 'stop' : 'stations'}. Run uw stay per stop, then re-run plan --force.`,
     sights.length && missingSights.length ? `Fewer than 2 sights with "stop" for: ${[...new Set(missingSights)].join(', ')} (add 2-3 sourced ones per ${stops.length === 1 ? 'day' : 'city'}).` : null,
-    !sights.length ? 'No --sights: add 2-3 per city (uw add-point … --layer sights --props \'{"stop":"<id>","source_url":"https://…","source":"…"}\'), then re-run with --sights sights --force.' : null,
+    !sightLayers.length ? 'No --sights: add 2-3 per city (uw add-point … --layer sights --props-file - with {"stop":"<id>","source_url":"https://…","source":"…"}), then re-run with --sights sights --force.' : null,
+    sightLayers.length && !sights.length ? `--sights ${sightLayers.join(',')}: no place in them yet, so every full day is empty and uw validate fails until each has a sourced place. Add 2-3 a day (reference/itinerary.md Phase B step 1), then this command again with --force.` : null,
     drafted ? `Day texts: ${drafted} full day(s) say what they are for, from their sourced places (names and the page's reason); keep them or reword them in the traveller's words (≤ 140 characters, nothing those pages do not say).` : null,
     gaps.empty ? `${gaps.empty} of ${gaps.full} full days still say "Day in …": add 2-3 sourced places for those stops (reference/itinerary.md Phase B step 1), then this command again with --force.` : null,
     ...misplaced.slice(0, 4).map((w) => `Day places: ${dayPlaceLine(w, plan.days)}.`),

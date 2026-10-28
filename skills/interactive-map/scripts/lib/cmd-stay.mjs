@@ -38,7 +38,8 @@ export const helps = {
   min away); --prefer any ranks by walk alone, --prefer bnb puts B&Bs first. --kinds hotel (default hotel,hostel; bnb
   is added when fewer than --max hotels are in range). A lng,lat --near is named by --near-label in the walk texts
   ("6 min walk to the centre of Hualien"), and --stop says which stop the picks belong to (default: the --near id).
-  Each point gets: rank, why ("6 min walk (routed, 420 m) to Hualien Station · registered hotel, 120 rooms"), stop
+  Each point gets: rank, why in plain words ("6 min walk to Hualien Station · registered hotel, 120 rooms"; "about 6
+  min walk" when estimated), how (the walk's basis and metres, the OpenStreetMap tags: the card's "How we know"), stop
   (the --near id), walk_min, walk_m, walk_basis, and in Taiwan licence + tw_* (rooms, class, FILED rates: not prices).
   Runs per stop: the points for that --near are replaced, the other stops' points stay. Exit 2 = nothing in range
   (widen --radius). Never a booking or a live price: say so in the reply.`,
@@ -295,13 +296,25 @@ export function rankStays(cands, { max = 3, to = 'the station', prefer = 'hotel'
   const kept = [];
   for (const c of scored) { if (kept.length >= max) break; if (!kept.some((k) => haversine(k.coord, c.coord) < 30)) kept.push(c); }
   return kept.map((c, i) => {
-    const walk = `${c.walk_min} min walk (${c.walk_basis === 'routed' ? 'routed' : 'est.'}, ${c.walk_m} m) to ${to}`;
+    // the reason in plain words ("2 min walk to Baixa · hotel, 4★"); how each part is known goes behind the card's
+    // "How we know" (stayHow)
+    const walk = `${c.walk_basis === 'routed' ? '' : 'about '}${c.walk_min} min walk to ${to}`;
     const hostelByName = c.registered && HOSTEL_NAME.test(`${c.name} ${c.name_en || ''}`);
     const what = c.registered
       ? `registered ${KIND_WORD[c.cls] || 'hotel'}${hostelByName ? ' (a hostel by its name)' : ''}${c.rooms ? `, ${c.rooms} rooms` : ''}`
-      : `${KIND_WORD[c.osm_kind] || 'hotel'} in OpenStreetMap${c.stars ? `, ${c.stars}★ (OSM tag)` : ''}`;
-    return { ...c, rank: i + 1, why: `${walk} · ${what}` };
+      : `${KIND_WORD[c.osm_kind] || 'hotel'}${c.stars ? `, ${c.stars}★` : ''}`;
+    return { ...c, rank: i + 1, why: `${walk} · ${what}`, how: stayHow(c) };
   });
+}
+
+/** Where a pick's reason comes from, for the card's "How we know": the walk (routed along the streets, or estimated
+ *  from the straight line) and, for an OpenStreetMap pick, its kind and stars as mappers tagged them. Pure. */
+export function stayHow(c) {
+  const how = [{ label: 'Walk', text: c.walk_basis === 'routed'
+    ? `${c.walk_m} m along the streets, routed on OpenStreetMap (OSRM, FOSSGIS)`
+    : `${c.walk_m} m, estimated from the straight line${c.walk_note ? ` (${c.walk_note})` : ''}` }];
+  if (!c.registered) how.push({ label: c.stars ? 'Kind and stars' : 'Kind', text: 'as mapped in OpenStreetMap, not a rating' });
+  return how;
 }
 
 async function twCandidates(at, radius) {
@@ -370,7 +383,7 @@ export function reconcileStationWalk(c, straightM) {
   c.walk_m = Math.round(straightM * DETOUR);
   c.walk_min = Math.max(1, Math.round((straightM * DETOUR) / WALK_M_PER_MIN));
   c.walk_basis = 'est.';
-  c.walk_note = 'the routed walk went round the station; straight-line estimate';
+  c.walk_note = 'the routed walk went round the station';
   return c;
 }
 
@@ -479,7 +492,7 @@ export async function stay(argv) {
     used.add(id);
     const props = {
       id, name: c.name, ...(c.name_en && c.name_en !== c.name ? { name_en: c.name_en } : {}), kind: stayKind(c),
-      emoji: stayKind(c) === 'hotel' ? '🏨' : '🛏️', stop, rank: c.rank, why: c.why, note: c.why,
+      emoji: stayKind(c) === 'hotel' ? '🏨' : '🛏️', stop, rank: c.rank, why: c.why, note: c.why, how: c.how,
       walk_min: c.walk_min, walk_m: c.walk_m, walk_basis: c.walk_basis, walk_to: toName, near_ref: nearRef,
       source: srcLabel, source_url: srcUrl, checked_at: now,
       ...(c.osm_id ? { osm_id: c.osm_id } : {}), ...(c.website ? { website: c.website } : {}), ...(c.address ? { address: c.address } : {}),
