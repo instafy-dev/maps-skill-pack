@@ -11,7 +11,8 @@ import path from 'node:path';
 export const BIN = { uw: 'scripts/uw.mjs' };
 
 const forms = (one, other, some) => ({ one, other, some });
-const quiet = { live: 'Working on the map', role: 'quiet' };
+// A quiet step shows only while it runs and in the step list; its `done` is that list's past tense for a finished row.
+const quiet = { live: 'Working on the map', done: 'worked on the map', role: 'quiet' };
 const same = (names, label) => Object.fromEntries(names.map((name) => [name, label]));
 
 export const ACTIVITY = {
