@@ -2,12 +2,11 @@
 // An adapter exports `meta` ({ name, describe, sources, help, flags }) and `run(ctx, args)`; optionally lookup()/nearby()
 // for intent handlers. makeAdapterCtx() is also used by handlers (separate processes) to get the same ctx.
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs, makeOut, readJSON, writeJSON, writeGeoJSON, exists, parseLngLat, UsageError, UserError } from './util.mjs';
 import { adaptersAt } from '../adapters/lib/areas.mjs';
-import { fetchJSON, fetchBuffer, overpass, withCap, UA } from './net.mjs';
+import { fetchJSON, fetchBuffer, overpass, withCap, UA, sharedCacheRoot } from './net.mjs';
 import { SCRIPTS_DIR, openSite, loadLayer, layerPath, writeOwnedLayer, addAttribution } from './site.mjs';
 import { mergeMetrics } from './metrics.mjs';
 import { writeRecords } from './records.mjs';
@@ -18,10 +17,13 @@ adapter <name> <site> [adapter flags] [--refresh] [--json]
 adapter <name> --help
   Runs a dataset adapter from scripts/adapters/. Adapters add prefixed properties (e.g. tw_*) and a generic "licence"
   object to features, write their own layer files, metrics.json entries and (optionally) records, and append the
-  dataset's attribution to map.config.json. Large datasets are cached in ~/.cache/uw/<adapter>/ (refreshed after 24 h
-  or with --refresh) and shared by every site and by uw host handlers.`;
+  dataset's attribution to map.config.json. Large datasets are cached in <adapter>/ of the shared cache (UW_CACHE, else
+  INSTAFY_CACHE_DIR, else ~/.cache/uw), refreshed after 24 h or with --refresh, and shared by every site and by uw host
+  handlers.`;
 
-export function uwCacheRoot() { return process.env.UW_CACHE || path.join(os.homedir(), '.cache', 'uw'); }
+/** The cache every site shares (net.mjs sharedCacheRoot: UW_CACHE, else the space's INSTAFY_CACHE_DIR, else ~/.cache/uw):
+ *  a dataset downloaded once is kept where the next turn finds it. */
+export function uwCacheRoot() { return sharedCacheRoot(); }
 
 export function listAdapters() {
   try { return fs.readdirSync(ADAPTERS_DIR).filter((f) => f.endsWith('.mjs')).map((f) => f.replace(/\.mjs$/, '')).sort(); } catch { return []; }

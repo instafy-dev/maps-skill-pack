@@ -106,9 +106,11 @@ The scripts already rate-limit and cache. Don't work around them.
   the cap, don't clear the cache to refetch, and never read tiles from `custom.js`. `UW_BASEMAP_TILES` points at our own
   tile server (`DATA-SOURCES.md` §3.1a).
 - Photon: fair use. Pass `--near`. Reuse earlier results instead of searching again.
-- Cache: `.uwcache/` keeps results for 7 days; answers shared by every site live in `UW_CACHE`, else the runtime's
-  per-space `INSTAFY_CACHE_DIR`, else `~/.cache/uw`. Each provider's `cache.ttl_s` in `lookup-providers.json` follows
-  its caching terms. Bypass the cache only when the user wants fresh data.
+- Cache: answers are kept for 7 days and shared by every site, in `UW_CACHE`, else the runtime's per-space
+  `INSTAFY_CACHE_DIR`, else `~/.cache/uw` (outside a space a site's `.uwcache/` keeps a copy). In a space a site's
+  working state (its server's record and log, the write lock, the turn clock) and the jobs a folder starts live in
+  `INSTAFY_CACHE_DIR` too, so no `.uwcache/` lands in the space's files. Each provider's `cache.ttl_s` in
+  `lookup-providers.json` follows its caching terms. Bypass the cache only when the user wants fresh data.
 - Any service answering 429 is not asked again by any command this turn (and not before its Retry-After): never a
   retry storm, never another IP, account or mirror to get around it. Every request carries the pack's User-Agent
   with a contact URL (`INSTAFY_LOOKUP_CONTACT` adds the operator's own).
@@ -117,8 +119,9 @@ The scripts already rate-limit and cache. Don't work around them.
   directions ↗"); nothing from Google or Apple is fetched, stored, embedded or summarised. A plain Maps URL uses no
   API and is allowed everywhere. Google content inside our page (the Places UI Kit card) needs a key and a gateway
   and is not in this pack yet; never put Google ratings, reviews, hours or photos into `data/` or into text you write.
-- Panoramax: max 2 requests/s (the scripts do it), cached in `.uwcache/`. Data.gov.tw / data.taipei /
-  media.taiwan.net.tw: one download per dataset per 24 h, cached in `~/.cache/uw/` and shared by all sites.
+- Panoramax: max 2 requests/s (the scripts do it), cached like every answer. Data.gov.tw / data.taipei /
+  media.taiwan.net.tw: one download per dataset per 24 h, cached in the shared cache (`UW_CACHE`, else
+  `INSTAFY_CACHE_DIR`, else `~/.cache/uw/`) and shared by all sites.
 - Keys (MOENV, TDX, openrouteservice, Mapillary): use one only if the user supplies it, and keep it in an environment variable. Never write keys into site files.
 - Who is asked is data: `scripts/lookup-providers.json` declares each provider (protocol, base URL, timeout,
   cooldown) and each capability's chain (`geocode`, `places`, `osm-query`, `route`, `walk-table`, `isochrone`,

@@ -418,6 +418,9 @@ An item's `url` (https only) is the page its facts came from: shown as "Wikipedi
 the host name) under the item. An item's `check` (≤ 80 characters) is what is not checked about it, said as on the
 pages: "Not checked · which trails are open · where to check ↗" (`check_url`, https). A trip's plan is written by
 `uw plan` (dates, nights, legs, stays, sights; see itinerary.md); add one short `text` per day by hand.
+`"depart": true` marks the day after the last night (`uw plan` writes it): nothing is planned on it, its row says
+"Departure", and the page's "N days" does not count it. A day's places should lie together: `uw validate` warns when
+one is far from the day's other places or nearer another day's (thresholds: `scripts/plan-checks.json`).
 
 Adds the Plan tab: one list of every day, the same day rows as Instafy's timeline page ("Sat 24 Oct · Taipei": the
 title before `: ` without a trailing "(…)"; the caption counts its items and what is not checked: "4 stops · 2 not

@@ -5,8 +5,9 @@ import path from 'node:path';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { parseArgs, makeOut, exists, UsageError, UserError } from './util.mjs';
-import { ensureGitignore } from './site.mjs';
+import { parseArgs, makeOut, exists, readJSON, UsageError, UserError } from './util.mjs';
+import { ensureGitignore, SCRIPTS_DIR } from './site.mjs';
+import { stateDirOf, stateDirsOf, folderId } from './state-dir.mjs';
 import { signalPass } from './snapshot-signal.mjs';
 import { safeEnv } from './safe-env.mjs';
 import { hostRefusal, publicHostnames } from './host-check.mjs';
@@ -20,8 +21,11 @@ export const helps = {
   Answers only for this computer, IP addresses, Instafy tunnels/previews of the port and --public-url hosts (repeatable;
   or UW_PUBLIC_URL), so a web page cannot rebind its own name onto the port and read the site's files.
   --detach  start it in the background, outliving this shell and an agent's turn (a tunnel needs it alive), wait until
-            it answers, print the URL and return. Reuses a server already serving <dir> on that port. Log and pid:
-            <dir>/.uwcache/serve.log and serve.json.
+            it answers, print the URL and return. Reuses a server already serving <dir> on that port (also one the
+            space started again by itself). Log and pid: serve.log and serve.json in <dir>'s state folder (in an
+            Instafy space the space's own folder, INSTAFY_CACHE_DIR; else <dir>/.uwcache). Prints the command that
+            starts the same server in the foreground ("serve_cmd") and the \`instafy preview open … --serve-cmd …\`
+            line that gives it a preview card the space can start again after the server stops.
   --stop    stop the background server of <dir>.`,
   snapshot: `snapshot <dir> [--out <dir>/snapshots] [--only desktop|mobile] [--hash "t=22&v=0.8"] [--eval "<js>"] [--tag name]
          [--thumb] [--scheme light|dark] [--wait ms] [--signal [--strict]] [--json]
@@ -63,9 +67,16 @@ export function createStaticServer(root, opts = {}) {
 }
 // The request handler behind createStaticServer (uw host wraps it with the __uw/* endpoints).
 // refuse(req) → a reason to refuse the request's Host (421), or null; uw host checks the Host itself before this runs.
-export function staticHandler(root, { log = () => {}, refuse = null } = {}) {
+export function staticHandler(root, { log = () => {}, refuse = null, identity = null } = {}) {
   root = path.resolve(root);
   return (req, res) => {
+    // a request from this computer learns which folder this server serves and its process, so \`--detach\` finds a
+    // server of the same folder that it did not start itself (never told over a tunnel or the LAN: the peer's address
+    // and the Host it asked for decide: a tunnel's client connects from this computer but keeps the public Host)
+    if (identity && LOOPBACK_ADDR.test(String(req.socket?.remoteAddress || '')) && LOOPBACK_HOST.test(String(req.headers.host || ''))) {
+      res.setHeader('X-UW-Folder', identity.folder);
+      res.setHeader('X-UW-Server', `${identity.cmd} ${process.pid}`);
+    }
     const send = (code, body, headers = {}) => {
       res.writeHead(code, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-cache', ...headers });
       res.end(req.method === 'HEAD' ? undefined : body);
@@ -143,12 +154,78 @@ export function listen(server, port, host) {
   });
 }
 
-// --detach bookkeeping: <dir>/.uwcache/serve.json { pid, port, host, dir } (dotfiles are never served)
-const stateFile = (dir) => path.join(dir, '.uwcache', 'serve.json');
-export const readState = (dir) => { try { return JSON.parse(fs.readFileSync(stateFile(dir), 'utf8')); } catch { return null; } };
+const LOOPBACK_ADDR = /^(?:::ffff:)?127(?:\.\d{1,3}){3}$|^::1$/;
+const LOOPBACK_HOST = /^(127(?:\.\d{1,3}){3}|localhost|\[::1\])(?::\d+)?$/i;
+// --detach bookkeeping: serve.json { pid, cmd, port, host, dir } in the folder's state folder (lib/state-dir.mjs)
+const stateFile = (dir) => path.join(stateDirOf(dir), 'serve.json');
+const readOne = (d) => { try { return JSON.parse(fs.readFileSync(path.join(d, 'serve.json'), 'utf8')); } catch { return null; } };
 export const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
-async function answers(port) {
-  try { const r = await fetch(`http://127.0.0.1:${port}/`, { method: 'HEAD', signal: AbortSignal.timeout(1500) }); return r.status < 500; } catch { return false; }
+/** The server registered for `dir`: a live one in any of its state folders (this process's, or the folder's own
+ *  .uwcache: a server the space started again without INSTAFY_CACHE_DIR), else this process's record, else null. */
+export const readState = (dir) => {
+  for (const d of stateDirsOf(dir)) { const st = readOne(d); if (st && alive(st.pid)) return st; }
+  return readOne(stateDirOf(dir));
+};
+/** Forget `dir`'s server record(s): every one naming `pid`, or all of them. */
+function clearState(dir, pid = null) {
+  for (const d of stateDirsOf(dir)) { const st = readOne(d); if (st && (pid == null || st.pid === pid)) fs.rmSync(path.join(d, 'serve.json'), { force: true }); }
+}
+/** A server keeps its own record while it runs (in the foreground too: one the space started again from its preview
+ *  card is found by --detach, --stop and reload). Returns the function that drops it when the server stops. */
+export function registerServer(dir, { cmd, port, host }) {
+  const f = stateFile(dir);
+  const prev = readOne(path.dirname(f));
+  if (prev && prev.pid !== process.pid && alive(prev.pid)) return () => {};
+  try {
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.writeFileSync(f, JSON.stringify({ pid: process.pid, cmd, port, host, dir, started_at: new Date().toISOString() }) + '\n');
+  } catch { return () => {}; }
+  return () => { if (readOne(path.dirname(f))?.pid === process.pid) fs.rmSync(f, { force: true }); };
+}
+/** What answers on 127.0.0.1:<port>: { ok, folder, cmd, pid } (folder, cmd and pid only from a uw server). */
+async function probe(port) {
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/`, { method: 'HEAD', signal: AbortSignal.timeout(1500) });
+    const [cmd, pid] = String(r.headers.get('x-uw-server') || '').split(' ');
+    return { ok: r.status < 500, folder: r.headers.get('x-uw-folder'), cmd: cmd || null, pid: Number(pid) || null };
+  } catch { return { ok: false }; }
+}
+async function answers(port) { return (await probe(port)).ok; }
+
+const shellWord = (a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : !a.includes("'") ? `'${a}'` : `"${a.replace(/["\\$`]/g, (c) => `\\${c}`)}"`);
+const shellQuote = (s) => `"${String(s).replace(/["\\$`]/g, (c) => `\\${c}`)}"`;
+/** The executable `name` a shell finds first on PATH (null when none). */
+function onPath(name, env = process.env) {
+  for (const d of String(env.PATH || '').split(path.delimiter).filter(Boolean)) {
+    const f = path.join(d, name);
+    try { fs.accessSync(f, fs.constants.X_OK); if (fs.statSync(f).isFile()) return f; } catch { /* next */ }
+  }
+  return null;
+}
+/** Whether the \`uw\` a shell finds runs this pack (this pack's own scripts/uw, or a shim naming this uw.mjs). */
+export function uwOnPath(env = process.env) {
+  const f = onPath('uw', env);
+  if (!f) return false;
+  const real = (p) => { try { return fs.realpathSync(p); } catch { return p; } };
+  const mine = [real(path.join(SCRIPTS_DIR, 'uw.mjs')), real(path.join(SCRIPTS_DIR, 'uw'))];
+  if (mine.includes(real(f))) return true;
+  try { const head = fs.readFileSync(f, 'utf8').slice(0, 4096); return mine.some((m) => head.includes(m)) || head.includes(path.join(SCRIPTS_DIR, 'uw.mjs')); } catch { return false; }
+}
+/** The one command (no shell syntax) that starts this server again in the foreground: what
+ *  \`instafy preview open --serve-cmd\` records, so the space can start the site again after it stops or sleeps. The
+ *  folder is absolute: the space replays it from wherever \`instafy preview open\` ran. \`uw\` when the shell finds
+ *  this pack's, else node and this pack's uw.mjs. Exported for the tests. */
+export function serveCommand(cmd, dir, { port, host, extra = [] }, { env = process.env } = {}) {
+  const site = path.resolve(dir);
+  const prog = uwOnPath(env) ? ['uw'] : [onPath('node', env) ? 'node' : process.execPath, path.join(SCRIPTS_DIR, 'uw.mjs')];
+  return [...prog, cmd, site, '--port', String(port), '--host', host, ...extra].map(shellWord).join(' ');
+}
+/** The \`instafy preview open\` line for a server of \`dir\` on \`port\`, with its start command. */
+function previewLine(dir, port, serveCmd) {
+  let title = '';
+  try { title = String(readJSON(path.join(dir, 'map.config.json'))?.title || ''); } catch { /* not a map site */ }
+  title = title.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, 120) || path.basename(dir);
+  return `instafy preview open --port ${port} --title ${shellQuote(title)} --serve-cmd ${shellQuote(serveCmd)} --json`;
 }
 
 // One background server per site folder. `host` serves everything `serve` does plus __uw/*: asking for `host` replaces
@@ -158,11 +235,22 @@ export async function detach(args, dir, cmd = 'serve', extra = []) {
   const host = args.host || '127.0.0.1';
   const port = args.port ?? 4173;
   const urls = (p) => ({ local: `http://localhost:${p}/`, lan: host === '0.0.0.0' || host === '::' ? lanAddresses().map((a) => `http://${a}:${p}/`) : [] });
-  const prev = readState(dir);
+  const serveCmd = serveCommand(cmd, dir, { port, host, extra });
+  const preview = previewLine(dir, port, serveCmd);
+  const startLines = [`Preview card (Instafy): ${preview}`, `  (--serve-cmd: the space starts the map again with it after the server stops or the space sleeps)`];
+  let prev = readState(dir);
+  if (!(prev && prev.dir === dir && prev.port === port && alive(prev.pid) && await answers(port))) {
+    // no record of a running server here, but one of this very folder answers on the port (started again by the
+    // space, which keeps its record in the folder's own .uwcache): that one is this folder's server
+    const p = await probe(port);
+    prev = p.ok && p.folder === folderId(dir) && p.pid && alive(p.pid) ? { pid: p.pid, cmd: p.cmd, port, host, dir } : null;
+  }
   const prevCmd = prev?.cmd || 'serve';
-  if (prev && prev.dir === dir && prev.port === port && alive(prev.pid) && await answers(port)) {
+  if (prev) {
     if (prevCmd === cmd || prevCmd === 'host') {
-      out.result({ ok: true, reused: true, cmd: prevCmd, pid: prev.pid, dir, port, ...urls(port) }, [`Already serving ${path.relative(process.cwd(), dir) || '.'} at http://localhost:${port}/ (uw ${prevCmd}, pid ${prev.pid}).`, remoteHint(port)]);
+      try { fs.mkdirSync(path.dirname(stateFile(dir)), { recursive: true }); fs.writeFileSync(stateFile(dir), JSON.stringify({ pid: prev.pid, cmd: prevCmd, port, host: prev.host || host, dir, started_at: prev.started_at || new Date().toISOString() }) + '\n'); } catch { /* the server keeps its own record */ }
+      out.result({ ok: true, reused: true, cmd: prevCmd, pid: prev.pid, dir, port, ...urls(port), serve_cmd: serveCmd, preview_cmd: preview },
+        [`Already serving ${path.relative(process.cwd(), dir) || '.'} at http://localhost:${port}/ (uw ${prevCmd}, pid ${prev.pid}).`, ...startLines, remoteHint(port)]);
       return 0;
     }
     process.kill(prev.pid, 'SIGTERM');
@@ -170,7 +258,8 @@ export async function detach(args, dir, cmd = 'serve', extra = []) {
   }
   if (await answers(port)) throw new UserError(`port ${port} is in use by another server; pick another with --port (or --stop the old one)`);
   fs.mkdirSync(path.dirname(stateFile(dir)), { recursive: true });
-  const log = fs.openSync(path.join(dir, '.uwcache', `${cmd}.log`), 'a');
+  const logFile = path.join(stateDirOf(dir), `${cmd}.log`);
+  const log = fs.openSync(logFile, 'a');
   // detached = its own session (setsid), so it outlives this shell and the process group an agent's turn kills
   // and it never keeps the caller's credentials (an agent job's controller token, the model key): allowlist only
   const child = spawn(process.execPath, [process.argv[1], cmd, dir, '--port', String(port), '--host', host, ...extra],
@@ -178,21 +267,21 @@ export async function detach(args, dir, cmd = 'serve', extra = []) {
   child.unref();
   fs.closeSync(log);
   for (let i = 0; i < 50 && !(await answers(port)); i++) await new Promise((r) => setTimeout(r, 100));
-  if (!(await answers(port))) throw new UserError(`the background server did not start; see ${path.join(dir, '.uwcache', `${cmd}.log`)}`);
+  if (!(await answers(port))) throw new UserError(`the background server did not start; see ${logFile}`);
   fs.writeFileSync(stateFile(dir), JSON.stringify({ pid: child.pid, cmd, port, host, dir, started_at: new Date().toISOString() }) + '\n');
   const u = urls(port);
-  out.result({ ok: true, reused: false, cmd, pid: child.pid, dir, port, ...u },
+  out.result({ ok: true, reused: false, cmd, pid: child.pid, dir, port, ...u, serve_cmd: serveCmd, preview_cmd: preview },
     [`Serving ${path.relative(process.cwd(), dir) || '.'} at ${u.local} in the background (uw ${cmd}, pid ${child.pid}; stop: uw ${cmd} ${args._[0]} --stop).`,
-      ...u.lan.map((x) => `  on your network: ${x}  (phone on the same Wi-Fi)`), remoteHint(port)]);
+      ...u.lan.map((x) => `  on your network: ${x}  (phone on the same Wi-Fi)`), ...startLines, remoteHint(port)]);
   return 0;
 }
 
 export function stop(args, dir) {
   const out = makeOut(args);
   const st = readState(dir);
-  if (!st || !alive(st.pid)) { fs.rmSync(stateFile(dir), { force: true }); out.result({ ok: true, stopped: false }, ['No background server is running for this folder.']); return 0; }
+  if (!st || !alive(st.pid)) { clearState(dir); out.result({ ok: true, stopped: false }, ['No background server is running for this folder.']); return 0; }
   process.kill(st.pid, 'SIGTERM');
-  fs.rmSync(stateFile(dir), { force: true });
+  clearState(dir, st.pid);
   out.result({ ok: true, stopped: true, pid: st.pid, port: st.port }, [`Stopped the server on port ${st.port} (pid ${st.pid}).`]);
   return 0;
 }
@@ -210,6 +299,7 @@ export async function serve(argv) {
   const server = createStaticServer(dir, {
     log: args.quiet ? () => {} : (code, p) => { if (!/favicon\.ico$/.test(p)) console.error(`  ${code} ${p}`); },
     refuse: (req) => hostRefusal(req.headers.host, hostOpts),
+    identity: { folder: folderId(dir), cmd: 'serve' },
   });
   let port = args.port ?? 4173;
   for (let i = 0; ; i++) {
@@ -220,6 +310,7 @@ export async function serve(argv) {
     }
   }
   hostOpts.port = port;
+  const unregister = registerServer(dir, { cmd: 'serve', port, host });
   const local = `http://localhost:${port}/`;
   const lan = host === '0.0.0.0' || host === '::' ? lanAddresses().map((a) => `http://${a}:${port}/`) : host !== '127.0.0.1' && host !== 'localhost' ? [`http://${host}:${port}/`] : [];
   if (args.json) process.stdout.write(JSON.stringify({ ok: true, dir, port, local, lan }) + '\n');
@@ -231,7 +322,7 @@ export async function serve(argv) {
     console.log('Ctrl-C to stop.');
   }
   await new Promise((resolve) => {
-    const stop = () => { server.close(); resolve(); };
+    const stop = () => { unregister(); server.close(); resolve(); };
     process.once('SIGINT', stop); process.once('SIGTERM', stop);
   });
 }

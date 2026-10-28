@@ -24,9 +24,9 @@
 |---|---|---|
 | In the viewer's browser, every visit | Vector tiles, fonts, sprites | `tiles.openfreemap.org` |
 | In the browser, only when 3D is on | Terrain (terrarium PNG) | `s3.amazonaws.com/elevation-tiles-prod` |
-| At build time, by `uw.mjs` (cached in `.uwcache/`) | Places, lines, feel grid, search, routes, isochrones, air, Wikipedia | Overpass, Photon, OSRM, Valhalla, Open-Meteo, Wikipedia |
+| At build time, by `uw.mjs` (cached in the shared cache; outside an Instafy space also the site's `.uwcache/`) | Places, lines, feel grid, search, routes, isochrones, air, Wikipedia | Overpass, Photon, OSRM, Valhalla, Open-Meteo, Wikipedia |
 | At build time, by `uw.mjs lines`, only for rail Overpass could not give (cached 30 days in `~/.cache/uw/basemap-tiles/`) | Rail track from the basemap's vector tiles (`transportation` layer, class `rail`) | `tiles.openfreemap.org` (TileJSON `/planet`, cached 1 day), at most 40 tiles per run (§3.1a) |
-| At build time, by `uw.mjs photos` / `uw.mjs adapter` (cached in `.uwcache/` and `~/.cache/uw/`) | Doorstep street photos (metadata; images load from Panoramax in the browser), Taiwan hotel registers, night markets | Panoramax, data.gov.tw, data.taipei, media.taiwan.net.tw |
+| At build time, by `uw.mjs photos` / `uw.mjs adapter` (cached in the shared cache: `UW_CACHE`, else `INSTAFY_CACHE_DIR`, else `~/.cache/uw/`) | Doorstep street photos (metadata; images load from Panoramax in the browser), Taiwan hotel registers, night markets | Panoramax, data.gov.tw, data.taipei, media.taiwan.net.tw |
 | On click, by `uw host` handlers | Licence checks, registered hotels nearby | The same cached Taiwan datasets |
 | In the browser, on tap | Panoramax thumbnails and 360° images (with credits) | `panoramax.osm.tw` and other instances |
 | Never | Google APIs (links are fine), Nominatim, scraped sites | — |

@@ -373,11 +373,15 @@ export function selectPayload(L, f, labels = 'en', id = f?.properties?.id) {
 }
 export const capFirst = (s) => (s ? String(s).charAt(0).toUpperCase() + String(s).slice(1) : '');
 
+/** The day after a trip's last night, as `uw plan` writes it ("depart": true; older plans: a title ending ": depart"). */
+export function isDepartDay(d) { return d?.depart === true || /: depart$/.test(String(d?.title || '')); }
+
 /** The page's description (`<meta name="description">`, what a link preview shows): what the map is and how much it
  *  holds, from numbers and fixed words only, never a title or a place name. "Trip · 3 days · 14 places" for a map with
  *  a plan, "Map · 14 places" otherwise; a part that does not apply is left out. `places` = the points on the map. */
 export function pageDescription(config, places) {
-  const days = Array.isArray(config?.plan?.days) ? config.plan.days.length : 0;
+  // the departure day is the date the traveller leaves, not a day of the trip ("3 days in Lisbon": 3 nights)
+  const days = Array.isArray(config?.plan?.days) ? config.plan.days.filter((d) => !isDepartDay(d)).length : 0;
   const count = (n, one, many) => (n > 0 ? `${n} ${n === 1 ? one : many}` : null);
   const kind = config?.plan && typeof config.plan === 'object' ? 'Trip' : 'Map';
   const n = Number.isInteger(places) && places > 0 ? places : 0;

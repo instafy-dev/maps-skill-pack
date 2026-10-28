@@ -3,6 +3,47 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.4 (2026-10-28)
+
+Fixes from the 27 Oct 2026 live test ("Plan 3 days in Lisbon").
+
+- **Days in one place.** `uw plan` takes one stop: "3 days in Lisbon" is `--ids lisbon --nights 3`, a stay whose days
+  are loops from the same base, with no travel day. It refused one stop ("a trip plan needs at least two stops"), so
+  the agent named the city twice and got "Lisbon → Lisbon … Travel day". A stop named twice in a row is now one stay
+  (its nights add up), and one stop with 0 nights is a single day. `reference/itinerary.md` gains "One base": the
+  city as the stop, stays in the area recommended (`uw stay --near <lng,lat> --near-label "<area>" --stop <city>`),
+  places by area, the plan. A stay near a district walks "to <district>", not "to the station".
+- **A day's places lie together.** `uw plan` groups a stop's places by area: the closest share a day (no day spans two
+  areas when another split exists, and places in one area are shared evenly), each day in walking order from the
+  base, the area nearest the base first; the trip's first day takes an area too when the full days would hold more
+  than 2 places each. Places were spread over the days by
+  count, which put Jardim da Estrela on the Alfama day. `uw plan` and `uw validate` warn when a day has a place far
+  from its other places or nearer another day's, and name the day it belongs to ("… is 2.2 km from that day's other
+  places but 0.1 km from "Basílica da Estrela" on Fri 30 Oct"); a day trip far out of town is judged on its own. The
+  thresholds are data: `scripts/plan-checks.json`. Places that fit no day (over `--per-day`) are named in the output
+  (`not_on_plan`) instead of being dropped quietly. A travel day takes the leg between its two stops before the leg at
+  its place in the order.
+- **The place, not a place named after it.** `add-point` takes a candidate whose own name is the query's name (or
+  every word of it and no other) over one that only contains it, whatever order the search gave: "Padrão dos
+  Descobrimentos" is the monument, not "Miradouro do Padrão dos Descobrimentos". A station or stop is never preferred
+  this way unless the query asks for a kind of transit (the zoo, not the metro station named after it; "… Airport"
+  still gets the airport).
+- **The departure day says what it is.** The day after the last night carries `"depart": true` and "Leave <stop>.";
+  nothing is planned on it, its row says "Departure" instead of looking like an empty day, and the page's "Trip · N
+  days" does not count it ("3 days in Lisbon" reads "Trip · 3 days").
+- **A preview the space can start again.** `uw host --detach` (and `uw serve --detach`) prints the one command that
+  starts the same server in the foreground (with the site's absolute path, so it runs from wherever the card was
+  opened) and the `instafy preview open … --serve-cmd "…"` line, and `SKILL.md`
+  step 9 runs that line, so a stopped or sleeping map comes back from its card on any platform. A server keeps its own
+  record while it runs, and one of the same folder that answers on the port is reused, so a server the space started
+  again is found by the next `--detach`, `--stop` and `uw reload` instead of a "port in use".
+- **No `.uwcache/` in the space's files.** In an Instafy space (`INSTAFY_CACHE_DIR` set) a site's working state (its
+  server's record and log, the write lock, the turn clock) and the background jobs a folder starts live in
+  `INSTAFY_CACHE_DIR/interactive-map/state/`, and responses only in the space's shared answers; jobs used to write a
+  `.uwcache/` at the workspace root. Adapter datasets (`uw adapter`, handlers) use the same shared cache
+  (`UW_CACHE`, else `INSTAFY_CACHE_DIR`, else `~/.cache/uw`), so a hosted turn no longer downloads them again. Outside a
+  space nothing changes.
+
 ## 0.1.3 (2026-10-27)
 
 - **`uw` is a command.** `.instafy-pack.json` declares `"bin": {"uw": "scripts/uw.mjs"}`, so a runtime that knows

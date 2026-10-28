@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { readJSON, writeJSON, writeGeoJSON, exists, UserError, UsageError, parseLngLat, fmtBytes, representativePoint, geomBBox, round6 } from './util.mjs';
 import { setCacheDir } from './net.mjs';
 import { withSiteLock } from './site-lock.mjs';
+import { stateDirOf, stateInSpace } from './state-dir.mjs';
 
 export { withSiteLock };
 
@@ -14,7 +15,8 @@ export const STARTER_DIR = path.join(SKILL_DIR, 'starter');
 
 export const LAYER_ID_RE = /^[a-z0-9][a-z0-9_-]{0,47}$/i;
 
-// Open an existing site directory. Sets the response cache to <dir>/.uwcache.
+// Open an existing site directory. Sets the response cache: <dir>/.uwcache, or none of the site's own in a space (the
+// space's shared answers keep every response there; lib/state-dir.mjs).
 export function openSite(dir, { requireConfig = true } = {}) {
   if (!dir) throw new UsageError('missing site directory (first argument)');
   const abs = path.resolve(dir);
@@ -30,7 +32,7 @@ export function openSite(dir, { requireConfig = true } = {}) {
     throw new UserError(`"${dir}" has no map.config.json, so it is not a map site. Create one with: uw new ${dir}`);
   }
   const site = { dir: abs, rel: dir, cfgPath, config };
-  setCacheDir(path.join(abs, '.uwcache'));
+  setCacheDir(stateInSpace(abs) ? null : stateDirOf(abs));
   ensureGitignore(abs, ['.uwcache/']);
   return site;
 }

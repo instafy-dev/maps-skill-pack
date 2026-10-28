@@ -1,10 +1,11 @@
-# Multi-city trips: stops, stations, stays, trains, days
+# Trips: stops, stations, stays, trains, days
 
 On a turn that plans a research team (its skill is loaded and the trip meets its threshold), do not build: emit
 the plan; the builder lane follows this file later.
 
 Use this for an itinerary: two or more places with nights ("3 nights Taipei, then Hualien…", "10 days in Japan with
-hotels and trains", "a rail loop with places to stay"). It replaces steps 4-8 of SKILL.md; the hard rules, the
+hotels and trains", "a rail loop with places to stay"), or days in one place ("3 days in Lisbon": "One base" below).
+It replaces steps 4-8 of SKILL.md; the hard rules, the
 preview step and the turn clock stay. It works anywhere: where an open-data adapter covers the area (`uw adapter list
 --at <lng,lat>`, e.g. a national lodging register) its data comes first; elsewhere OpenStreetMap. Region extras: when
 `reference/regions/<country>.md` exists (e.g. `taiwan.md`), read it too.
@@ -81,7 +82,8 @@ more).
 train & HSR"; the ask comes from `--ask`), then
 `uw plan <site> --stops stations --ids a,b,…,a --nights 3,2,…,2 --start 2026-10-20 --legs trip --stays stays`:
 one dated day per night plus the departure day, travel days with the leg and the new base, every day focused on that
-stop's best stay. A 0-night stop shares its travel day ("Tainan → Tainan HSR → Taipei").
+stop's best stay. A 0-night stop shares its travel day ("Tainan → Tainan HSR → Taipei"). The departure day is marked
+("Departure" on the map, "Leave <stop>."): nothing is planned on it; never fill it with places to look complete.
 
 **6. Reconcile, then preview.** `uw validate <site> --signal`. It checks the map against the route ("expect"):
 `asked for but not on the map: <Stop> (2 nights)` or `on the map but in no day of the plan` is an error. Place the
@@ -117,6 +119,29 @@ comes first.
    at the PNGs. A clean preview check is the visual check; do not repeat it, and never run git in the site folder.
 4. Optional, if time is left: licence chips on the stays where a lodging register covers the area (`uw adapter
    list --at <lng,lat>`), doorstep photos (`uw photos <site> --layer stays`), what the region file suggests.
+
+## One base: days in one place
+
+"3 days in Lisbon", "a weekend in Kyoto", "a day in Porto": one stop and no trains. Step 0 (parse, defaults, the
+`Assumed:` line), step 1, step 6 and Phase B stay; instead of steps 2-5:
+
+1. **The stop** is the city: `uw add-point <site> --layer stops --query "<City>" --country "<Country>" --kind city --id <slug>
+   --props '{"nights":N}'`. "N days" is N nights (they leave the day after) unless the user gave dates; one day is 0.
+2. **Stays** in the area you recommend staying in (a page you read says why): `uw geocode "<area>, <City>"`, then
+   `uw stay <site> --near <its lng,lat> --near-label "<area>" --stop <slug>` (step 3's rules: hotels unless asked,
+   a reason each). The base is the rank-1 stay; each day starts and ends there.
+3. **Places by area**: per day an area worth the day (a neighbourhood, a district a ride away, a day trip), 2-3 sourced
+   places in it (Phase B step 1, with `"stop":"<slug>"`). Never put a place on a day because a list had room.
+4. **Plan**: `uw plan <site> --stops stops --ids <slug> --nights N --start <date> --stays stays --sights sights,food,daytrips`.
+   Every day is a loop from the base: a stop's places are grouped by area (the closest share a day, in walking
+   order, the area nearest the base first; the arrival day takes one when the other days would hold more than 2
+   places each), then the departure day. Never "<city> →
+   <city>": a stop named twice in a row is one stay. The reply says where to stay and why, then each day's area.
+
+**Days that hang together.** `uw plan` and `uw validate` warn when a day has a place far from its other places, or
+nearer another day's (`day places: "<place>" (<day>) is 3.1 km from that day's other places but 0.2 km from
+"<place>" on <day>`). Move it to the day named, in the items and both days' texts, or rebuild with `uw plan … --force`
+(it groups by area). A day trip far out of town is judged on its own.
 
 ## Research-team handoff (big trips)
 
@@ -177,6 +202,8 @@ open site in place; then `uw validate`, `uw reload`, the reply.
 - When the ask is per base, per city or per day, check every one against it before replying, and say which got
   nothing and why.
 - The departure day keeps its plan text unless you have something sourced for it.
+- Moving a place to another day: move its item and reword both days' texts in the same edit; `uw validate` says
+  when a day's places are far apart or one is nearer another day's.
 - Rail track still missing (the legs are arcs): run the lines/legs retry first (Phase A step 4).
 - Changing a place's note or reason: keep its sourced facts (the walk, the register line) and add to them; never
   replace them with an "unverified" paragraph (that goes in the reply's unverified line).

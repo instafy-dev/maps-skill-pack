@@ -56,7 +56,10 @@ uw validate my-map --signal && uw snapshot my-map --signal && uw serve my-map --
 ```
 
 `uw serve` prints a localhost address and, with `--host 0.0.0.0`, a LAN address to open on a phone on the same
-Wi-Fi. `uw host <site>` is `serve` plus the agent loop for the intents in the site's `bound.json`.
+Wi-Fi. `uw host <site>` is `serve` plus the agent loop for the intents in the site's `bound.json`. With `--detach`
+both run in the background and print the command that starts the same server in the foreground, and in Instafy the
+`instafy preview open … --serve-cmd "…"` line that gives the map a preview card the space can start again after the
+server stops.
 
 ### Commands
 
@@ -69,7 +72,7 @@ Wi-Fi. `uw host <site>` is `serve` plus the agent loop for the intents in the si
 | At the door | `doorstep`, `photos` |
 | Data | `adapter` (dataset adapters with licences), `cite` (one public page as a fact source), `lookups` (services and their health) |
 
-A multi-city trip follows `skills/interactive-map/reference/itinerary.md`. Run `uw help` for all commands and
+A trip, in one place or several, follows `skills/interactive-map/reference/itinerary.md`. Run `uw help` for all commands and
 `uw <command> --help` for flags. The config reference is `skills/interactive-map/reference/config.md`, and how-tos
 are in `reference/recipes.md`.
 
@@ -79,7 +82,7 @@ are in `reference/recipes.md`.
 |---|---|
 | `UW_OVERPASS`, `UW_PHOTON`, `UW_OSRM`, `UW_VALHALLA`, `UW_OPENMETEO`, `UW_WIKIPEDIA`, `UW_PANORAMAX`, `UW_TRANSIT_URL`, `UW_BASEMAP_TILES` | Point a data source at another instance (a self-hosted server or a gateway) |
 | `UW_CACHE`, `UW_NO_CACHE` | Cache folder for fetched data, or turn the cache off |
-| `INSTAFY_CACHE_DIR` | A folder that outlasts the turn, set by the Instafy runtime per space: lookup health, rate-limit holds, slots and shared answers live there (a hosted tool turn's HOME is new every turn) |
+| `INSTAFY_CACHE_DIR` | A folder that outlasts the turn, set by the Instafy runtime per space: lookup health, rate-limit holds, slots, shared answers, downloaded datasets, each site's working state (server record and log, write lock, turn clock) and background jobs live there, so no `.uwcache/` lands in the space's files (a hosted tool turn's HOME is new every turn) |
 | `INSTAFY_LOOKUP_PROVIDERS`, `INSTAFY_LOOKUP_STATE`, `INSTAFY_LOOKUP_CACHE_DIR` | Add or replace lookup providers and chains (JSON or a file), and where lookup state is kept |
 | `INSTAFY_LOOKUP_CONTACT` | The operator's contact (a URL or e-mail) added to the User-Agent every request carries |
 | `UW_MAX_COMMAND_S`, `UW_APPLY_BUDGET_S` | Lower the ceiling of one command (540 s) or of a whole `handoff --apply` run (420 s); never raise them |

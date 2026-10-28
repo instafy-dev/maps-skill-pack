@@ -25,7 +25,7 @@ export const help = `photos <dir> --layer hotels [--radius 40] [--instances osm-
   --max-age-years drops older pictures (default 6).
   Writes data/photos.json: per "<layer>:<id>": status found|none, the photo (thumb_url 500 px, sd_url 2048 px for the
   360° viewer, viewer_url, is_360, captured_at, author, licence, distance_m, heading, bearing_to_item, yaw_to_item,
-  facing, night) + alternates. Max 2 requests/s; responses cached in .uwcache/.
+  facing, night) + alternates. Max 2 requests/s; responses cached (the shared answers cache, and the site's .uwcache/ outside a space).
   Adds to map.config.json: "photos": { "data": "data/photos.json", "layers": ["hotels"] }   (viewer: built-in 360° by default; "link" opens Panoramax)`;
 
 function hostOf(u) { try { return new URL(u).origin; } catch { return null; } }

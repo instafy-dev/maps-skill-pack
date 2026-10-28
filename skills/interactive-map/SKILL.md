@@ -38,14 +38,14 @@ Hosted turns stop at 10 min: map + verdict + link early, reply with time to spar
 `uw question` and `uw validate` print the time used and left; under ~3 min left: start nothing slow, reply.
 Long commands: `--detach`, then `uw wait` (exit 75: again).
 
-**Multi-city trip** (places with nights, hotels + trains): follow `reference/itinerary.md` instead of steps 4-8.
+**Trip** (nights in one or more places): follow `reference/itinerary.md` instead of steps 4-8.
 
 **Phase A: a useful map (≤ 4 min)**
 1. Plan (no tools, never ask: fill gaps for the `Assumed:` line): `kind` (choose-one | find-place |
    find-area | plan-route | explore), `ask` (≤ 70 chars), 2-5 options (pins A-E), ≤ 4 criteria with weights 0-3
    (quiet, MRT walk, cafés…), lenses (sleep, night, move, morning).
    Write title, ask and notes in the user's language; Swedish: `--lang sv` in step 3.
-   Days in one place ("a weekend in Lisbon"): a one-stop trip, `reference/itinerary.md`.
+   Days in one place ("3 days in Lisbon"): a one-base trip, `reference/itinerary.md`.
 2. `uw geocode "<district, city>"` → `lng,lat`. Exit 4: go on without `--center`/`--near`.
 3. `uw new <site> --title "…" --ask "<ask>" --center <lng,lat> --zoom 13`
 4. `uw add-point <site> --layer hotels --query "<name>, <city>" --near <lng,lat> --id <slug>` per option. Keep each
@@ -63,8 +63,8 @@ Long commands: `--detach`, then `uw wait` (exit 75: again).
    "NOTHING MEASURED YET SEPARATES": say "too close to call so far"; run the step it names.
 8. `uw fit <site>`, then `uw validate <site> --signal`; fix every error.
 9. Preview: `uw host <site> --host 0.0.0.0 --port 4173 --detach` (outlives the turn; runs bound.json buttons).
-   With the `instafy` command: `instafy preview open --port 4173 --title "<site title>" --json` (gallery:
-   `--path /<site>/`): a card shows it. Exit 2 = the server is not up: re-run `--detach` once, retry. Then
+   With `instafy`: run the `instafy preview open --port 4173 … --serve-cmd "…" --json` line it prints (the card
+   can restart the map; gallery: `--path /<site>/`). Exit 2 = the server is not up: re-run `--detach` once. Then
    `instafy preview check --port 4173 --phone` (same `--path`): fix every error it lists; open the PNG it names.
    Never post a URL (not even localhost): "Open it from the card".
    Public link only on request (`instafy tunnel start --port 4173 --name map --json`, post its `url`).
