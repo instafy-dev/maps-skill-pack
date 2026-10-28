@@ -1,7 +1,7 @@
 // `geocode` and `add-point`: the "geocode" lookup chain (lookup-providers.json: OpenStreetMap search, then
 // Wikipedia's article coordinates, then an OpenStreetMap name search, each asked only while the ones before could not
 // answer); add-point appends/replaces a point in a layer file.
-import { parseArgs, makeOut, parseLngLat, haversine, round6, slugify, readJSON, writeJSON, writeGeoJSON, exists, bboxAround, UsageError, UserError } from './util.mjs';
+import { parseArgs, makeOut, parseLngLat, haversine, round6, slugify, readJSON, writeJSON, writeGeoJSON, exists, bboxAround, propsArg, UsageError, UserError } from './util.mjs';
 import { fetchJSON, overpass, isSkip, withCap, ask, lookupState, cacheFor, partialLine } from './net.mjs';
 import { openSite, checkLayerId, layerPath, layerRelPath, configLayer, titleCase, viewCenter, viewBounds, withSiteLock } from './site.mjs';
 import { emojiFor } from './kinds.mjs';
@@ -20,10 +20,14 @@ export const helps = {
   (data.gov.tw 7780 + Taipei 135464) are searched too, by registered name, Taipei register name, website and listing name
   (--source registry: only them; --source osm: never; "photon" is an old name for osm).`,
   addPoint: `add-point <dir> --layer <id> --query "<q>" [--near lng,lat] [--id slug] [--name "Label"] [--emoji 🏨] [--note "…"]
-          [--props '{"price":120}'] [--kind hotel] [--pick N] [--allow-far] [--allow-mismatch] [--max-km 8] [--lang en]
+          [--props '{"price":120}' | --props-file <file|->] [--kind hotel] [--pick N] [--allow-far] [--allow-mismatch] [--max-km 8] [--lang en]
           [--source auto|osm|registry] [--tier option|support|context] [--no-fit] [--country <name|code>] [--strict-name] [--json]
 add-point <dir> --layer <id> --osm osm-w940449133 [--id slug] [--name …]   (an exact OpenStreetMap object, e.g. one a refusal suggested)
 add-point <dir> --layer <id> --at lng,lat --name "Label" [...]     (only for coordinates the user gave you)
+  Text with an apostrophe or quotes ("Alfama's") breaks single-quoted --props: pass the object on stdin instead,
+    uw add-point <dir> … --props-file - <<'JSON'
+    {"why":"Alfama's lanes"}
+    JSON
   Not in OpenStreetMap under its name (new, renamed, small)? Geocode its street address instead:
     --query "<street address, district, city>" --name "<real name>" --props '{"source":"<where the address came from>"}'
   --name in Latin script also becomes name_en (the label English maps show); OSM's English name is kept as osm_name_en.
@@ -483,7 +487,7 @@ export async function addPoint(argv) {
 }
 async function addPointRun(argv, ctx) {
   const args = parseArgs(argv, { layer: 'string', query: 'string', near: 'string', id: 'string', name: 'string', emoji: 'string',
-    note: 'string', props: 'string', pick: 'number', 'allow-far': 'bool', 'allow-mismatch': 'bool', 'max-km': 'number', at: 'string', lang: 'string', kind: 'string', osm: 'string',
+    note: 'string', props: 'string', 'props-file': 'string', pick: 'number', 'allow-far': 'bool', 'allow-mismatch': 'bool', 'max-km': 'number', at: 'string', lang: 'string', kind: 'string', osm: 'string',
     source: 'string', tier: 'string', 'no-fit': 'bool', country: 'string', 'strict-name': 'bool' },
   { positionals: [1, 1], command: 'add-point' });
   if (args.help) return console.log(helps.addPoint);
@@ -491,11 +495,7 @@ async function addPointRun(argv, ctx) {
   const site = openSite(args._[0]);
   const layer = checkLayerId(args.layer);
   Object.assign(ctx, { site, layer, args });
-  let extra = {};
-  if (args.props) {
-    try { extra = JSON.parse(args.props); } catch (e) { throw new UsageError(`--props is not valid JSON (${e.message}). Example: --props '{"price":120,"area":"Zhongshan"}'`); }
-    if (!extra || typeof extra !== 'object' || Array.isArray(extra)) throw new UsageError('--props must be a JSON object');
-  }
+  const extra = propsArg(args);
   if (!args.query && !args.at && !args.osm) throw new UsageError('give --query "<place name or street address>" (or --osm <osm id>, or --at lng,lat --name "…" for coordinates the user provided)');
   if ([args.query, args.at, args.osm].filter(Boolean).length > 1) throw new UsageError('use one of --query, --osm or --at');
   const source = sourceArg(args.source);

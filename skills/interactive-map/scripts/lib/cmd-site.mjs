@@ -7,7 +7,7 @@ import { UA, LOOKUPS, lookupState } from './net.mjs';
 import { chainOf, resolveProvider } from './lookup.mjs';
 import { STARTER_DIR, ensureGitignore, openSite, loadLayer, listLayerIds, withSiteLock } from './site.mjs';
 import { loadPlaywright, launchChromium } from './cmd-serve.mjs';
-import { parseExpect } from './expect.mjs';
+import { parseExpect, describeItems } from './expect.mjs';
 
 export const helps = {
   newSite: `new <dir> [--title "Where to stay in Taipei"] [--subtitle "…"] [--ask "Which hotel for 3 nights?"] [--center lng,lat] [--zoom 14]
@@ -20,7 +20,8 @@ export const helps = {
   --ask "…"  the user's question (≤ 70 characters), kept as "description"; \`uw question\` uses it when it gets no --ask.
   --lang sv  "locale": "sv": the words the map writes itself (tabs, verdict phrases from uw question) are Swedish.
   --expect "…"  every item the request names (stops with nights, places, options), kept as "expect": uw validate
-             fails while one of them is not on the map (or, with a plan, in no day).`,
+             fails while one of them is not on the map (or, with a plan, in no day). A stop with nights
+             ("Lisbon:3" for 3 days in Lisbon) is a trip: validate fails until the map has its plan.`,
   fit: `fit <dir> [--layers hotels,day1] [--pad 0.12] [--max-zoom 16] [--json]
   Sets view.center, view.zoom and view.bounds in map.config.json to frame the data. A find-place question frames its
   lettered top N (ranked like the engine) plus the hand-picked layers. Default: the hand-picked layers
@@ -80,6 +81,8 @@ export async function newSite(argv) {
   const args = parseArgs(argv, { title: 'string', subtitle: 'string', ask: 'string', center: 'string', zoom: 'number', lang: 'string', force: 'bool', expect: 'string' }, { positionals: [1, 1], command: 'new' });
   if (args.help) return console.log(helps.newSite);
   const expect = parseExpect(args.expect);
+  // stops with nights: a trip, built by reference/itinerary.md
+  const trip = expect.filter((e) => e.nights != null);
   const out = makeOut(args);
   checkStarter();
   const dir = path.resolve(args._[0]);
@@ -126,7 +129,9 @@ export async function newSite(argv) {
   out.result({ ok: true, dir, files: n, title: cfg.title, view: cfg.view }, [
     `Created ${rel} (${n} files) — "${cfg.title}"${center ? ` centred on ${center.join(',')} @ z${cfg.view.zoom}` : ''}.`,
     center ? null : 'No --center given: set view.center/zoom/bounds in map.config.json (validate will remind you).',
-    `Next (SKILL.md procedure step 4): uw add-point ${rel} --layer <options> --query "<name, city>" --near <lng,lat from geocode> --id <slug>, once per option.`,
+    trip.length
+      ? `Next: a trip (${describeItems(trip)}): follow reference/itinerary.md ("One base" for days in one place), not SKILL.md steps 4-8; uw validate fails until the plan has its days.`
+      : `Next (SKILL.md procedure step 4): uw add-point ${rel} --layer <options> --query "<name, city>" --near <lng,lat from geocode> --id <slug>, once per option. A trip (days or nights somewhere): reference/itinerary.md instead.`,
   ]);
 }
 

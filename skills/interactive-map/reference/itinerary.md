@@ -103,8 +103,13 @@ comes first.
    (`uw cite https://en.wikivoyage.org/wiki/<City> --grep "<what you need>"`, sections See/Do), then open the
    official tourism site, the attraction's own site, a national park or Wikipedia and check it is current (closures, renovations, seasonal hours). A refused site (it bans agents, robots.txt, a bot
    check) is a plain link, never fetched another way. At most about 8 pages per city. Then per sight:
-   `uw add-point <site> --layer sights --query "<local-language name>" --country "<Country>" --strict-name --near <that station's lng,lat> --id <slug> --props '{"stop":"<station id>","source_url":"https://…","source":"<site name>","why":"<what the page says to do there>"}'`
-   (exit 2 = no hit carries the name: retry once with the local name, else list it as unverified; food spots go on
+   ```
+   uw add-point <site> --layer sights --query "<local-language name>" --country "<Country>" --strict-name --near <that station's lng,lat> --id <slug> --props-file - <<'JSON'
+   {"stop":"<station id>","source_url":"https://…","source":"<site name>","why":"<what the page says to do there>"}
+   JSON
+   ```
+   (props with words in them always go on stdin like this: an apostrophe in single-quoted JSON breaks the command;
+   exit 2 = no hit carries the name: retry once with the local name, else list it as unverified; food spots go on
    `--layer food`, day trips on `--layer daytrips --max-km 80`).
    Then `uw plan … --sights sights,food,daytrips --force` (the layers that exist): places land on the stop's full
    days with their source links, and each such day's text says what it is for ("Livraria Lello (the 1906
@@ -129,7 +134,10 @@ comes first.
    --props '{"nights":N}'`. "N days" is N nights (they leave the day after) unless the user gave dates; one day is 0.
 2. **Stays** in the area you recommend staying in (a page you read says why): `uw geocode "<area>, <City>"`, then
    `uw stay <site> --near <its lng,lat> --near-label "<area>" --stop <slug>` (step 3's rules: hotels unless asked,
-   a reason each). The base is the rank-1 stay; each day starts and ends there.
+   a reason each). The base is the rank-1 stay; each day starts and ends there. Never the area itself as a hotel. No
+   stay found (exit 2 after widening, or exit 4): pin the area as the recommendation, labelled as one:
+   `uw add-point <site> --layer stays --query "<area>, <City>" --kind area --id <area slug> --note "Area to stay in: <why, from the page>" --props '{"stop":"<slug>"}'`
+   (the days start there), and the reply says places to stay were not looked up yet.
 3. **Places by area**: per day an area worth the day (a neighbourhood, a district a ride away, a day trip), 2-3 sourced
    places in it (Phase B step 1, with `"stop":"<slug>"`). Never put a place on a day because a list had room.
 4. **Plan**: `uw plan <site> --stops stops --ids <slug> --nights N --start <date> --stays stays --sights sights,food,daytrips`.
@@ -194,8 +202,8 @@ open site in place; then `uw validate`, `uw reload`, the reply.
   day's text).
 - Places you recommend (a food spot, a day-trip destination, a transfer point) go on the map, each with the page
   that names it: `uw add-point <site> --layer food|daytrips|sights --query "<local name>" --country "<Country>"
-  --strict-name --near <base lng,lat> --props '{"stop":"<station id>","source_url":"https://…","source":"<site>"}'`,
-  (a day trip adds `--max-km 80`; put the page's reason in `"why"`), then into the day as `{"text": "…", "ref":
+  --strict-name --near <base lng,lat> --props-file - <<'JSON'`, then `{"stop":"<station id>","source_url":"https://…","source":"<site>"}`
+  and `JSON` on their own lines (a day trip adds `--max-km 80`; put the page's reason in `"why"`), then into the day as `{"text": "…", "ref":
   {"layer": "food", "id": "…"}, "url": "…"}` and rewrite that day's text to include it. Many days at once:
   `uw plan … --sights sights,food,daytrips --force` places them and rewrites the texts (hand edits are replaced).
   Prose items are only for how to get there.
@@ -230,14 +238,15 @@ Write for the traveller, 5-8 short lines:
 4. Trains: what is sourced (durations with their timetable) and what is an estimate from the distance (the plan
    says "about 2 h … (estimate …)"; "check the operator's timetable, linked on each leg").
 5. Day highlights or warnings worth acting on (a closure, a pass to buy), only from the pages you opened.
-6. `Sources:` in one line, by name (e.g. "OpenStreetMap, OSRM walking routes, Wikivoyage, the national park's
-   site", the lodging register when one was used, plus the journey planner when `uw transit` gave times).
+6. `Sources:` in one line, by who publishes the data (e.g. "OpenStreetMap, Wikivoyage, the national park's site",
+   the lodging register when one was used, plus the operator's journey planner when `uw transit` gave times).
 7. `Unverified:` prices and availability (never checked), train times not sourced, anything "Not found yet",
    handoff unknowns.
 8. "Open it from the card." (SKILL.md step 9).
 
 Never in the reply: file or folder names (not the handoff or site folder either: "Research details: handoff/…" helps
-nobody), command names, layer ids (`stays:…`), "validates"/"valid", internal scores. A builder's final summary
+nobody), command names, lookup services (Overpass, Photon, OSRM) or exit codes, layer ids (`stays:…`),
+"validates"/"valid", internal scores. A lookup that was busy is said in plain words ("the place search was busy"). A builder's final summary
 follows the same rule: the lead copies it.
 End with 2-3 one-tap follow-ups that change what you assumed or add a next step ("We're 4, with kids", "Slower
 pace", "Add a day trip"); never a question the user must answer before the plan exists. In Instafy they go in

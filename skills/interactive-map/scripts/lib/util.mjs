@@ -64,6 +64,27 @@ export function parseArgs(argv, spec, { positionals = [0, 1], command = '' } = {
   return out;
 }
 
+/** The extra properties of `--props '<json>'` or `--props-file <file>` ("-" reads stdin, so a quoted heredoc passes text
+ *  with apostrophes or quotes, such as "Alfama's", that single-quoted JSON on the command line cannot hold). An empty
+ *  `--props` is none. Throws UsageError for a missing file, bad JSON or anything but an object. */
+export function propsArg(args) {
+  const file = args['props-file'];
+  if (file !== undefined && args.props !== undefined) throw new UsageError('use --props or --props-file, not both');
+  let text = args.props, from = '--props';
+  if (file !== undefined) {
+    from = file === '-' ? '--props-file - (stdin)' : `--props-file ${file}`;
+    try { text = fs.readFileSync(file === '-' ? 0 : path.resolve(file), 'utf8'); } catch (e) { throw new UsageError(`${from}: cannot read it (${e.code || e.message})`); }
+    if (!text.trim()) throw new UsageError(`${from} is empty: give a JSON object, e.g. --props-file - <<'JSON' then {"why":"…"} then JSON`);
+  }
+  if (!text) return {};
+  let v;
+  try { v = JSON.parse(text); } catch (e) {
+    throw new UsageError(`${from} is not valid JSON (${e.message}). Text with an apostrophe or quotes: --props-file - <<'JSON' on one line, the object on the next, JSON on the last`);
+  }
+  if (!v || typeof v !== 'object' || Array.isArray(v)) throw new UsageError(`${from} must be a JSON object`);
+  return v;
+}
+
 export function need(args, name, hint = '') {
   if (args[name] === undefined || args[name] === '' || (Array.isArray(args[name]) && !args[name].length))
     throw new UsageError(`missing required flag --${name}${hint ? ` (${hint})` : ''}`);

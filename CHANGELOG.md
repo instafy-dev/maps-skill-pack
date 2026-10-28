@@ -3,6 +3,27 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.6 (2026-10-28)
+
+Fixes from the 28 Oct 2026 drive ("3 days in Lisbon … what to see each day").
+
+- **A trip is days too.** `SKILL.md` sent "nights in one or more places" to `reference/itinerary.md`, so "3 days in
+  Lisbon" took the steps for choosing a hotel: one neighbourhood as the only "hotel" and the days written into the
+  pins' notes, with no plan. A trip is now days or nights somewhere ("what to see each day"), routed before Phase A,
+  and `uw new` points a trip to the itinerary. `uw validate` fails while a stop asked for with nights (`--expect
+  "Lisbon:3"`) has no plan. "One base" never pins the area as a hotel: with no stay found it pins the area as the
+  recommendation, labelled as one.
+- **Plain words on the map.** A place card and the Places list said OpenStreetMap's own classes ("Baixa · Suburb",
+  "Belém · Administrative") and "Source: OpenStreetMap search (Photon) · osm.org/node/…". Area classes now read
+  "Neighbourhood", "District", "Area", "Town" (a bare "yes" or "house" says nothing), and map data reads "Map data ©
+  OpenStreetMap"; another source keeps its name without the lookup in brackets. A new map has no "neighbourhood feel
+  layer" subtitle.
+- **Props without shell quoting.** `uw add-point` and `uw set` take `--props-file <file>`, and `--props-file -` reads
+  stdin, so a quoted heredoc carries "Alfama's" or quotes that single-quoted `--props` JSON broke (3 of 18 steps
+  failed on it). The skill and the itinerary use it for props with words in them.
+- **Replies in plain words.** The reply rules leave out lookup services, commands and exit codes ("Overpass place
+  search was unavailable"), say what was busy plainly, and name sources by who publishes the data.
+
 ## 0.1.5 (2026-10-28)
 
 Fixes to 0.1.4.

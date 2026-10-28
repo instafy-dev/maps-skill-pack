@@ -12,7 +12,7 @@ import {
   h, clamp, fill, fmtHour, fmtMetric, fmtNum, humanize, inWindow, center, bbox, lineCoords, cumulative, along, distM,
   pointInGeom, round6, debounce, rafThrottle, reducedMotion, prefersDark, timeIcon,
   BASIS, normBasis, fmtDate, fmtAge, fmtMoney, safeUrl, MODE_EMOJI, CAT_COLORS, THEME_COLORS, parseColor, featureName, selectPayload, word,
-  pageDescription,
+  pageDescription, kindLabel, sourceLine,
 } from './util.js';
 import { Question, guessMetric, mentionLayer, shortName } from './question.js';
 import { RecordStore, expired, stale, itemFeature, offerGroup } from './records.js';
@@ -586,7 +586,7 @@ function showFeatureCard(L, f, o = {}) {
   if (E.v2) return showFeatureCard2(L, f, o);
   const p = f.properties, card = L.def.card || {};
   const title = displayName(p) || L.title;
-  let subtitle = card.subtitle ? fill(card.subtitle, p) : [p.kind ? humanize(p.kind) : '', p.area].filter(Boolean).join(' · ');
+  let subtitle = card.subtitle ? fill(card.subtitle, p) : [kindLabel(p.kind), p.area].filter(Boolean).join(' · ');
   const local = p.name && p.name !== title ? p.name : '';
   if (local && !subtitle.includes(local)) subtitle = subtitle ? `${local} · ${subtitle}` : local;
   const chips = [];
@@ -621,11 +621,8 @@ function showFeatureCard(L, f, o = {}) {
   actions.push({ icon: 'share', label: 'Share', onClick: () => share(title) });
   if (p.url || p.website) actions.push({ emoji: '🔗', label: 'Website', href: p.url || p.website });
   actions.push(...sourceActs(L, p));
-  const src = p.source || (/^osm-[nwr]\d+/.test(p.id) ? 'OpenStreetMap' : '');
-  let foot = src ? `Source: ${src}` : '';
-  if (/^osm-([nwr])(\d+)/.test(p.id)) { const [, t, n] = /^osm-([nwr])(\d+)/.exec(p.id); foot += ` · osm.org/${{ n: 'node', w: 'way', r: 'relation' }[t]}/${n}`; }
-  // placed from a fallback source (uw add-point / station): the card says so until a full answer replaces it
-  if (p.data_status === 'partial') foot += `${foot ? ' · ' : ''}data may be incomplete`;
+  // where the place came from, in plain words; a place a fallback found says so until a full answer replaces it
+  const foot = sourceLine(p);
   E.ui.showCard({ kind: 'feature', layer: L.id, id: p.id, title, subtitle, emoji: p._emoji || L.emoji || p.emoji || '', color: p._color || L.color,
     body: card.body ? fill(card.body, p) : (p.note || p.description || ''), chips, bars, actions, foot,
     image: typeof p.image === 'string' && /^https:\/\//.test(p.image) ? p.image : null,
@@ -1050,7 +1047,7 @@ function pinBoxes() {
 function placeItem(L, f) {
   const p = f.properties, card = L.def.card || {};
   const v = voteInfo(p.id);
-  const sub = card.subtitle ? fill(card.subtitle, p) : [p.kind ? humanize(p.kind) : '', p.area].filter(Boolean).join(' · ');
+  const sub = card.subtitle ? fill(card.subtitle, p) : [kindLabel(p.kind), p.area].filter(Boolean).join(' · ');
   const name = displayName(p);
   return { id: p.id, layer: L.id, name, sub: sub || L.title, emoji: p._emoji, color: p._color || L.color,
     search: [p.name, p.name_en, p.kind, p.area, sub].filter(Boolean).join(' ').toLowerCase(),
@@ -2554,15 +2551,12 @@ function showFeatureCard2(L, f, o = {}) {
   const isCtx = !opt && (L.tier === 'context' || L.tier === 'option');
   const title = displayName(p) || L.title;
   const local = p.name && p.name !== title ? p.name : '';
-  let subtitle = card.subtitle ? fill(card.subtitle, p) : [p.kind ? humanize(p.kind) : '', p.area].filter(Boolean).join(' · ');
+  let subtitle = card.subtitle ? fill(card.subtitle, p) : [kindLabel(p.kind), p.area].filter(Boolean).join(' · ');
   if (local && !subtitle.includes(local)) subtitle = subtitle ? `${local} · ${subtitle}` : local;
   const isPoint = f.geometry?.type === 'Point';
   const links = isPoint ? linksFor(L, f) : [];
-  const src = p.source || (/^osm-[nwr]\d+/.test(p.id) ? 'OpenStreetMap' : '');
-  let foot = src ? `Source: ${src}` : '';
-  if (/^osm-([nwr])(\d+)/.test(p.id)) { const [, t, n] = /^osm-([nwr])(\d+)/.exec(p.id); foot += ` · osm.org/${{ n: 'node', w: 'way', r: 'relation' }[t]}/${n}`; }
-  // placed from a fallback source (uw add-point / station): the card says so until a full answer replaces it
-  if (p.data_status === 'partial') foot += `${foot ? ' · ' : ''}data may be incomplete`;
+  // where the place came from, in plain words; a place a fallback found says so until a full answer replaces it
+  const foot = sourceLine(p);
   const base = { kind: 'feature', v2: true, layer: L.id, id: p.id, ref: item.ref, title, subtitle, emoji: p._emoji || L.emoji || p.emoji || '', color: p._color || L.color,
     letter: opt?.letter || null, context: isCtx, links, foot, refresh: !!o.refresh };
   const timeChip = () => {
@@ -2570,7 +2564,7 @@ function showFeatureCard2(L, f, o = {}) {
     if (!(E.config.time?.enabled && p.time_from != null && p.time_to != null)) return null;
     const win = `${fmtHour(p.time_from)}–${fmtHour(p.time_to)}`;
     // a register's window (e.g. permitted vendor hours) says so: it is not an opening time
-    const what = typeof p.hours_label === 'string' && p.hours_label ? p.hours_label.toLowerCase() : p.kind ? humanize(p.kind).toLowerCase() : L.title;
+    const what = typeof p.hours_label === 'string' && p.hours_label ? p.hours_label.toLowerCase() : kindLabel(p.kind) ? kindLabel(p.kind).toLowerCase() : L.title;
     return { text: L.style.glow || p.hours_label ? `${L.emoji || p.emoji || '🕒'} ${win} · ${what}` : `${timeIcon(p.time_from)} ${win}`.trim() };
   };
   // hours from an official register: a fact row with its source, date and basis
