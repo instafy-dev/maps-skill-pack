@@ -90,25 +90,28 @@ export function nameMatches(query, names, area = []) {
 }
 
 /** How closely a candidate's own name (or its English name) is the place the query names, not only a name that
- *  contains it: 3 the same name; 2 every distinctive word of the query and no other; 1 the query's words and more
- *  ("Miradouro do Padrão dos Descobrimentos", the viewpoint named after "Padrão dos Descobrimentos"); 0 otherwise.
- *  Accents, case and punctuation do not count, nor words that only name the area (`area`, as in nameMatches),
- *  generic words (hotel, museum …) or words of three letters or fewer (de, dos, the). Only the part of the query
+ *  contains it: 3 the same name; 2 every distinctive word of the query and no word the query does not have; 1 the
+ *  query's words and more ("Miradouro do Padrão dos Descobrimentos", the viewpoint named after "Padrão dos
+ *  Descobrimentos"; "Hôtel du Sacré-Cœur", a hotel named after the church); 0 otherwise. Accents, case and
+ *  punctuation do not count, nor words that only name the area (`area`, as in nameMatches) or words of three letters
+ *  or fewer (de, dos, the). Generic words (hotel, museum …) never make a match, but a name's generic word the query
+ *  does not have is a word more: a hotel or café named after a place is not that place. Only the part of the query
  *  before a comma is the name ("Padrão dos Descobrimentos, Lisboa"). Pure; exported for the tests. */
 export function nameCloseness(query, names, area = []) {
   const norm = (x) => String(x || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
   const label = norm(String(query || '').split(/[,，]/)[0]);
   if (!label) return 0;
   const areaTokens = new Set(area.filter(Boolean).flatMap((a) => norm(a).split(' ')));
-  const words = (x) => new Set(x.split(' ').filter((t) => (t.length >= 4 || /^\d+$/.test(t)) && !GENERIC.has(t) && !areaTokens.has(t)));
+  const words = (x, generic = false) => new Set(x.split(' ').filter((t) => (t.length >= 4 || /^\d+$/.test(t)) && (generic || !GENERIC.has(t)) && !areaTokens.has(t)));
   const want = words(label);
+  const said = words(label, true);
   let best = 0;
   for (const n of names.filter(Boolean).map(norm)) {
     if (n === label) return 3;
     if (!want.size) continue;
-    const have = words(n);
+    const have = words(n, true);
     if (![...want].every((t) => have.has(t))) continue;
-    best = Math.max(best, [...have].every((t) => want.has(t)) ? 2 : 1);
+    best = Math.max(best, [...have].every((t) => said.has(t)) ? 2 : 1);
   }
   return best;
 }

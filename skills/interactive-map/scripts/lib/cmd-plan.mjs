@@ -80,14 +80,32 @@ export function routeLine(stops, nights, plan) {
 }
 
 /** The stops in travel order with a stop named twice in a row merged into one stay (its nights added up): "Lisbon →
- *  Lisbon" is not a travel day. Pure; exported for the tests. */
+ *  Lisbon" is not a travel day. `at[i]`: where stay i's last entry was in the list given, so the leg out of it is the
+ *  one with "order" at[i] + 1 (legs are numbered along the list they were made for). Pure; exported for the tests. */
 export function collapseStops(stops, nights) {
-  const s = [], n = [];
+  const s = [], n = [], at = [];
   stops.forEach((x, i) => {
-    if (s.length && s[s.length - 1].id === x.id) n[n.length - 1] += nights[i];
-    else { s.push(x); n.push(nights[i]); }
+    if (s.length && s[s.length - 1].id === x.id) { n[n.length - 1] += nights[i]; at[at.length - 1] = i; }
+    else { s.push(x); n.push(nights[i]); at.push(i); }
   });
-  return { stops: s, nights: n };
+  return { stops: s, nights: n, at };
+}
+
+/** Each stop's places: a feature's "stop" when it is one of the stops, else the nearest stop within 60 km; a place
+ *  farther from every stop is not part of the trip. Map stop id → features, in the order given. Pure. */
+export function poolSights(stops, sights) {
+  const pool = new Map(stops.map((s) => [s.id, []]));
+  for (const f of sights) {
+    const p = f.properties;
+    let sid = p.stop && pool.has(p.stop) ? p.stop : null;
+    if (!sid) {
+      const c = representativePoint(f.geometry);
+      let best = Infinity;
+      for (const s of stops) { const d = haversine(c, s.coord); if (d < best && d < 60000) { best = d; sid = s.id; } }
+    }
+    if (sid) pool.get(sid).push(f);
+  }
+  return pool;
 }
 
 const pointOf = (f) => (f?.geometry ? representativePoint(f.geometry) : null);
@@ -237,31 +255,28 @@ export function legEstimate(lp = {}, a = null, b = null) {
 export function buildPlan({ stops: stopsIn, nights: nightsIn, start, legs = [], stays = [], sights = [], perDay = 3, title = 'Plan' }) {
   if (stopsIn.length !== nightsIn.length) throw new UsageError(`--nights has ${nightsIn.length} values for ${stopsIn.length} stops`);
   if (!stopsIn.length) throw new UsageError('a plan needs at least one stop');
-  const { stops, nights } = collapseStops(stopsIn, nightsIn);
+  const { stops, nights, at } = collapseStops(stopsIn, nightsIn);
   const days = [];
   const date = new Date(`${start}T00:00:00Z`);
   const next = () => { const d = new Date(date); date.setUTCDate(date.getUTCDate() + 1); return d; };
-  // the leg between these two stops first; then the leg at this place in the order (a leg from a stop to itself,
-  // left from a list that named a stop twice in a row, is never a travel day)
-  const legFor = (a, b, i) => legs.find((f) => (f.properties.from === a.id) && (f.properties.to === b.id))
-    || legs.find((f) => f.properties.order === i + 1 && (f.properties.from === a.id || f.properties.from_id === a.id) && f.properties.to !== a.id);
+  // the leg at this place in the order that joins these two stops (a trip may go the same way twice, on different
+  // trains); then any leg between them (legs made for another list); then the leg at this place from this stop. A leg
+  // from a stop to itself, left from a list that named a stop twice in a row, is never a travel day.
+  const legFor = (a, b, i) => {
+    const order = at[i] + 1;
+    const from = (f) => f.properties.from === a.id || f.properties.from_id === a.id;
+    const to = (f) => f.properties.to === b.id || f.properties.to_id === b.id;
+    return legs.find((f) => f.properties.order === order && from(f) && to(f))
+      || legs.find((f) => from(f) && to(f))
+      || legs.find((f) => f.properties.order === order && from(f) && f.properties.to !== a.id && f.properties.to_id !== a.id);
+  };
   // a stay the research team picked (with its reason and source) is the base; then the ranked picks
   const stayFor = (s) => stays.filter((f) => f.properties.stop === s.id)
     .sort((x, y) => (y.properties.researched ? 1 : 0) - (x.properties.researched ? 1 : 0) || (x.properties.rank ?? 9) - (y.properties.rank ?? 9))[0] || null;
   // where a stop's days start and end: its base stay (when it is near the stop), else the stop itself
   const baseOf = (s) => { const c = pointOf(stayFor(s)); return c && km(c, s.coord) < 60 ? c : s.coord || c || null; };
   // sights per stop: explicit "stop", else the nearest stop within 60 km
-  const pool = new Map(stops.map((s) => [s.id, []]));
-  for (const f of sights) {
-    const p = f.properties;
-    let sid = p.stop && pool.has(p.stop) ? p.stop : null;
-    if (!sid) {
-      const c = representativePoint(f.geometry);
-      let best = Infinity;
-      for (const s of stops) { const d = haversine(c, s.coord); if (d < best && d < 60000) { best = d; sid = s.id; } }
-    }
-    if (sid) pool.get(sid).push(f);
-  }
+  const pool = poolSights(stops, sights);
   const sightItem = (f) => {
     const p = f.properties;
     return { text: p.name_en || p.name, ref: { layer: f._layer, id: p.id }, ...(p.source_url ? { url: p.source_url } : {}), ...(p.source && p.source_url ? { source: String(p.source).slice(0, 40) } : {}) };
@@ -431,7 +446,7 @@ export async function run(argv) {
   const legs = withLayer(args.legs), stays = withLayer(args.stays), sights = parseList(args.sights || '').flatMap((id) => withLayer(id));
   const cfg = readJSON(site.cfgPath);
   if (cfg.plan && !args.force) throw new UserError('map.config.json already has a "plan"; pass --force to rebuild it (hand-written day texts are replaced)');
-  const plan = buildPlan({ stops, nights, start: args.start, legs, stays, sights, perDay, title: args.title || 'Plan' });
+  const plan = buildPlan({ stops: stopsIn, nights: nightsIn, start: args.start, legs, stays, sights, perDay, title: args.title || 'Plan' });
   cfg.plan = plan;
   writeJSON(site.cfgPath, cfg, { pretty: true });
   // nights per stop feature (summed over visits): the numbered stops show one dot per night
@@ -451,7 +466,7 @@ export async function run(argv) {
   const misplaced = dayPlaceWarnings(plan, (r) => feats.get(`${r.layer}:${r.id}`) || null);
   // places that fit no day (more than --per-day of a layer on every day of their stop): say so, never drop them quietly
   const onPlan = new Set(plan.days.flatMap((d) => d.items.map((it) => it.ref && `${it.ref.layer}:${it.ref.id}`)).filter(Boolean));
-  const left = sights.filter((f) => !onPlan.has(`${f._layer}:${f.properties?.id}`) && stops.some((s) => s.id === f.properties?.stop));
+  const left = [...poolSights(stops, sights).values()].flat().filter((f) => !onPlan.has(`${f._layer}:${f.properties?.id}`));
   out.result({ ok: true, days: plan.days.length, nights: totalN, route, plan, ...(misplaced.length ? { day_places: misplaced } : {}), ...(left.length ? { not_on_plan: left.map((f) => `${f._layer}:${f.properties.id}`) } : {}) }, [
     `map.config.json: plan with ${plan.days.length} days (${totalN} nights) from ${args.start}: ` + plan.days.map((d) => d.title).slice(0, 4).join(' | ') + (plan.days.length > 4 ? ' | …' : ''),
     `${stops.length === 1 ? 'Stay' : 'Route'} for the reply (say the night split; it is an assumption unless the user fixed it): ${route}`,

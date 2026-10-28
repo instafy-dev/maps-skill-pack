@@ -3,6 +3,21 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.5 (2026-10-28)
+
+Fixes to 0.1.4.
+
+- **Not a hotel named after the place.** `add-point`'s preference for a candidate whose own name is the query's (0.1.4)
+  ignored generic words on the candidate's side too, so "Hôtel du Sacré-Cœur" or "Café Sacré-Cœur" counted as
+  "every word of the query and no other" and replaced "Basilique du Sacré-Cœur", the landmark the search listed first.
+  A generic word still never makes a name match, but a candidate's generic word the query does not have is a word
+  more: only the place itself, or a name with every word of the query and none it lacks, replaces the search's pick.
+- **Each leg at its place in the order.** A trip that goes the same way twice ("Lisbon → Porto → Lisbon → Porto")
+  took the first Lisbon → Porto leg for both travel days since 0.1.4. A travel day now takes the leg at its place in
+  the order between its two stops first (also when the list names a stop twice in a row), then any leg between them.
+- **Every place that fits no day is named.** `not_on_plan` and "Not on any day" listed only places with a `"stop"`;
+  a place without one goes to the nearest stop, and now it is named too when it fits no day there.
+
 ## 0.1.4 (2026-10-28)
 
 Fixes from the 27 Oct 2026 live test ("Plan 3 days in Lisbon").

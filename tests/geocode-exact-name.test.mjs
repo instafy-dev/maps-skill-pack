@@ -37,6 +37,20 @@ test('nameCloseness: the same name, every word of it, or only a name that contai
   assert.equal(nameCloseness(q, ['Miradouro do Padrão dos Descobrimentos']), 1, 'a place named after it');
   assert.equal(nameCloseness(q, ['Torre de Belém', null]), 0);
   assert.equal(nameCloseness('Belém Tower', ['Torre de Belém', 'Belém Tower'], ['Belém']), 3, 'its English name counts');
+  // a word the query does not have, even a generic one, makes it a place named after it: a hotel named after a church
+  // is not the church ("hotel" never makes a name match, but it is still a word the query did not say)
+  assert.equal(nameCloseness('Sacré-Cœur', ['Hôtel du Sacré-Cœur'], ['Montmartre', 'Paris']), 1);
+  assert.equal(nameCloseness('Sacré-Cœur', ['Café Sacré-Cœur'], ['Montmartre', 'Paris']), 1);
+  assert.equal(nameCloseness('Hotel Avenida Palace', ['Avenida Palace']), 2, 'a generic word the query has may be left out');
+});
+
+test('add-point: the landmark the search listed first, not a hotel or café named after it', async () => {
+  const MONTMARTRE = '2.3430,48.8867';
+  assert.equal((await uw('new', 'paris', '--title', 'Paris', '--center', MONTMARTRE, '--zoom', '15')).code, 0);
+  const r = await uw('add-point', 'paris', '--layer', 'sights', '--query', 'Sacré-Cœur', '--near', MONTMARTRE, '--id', 'sacre-coeur', '--json');
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.json.chosen.name, 'Basilique du Sacré-Cœur');
+  assert.equal(r.json.chosen.type, 'amenity=place_of_worship');
 });
 
 test('add-point: the monument, not the viewpoint named after it that the search listed first; the zoo, not its metro station', async () => {
