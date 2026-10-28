@@ -20,16 +20,20 @@ Fixes from the 27 Oct 2026 live test ("Plan 3 days in Lisbon").
   count, which put Jardim da Estrela on the Alfama day. `uw plan` and `uw validate` warn when a day has a place far
   from its other places or nearer another day's, and name the day it belongs to ("… is 2.2 km from that day's other
   places but 0.1 km from "Basílica da Estrela" on Fri 30 Oct"); a day trip far out of town is judged on its own. The
-  thresholds are data: `scripts/plan-checks.json`.
+  thresholds are data: `scripts/plan-checks.json`. Places that fit no day (over `--per-day`) are named in the output
+  (`not_on_plan`) instead of being dropped quietly. A travel day takes the leg between its two stops before the leg at
+  its place in the order.
 - **The place, not a place named after it.** `add-point` takes a candidate whose own name is the query's name (or
   every word of it and no other) over one that only contains it, whatever order the search gave: "Padrão dos
   Descobrimentos" is the monument, not "Miradouro do Padrão dos Descobrimentos". A station or stop is never preferred
-  this way unless the query asks for one (the zoo, not the metro station named after it).
+  this way unless the query asks for a kind of transit (the zoo, not the metro station named after it; "… Airport"
+  still gets the airport).
 - **The departure day says what it is.** The day after the last night carries `"depart": true` and "Leave <stop>.";
   nothing is planned on it, its row says "Departure" instead of looking like an empty day, and the page's "Trip · N
   days" does not count it ("3 days in Lisbon" reads "Trip · 3 days").
 - **A preview the space can start again.** `uw host --detach` (and `uw serve --detach`) prints the one command that
-  starts the same server in the foreground and the `instafy preview open … --serve-cmd "…"` line, and `SKILL.md`
+  starts the same server in the foreground (with the site's absolute path, so it runs from wherever the card was
+  opened) and the `instafy preview open … --serve-cmd "…"` line, and `SKILL.md`
   step 9 runs that line, so a stopped or sleeping map comes back from its card on any platform. A server keeps its own
   record while it runs, and one of the same folder that answers on the port is reused, so a server the space started
   again is found by the next `--detach`, `--stop` and `uw reload` instead of a "port in use".

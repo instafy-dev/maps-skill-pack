@@ -52,4 +52,8 @@ test('add-point: the monument, not the viewpoint named after it that the search 
   const z = await uw('add-point', 'lx', '--layer', 'sights', '--query', 'Jardim Zoológico', '--near', '-9.1700,38.7430', '--id', 'zoo', '--json');
   assert.equal(z.code, 0, z.err);
   assert.equal(z.json.chosen.name, 'Jardim Zoológico de Lisboa');
+  // a query that names a kind of transit may get it by its exact name: the airport, not a stop named after it
+  const a = await uw('add-point', 'lx', '--layer', 'sights', '--query', 'Lisbon Airport', '--near', '-9.1340,38.7740', '--id', 'airport', '--json');
+  assert.equal(a.code, 0, a.err);
+  assert.equal(a.json.chosen.type, 'aeroway=aerodrome');
 });

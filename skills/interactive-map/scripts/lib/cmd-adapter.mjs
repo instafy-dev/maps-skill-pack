@@ -17,8 +17,9 @@ adapter <name> <site> [adapter flags] [--refresh] [--json]
 adapter <name> --help
   Runs a dataset adapter from scripts/adapters/. Adapters add prefixed properties (e.g. tw_*) and a generic "licence"
   object to features, write their own layer files, metrics.json entries and (optionally) records, and append the
-  dataset's attribution to map.config.json. Large datasets are cached in ~/.cache/uw/<adapter>/ (refreshed after 24 h
-  or with --refresh) and shared by every site and by uw host handlers.`;
+  dataset's attribution to map.config.json. Large datasets are cached in <adapter>/ of the shared cache (UW_CACHE, else
+  INSTAFY_CACHE_DIR, else ~/.cache/uw), refreshed after 24 h or with --refresh, and shared by every site and by uw host
+  handlers.`;
 
 /** The cache every site shares (net.mjs sharedCacheRoot: UW_CACHE, else the space's INSTAFY_CACHE_DIR, else ~/.cache/uw):
  *  a dataset downloaded once is kept where the next turn finds it. */

@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import net from 'node:net';
+import http from 'node:http';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -97,13 +98,18 @@ test('the preview card can start the map again: --serve-cmd from host --detach, 
   assert.ok(h.json.preview_cmd.includes(`--serve-cmd "${h.json.serve_cmd}"`));
   assert.match(h.out + h.err, /--serve-cmd/);
   const argv = argvOf(h.json.serve_cmd);
-  assert.deepEqual(argv.slice(-6), ['host', 'lx', '--port', String(port), '--host', '127.0.0.1']);
+  assert.deepEqual(argv.slice(-6), ['host', path.join(work, 'lx'), '--port', String(port), '--host', '127.0.0.1']);
+  // a request that names another host (a tunnel's, a LAN name) is not told which folder or process this is
+  const hdr = async (host) => new Promise((resolve) => { const r = http.request({ host: '127.0.0.1', port, path: '/', method: 'HEAD', headers: { host } }, (res) => { res.resume(); resolve(res.headers); }); r.end(); });
+  assert.ok((await hdr(`127.0.0.1:${port}`))['x-uw-folder']);
+  assert.equal((await hdr('p-abc--x.preview.example'))['x-uw-folder'], undefined);
   // the server stops (the space slept, or someone stopped it)
   assert.equal((await uw(['host', 'lx', '--stop'])).code, 0);
   assert.ok(await until(async () => !(await answers(port))));
-  // the space starts it again from the recorded command, from the same folder, with only a plain environment
+  // the space starts it again from the recorded command, with only a plain environment (from wherever the card
+  // was opened: here the site folder itself)
   const plain = { PATH: process.env.PATH, HOME: tmp, WORKSPACE_DIR: work };
-  const p = spawn(argv[0], argv.slice(1), { cwd: work, env: plain, stdio: 'ignore' });
+  const p = spawn(argv[0], argv.slice(1), { cwd: path.join(work, 'lx'), env: plain, stdio: 'ignore' });
   started.push(p);
   assert.ok(await until(() => answers(port)), 'the recorded command serves the site again');
   // the next turn (with the space folder) finds that server: it keeps its own record (in the site's .uwcache/, the
@@ -136,16 +142,16 @@ test('serveCommand: uw when the shell finds this pack\'s uw, else node and the p
   const bin = path.join(tmp, 'bin');
   fs.mkdirSync(bin, { recursive: true });
   const site = path.join(work, 'my maps', 'lx');
-  const without = serveCommand('host', site, { port: 4173, host: '0.0.0.0' }, { env: { PATH: '/usr/bin:/bin' }, cwd: work });
+  const without = serveCommand('host', site, { port: 4173, host: '0.0.0.0' }, { env: { PATH: '/usr/bin:/bin' } });
   assert.equal(argvOf(without)[1], path.join(SCRIPTS, 'uw.mjs'));
-  assert.deepEqual(argvOf(without).slice(2), ['host', path.join('my maps', 'lx'), '--port', '4173', '--host', '0.0.0.0']);
+  assert.deepEqual(argvOf(without).slice(2), ['host', site, '--port', '4173', '--host', '0.0.0.0']);
   // the runtime's shim for this pack
   fs.writeFileSync(path.join(bin, 'uw'), `#!/bin/sh\n# instafy:managed-pack-bin interactive-map 0.1.4\nexec node '${path.join(SCRIPTS, 'uw.mjs')}' "$@"\n`, { mode: 0o755 });
-  const withShim = serveCommand('host', site, { port: 4173, host: '0.0.0.0', extra: ['--no-save'] }, { env: { PATH: `${bin}:/usr/bin:/bin` }, cwd: work });
-  assert.equal(withShim, "uw host 'my maps/lx' --port 4173 --host 0.0.0.0 --no-save");
+  const withShim = serveCommand('host', site, { port: 4173, host: '0.0.0.0', extra: ['--no-save'] }, { env: { PATH: `${bin}:/usr/bin:/bin` } });
+  assert.equal(withShim, `uw host '${site}' --port 4173 --host 0.0.0.0 --no-save`);
   // another program called uw is not this pack
   fs.writeFileSync(path.join(bin, 'uw'), '#!/bin/sh\necho something else\n', { mode: 0o755 });
-  assert.notEqual(argvOf(serveCommand('host', site, { port: 4173, host: '0.0.0.0' }, { env: { PATH: `${bin}:/usr/bin` }, cwd: work }))[0], 'uw');
+  assert.notEqual(argvOf(serveCommand('host', site, { port: 4173, host: '0.0.0.0' }, { env: { PATH: `${bin}:/usr/bin` } }))[0], 'uw');
 });
 
 test('datasets an adapter downloads are kept in the space\'s folder too (the cache every site shares)', async () => {

@@ -70,9 +70,10 @@ export function createStaticServer(root, opts = {}) {
 export function staticHandler(root, { log = () => {}, refuse = null, identity = null } = {}) {
   root = path.resolve(root);
   return (req, res) => {
-    // a request from this computer (127.0.0.1, localhost) learns which folder this server serves and its process, so
-    // \`--detach\` finds a server of the same folder that it did not start itself (never told over a tunnel or the LAN)
-    if (identity && LOOPBACK_HOST.test(String(req.headers.host || ''))) {
+    // a request from this computer learns which folder this server serves and its process, so \`--detach\` finds a
+    // server of the same folder that it did not start itself (never told over a tunnel or the LAN: the peer's address
+    // and the Host it asked for decide: a tunnel's client connects from this computer but keeps the public Host)
+    if (identity && LOOPBACK_ADDR.test(String(req.socket?.remoteAddress || '')) && LOOPBACK_HOST.test(String(req.headers.host || ''))) {
       res.setHeader('X-UW-Folder', identity.folder);
       res.setHeader('X-UW-Server', `${identity.cmd} ${process.pid}`);
     }
@@ -153,6 +154,7 @@ export function listen(server, port, host) {
   });
 }
 
+const LOOPBACK_ADDR = /^(?:::ffff:)?127(?:\.\d{1,3}){3}$|^::1$/;
 const LOOPBACK_HOST = /^(127(?:\.\d{1,3}){3}|localhost|\[::1\])(?::\d+)?$/i;
 // --detach bookkeeping: serve.json { pid, cmd, port, host, dir } in the folder's state folder (lib/state-dir.mjs)
 const stateFile = (dir) => path.join(stateDirOf(dir), 'serve.json');
@@ -209,12 +211,12 @@ export function uwOnPath(env = process.env) {
   if (mine.includes(real(f))) return true;
   try { const head = fs.readFileSync(f, 'utf8').slice(0, 4096); return mine.some((m) => head.includes(m)) || head.includes(path.join(SCRIPTS_DIR, 'uw.mjs')); } catch { return false; }
 }
-/** The one command (no shell syntax) that starts this server again in the foreground, from \`cwd\`: what
- *  \`instafy preview open --serve-cmd\` records, so the space can start the site again after it stops or sleeps.
- *  \`uw\` when the shell finds this pack's, else node and this pack's uw.mjs. Exported for the tests. */
-export function serveCommand(cmd, dir, { port, host, extra = [] }, { env = process.env, cwd = process.cwd() } = {}) {
-  const rel = path.relative(cwd, dir);
-  const site = rel === '' ? '.' : !rel.startsWith('..') && !path.isAbsolute(rel) ? rel : dir;
+/** The one command (no shell syntax) that starts this server again in the foreground: what
+ *  \`instafy preview open --serve-cmd\` records, so the space can start the site again after it stops or sleeps. The
+ *  folder is absolute: the space replays it from wherever \`instafy preview open\` ran. \`uw\` when the shell finds
+ *  this pack's, else node and this pack's uw.mjs. Exported for the tests. */
+export function serveCommand(cmd, dir, { port, host, extra = [] }, { env = process.env } = {}) {
+  const site = path.resolve(dir);
   const prog = uwOnPath(env) ? ['uw'] : [onPath('node', env) ? 'node' : process.execPath, path.join(SCRIPTS_DIR, 'uw.mjs')];
   return [...prog, cmd, site, '--port', String(port), '--host', host, ...extra].map(shellWord).join(' ');
 }

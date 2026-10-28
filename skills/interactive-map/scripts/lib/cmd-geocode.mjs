@@ -642,10 +642,10 @@ async function addPointRun(argv, ctx) {
       // never wins this way unless the query asks for one ("Sagrada Família" is the church, not its metro station).
       const closeness = (c) => nameCloseness(args.query, [c.name, c.name_en], area);
       if (idx >= 0) {
-        const stationAsked = /station/.test(qType?.tags?.[0] || '');
+        const transitAsked = (qType?.tags || []).some((t) => /^(railway|public_transport|aeroway|amenity:bus_station)/.test(t));
         const mine = closeness(chosen);
         const named = cands.map((c) => ({ c, k: closeness(c) }))
-          .filter(({ c, k }) => k >= 2 && k > mine && good(c) && !tooFar(c) && !PART_TYPE.test(c.type || '') && (stationAsked || !TRANSIT_TYPE.test(c.type || '')))
+          .filter(({ c, k }) => k >= 2 && k > mine && good(c) && !tooFar(c) && !PART_TYPE.test(c.type || '') && (transitAsked || !TRANSIT_TYPE.test(c.type || '')))
           .sort((a, b) => b.k - a.k)[0];
         if (named) chosen = named.c;
       }

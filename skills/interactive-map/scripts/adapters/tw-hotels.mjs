@@ -44,7 +44,7 @@ export const meta = {
   (status registered | uncertain | not_found). metrics.json: tw_rooms (registry), tw_price_max (filed).
   --records also writes data/records/tw-hotels.json claims (licence, registered_rooms, filed_price_min/max).
   Appends the mandatory OGDL credit to map.config.json "attribution" (the licence is void without it).
-  Datasets are cached in ~/.cache/uw/tw-hotels/ for 24 h (--refresh downloads again).`,
+  Datasets are cached in the shared cache's tw-hotels/ (UW_CACHE, else INSTAFY_CACHE_DIR, else ~/.cache/uw) for 24 h (--refresh downloads again).`,
 };
 
 // ---------------------------------------------------------------------------

@@ -241,8 +241,10 @@ export function buildPlan({ stops: stopsIn, nights: nightsIn, start, legs = [], 
   const days = [];
   const date = new Date(`${start}T00:00:00Z`);
   const next = () => { const d = new Date(date); date.setUTCDate(date.getUTCDate() + 1); return d; };
-  const legFor = (a, b, i) => legs.find((f) => f.properties.order === i + 1 && (f.properties.from === a.id || f.properties.from_id === a.id))
-    || legs.find((f) => (f.properties.from === a.id) && (f.properties.to === b.id));
+  // the leg between these two stops first; then the leg at this place in the order (a leg from a stop to itself,
+  // left from a list that named a stop twice in a row, is never a travel day)
+  const legFor = (a, b, i) => legs.find((f) => (f.properties.from === a.id) && (f.properties.to === b.id))
+    || legs.find((f) => f.properties.order === i + 1 && (f.properties.from === a.id || f.properties.from_id === a.id) && f.properties.to !== a.id);
   // a stay the research team picked (with its reason and source) is the base; then the ranked picks
   const stayFor = (s) => stays.filter((f) => f.properties.stop === s.id)
     .sort((x, y) => (y.properties.researched ? 1 : 0) - (x.properties.researched ? 1 : 0) || (x.properties.rank ?? 9) - (y.properties.rank ?? 9))[0] || null;
@@ -444,10 +446,13 @@ export async function run(argv) {
   const missingSights = stops.filter((s, i) => nights[i] >= 2 && sightsOf(s) < 2).map((s) => `${cityOf(s.props)} (${sightsOf(s)})`);
   const route = routeLine(stops, nights, plan);
   const gaps = emptyPlanDays(plan);
-  const drafted = plan.days.filter((d, i) => i > 0 && !SKELETON_DAY.test(String(d.text || '')) && !/^(Arrive in|Leave |Travel day)/.test(String(d.text || ''))).length;
+  const drafted = plan.days.filter((d, i) => (i > 0 || plan.days.length === 1) && !SKELETON_DAY.test(String(d.text || '')) && !/^(Arrive in|Leave |Travel day)/.test(String(d.text || ''))).length;
   const feats = new Map([...[...legs, ...stays, ...sights].map((f) => [`${f._layer}:${f.properties?.id}`, f]), ...sfc.features.map((f) => [`${stopLayer}:${f.properties?.id}`, f])]);
   const misplaced = dayPlaceWarnings(plan, (r) => feats.get(`${r.layer}:${r.id}`) || null);
-  out.result({ ok: true, days: plan.days.length, nights: totalN, route, plan, ...(misplaced.length ? { day_places: misplaced } : {}) }, [
+  // places that fit no day (more than --per-day of a layer on every day of their stop): say so, never drop them quietly
+  const onPlan = new Set(plan.days.flatMap((d) => d.items.map((it) => it.ref && `${it.ref.layer}:${it.ref.id}`)).filter(Boolean));
+  const left = sights.filter((f) => !onPlan.has(`${f._layer}:${f.properties?.id}`) && stops.some((s) => s.id === f.properties?.stop));
+  out.result({ ok: true, days: plan.days.length, nights: totalN, route, plan, ...(misplaced.length ? { day_places: misplaced } : {}), ...(left.length ? { not_on_plan: left.map((f) => `${f._layer}:${f.properties.id}`) } : {}) }, [
     `map.config.json: plan with ${plan.days.length} days (${totalN} nights) from ${args.start}: ` + plan.days.map((d) => d.title).slice(0, 4).join(' | ') + (plan.days.length > 4 ? ' | …' : ''),
     `${stops.length === 1 ? 'Stay' : 'Route'} for the reply (say the night split; it is an assumption unless the user fixed it): ${route}`,
     stays.length ? null : `No --stays: days focus on the ${stops.length === 1 ? 'stop' : 'stations'}. Run uw stay per stop, then re-run plan --force.`,
@@ -456,6 +461,7 @@ export async function run(argv) {
     drafted ? `Day texts: ${drafted} full day(s) say what they are for, from their sourced places (names and the page's reason); keep them or reword them in the traveller's words (≤ 140 characters, nothing those pages do not say).` : null,
     gaps.empty ? `${gaps.empty} of ${gaps.full} full days still say "Day in …": add 2-3 sourced places for those stops (reference/itinerary.md Phase B step 1), then this command again with --force.` : null,
     ...misplaced.slice(0, 4).map((w) => `Day places: ${dayPlaceLine(w, plan.days)}.`),
+    left.length ? `Not on any day (each day already has --per-day ${perDay} of their kind): ${left.slice(0, 6).map((f) => f.properties.name_en || f.properties.name || f.properties.id).join(', ')}${left.length > 6 ? ` and ${left.length - 6} more` : ''}. Add nights, raise --per-day, or leave them out of the reply.` : null,
     'Next: uw validate, then the preview card. Never in the reply: file or folder names, commands or layer ids.',
   ]);
   return 0;

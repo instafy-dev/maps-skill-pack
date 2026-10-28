@@ -68,6 +68,7 @@ test('plan (CLI): one stop is a stay of 3 nights: dated days, no travel day to i
   assert.ok(plan.days.every((d) => !d.title.includes('→') && !/^Travel day/.test(d.text)), 'never a travel day');
   assert.match(r.json.route, /^Lisbon 3 \(3 nights, Fri 30 Oct – Mon 2 Nov\)$/);
   // every day before the departure is a loop from the same base, with its places
+  assert.equal(r.json.not_on_plan, undefined);
   for (const d of plan.days.slice(0, 3)) {
     assert.deepEqual(d.focus, { layer: 'stays', id: LISBON.base.id });
     assert.ok(d.items.some((it) => it.ref?.layer === 'sights'), `${d.title} has places`);
@@ -84,6 +85,17 @@ test('plan (CLI): one stop is a stay of 3 nights: dated days, no travel day to i
   assert.doesNotMatch(v.out + v.err, /day places|still empty/);
 });
 
+test('plan (CLI): places that fit no day are named, never dropped quietly', async () => {
+  await makeSite('lx4');
+  const r = await run(['plan', 'lx4', '--stops', 'stops', '--ids', 'lisbon', '--nights', '1', '--start', '2026-10-30', '--stays', 'stays', '--sights', 'sights', '--per-day', '2', '--json']);
+  assert.equal(r.code, 0, r.err);
+  const placed = r.json.plan.days.flatMap((d) => d.items.filter((it) => it.ref?.layer === 'sights')).length;
+  assert.equal(placed, 2);
+  assert.equal(r.json.not_on_plan.length, LISBON.places.length - 2);
+  const text = await run(['plan', 'lx4', '--stops', 'stops', '--ids', 'lisbon', '--nights', '1', '--start', '2026-10-30', '--stays', 'stays', '--sights', 'sights', '--per-day', '2', '--force']);
+  assert.match(text.out, /Not on any day \(each day already has --per-day 2 of their kind\): (?:[^,]+, ){5}[^,]+ and 0 more|Not on any day \(each day already has --per-day 2 of their kind\): (?:[^,]+, ){5}[^,]+\. Add nights/);
+});
+
 test('plan: a stop named twice in a row is one stay, never "Lisbon → Lisbon … Travel day"', async () => {
   await makeSite('lx2');
   const r = await run(['plan', 'lx2', '--stops', 'stops', '--ids', 'lisbon,lisbon', '--nights', '2,1', '--start', '2026-10-30', '--stays', 'stays', '--sights', 'sights', '--json']);
@@ -93,6 +105,15 @@ test('plan: a stop named twice in a row is one stay, never "Lisbon → Lisbon �
   assert.match(r.json.route, /^Lisbon 3 \(3 nights/);
   const plan = buildPlan({ stops: [lisbonStop, lisbonStop], nights: [2, 1], start: '2026-10-30', stays: [baseStay] });
   assert.deepEqual(plan.days.map((d) => d.title), ['Fri 30 Oct · Lisbon', 'Sat 31 Oct · Lisbon', 'Sun 1 Nov · Lisbon', 'Mon 2 Nov · Lisbon: depart']);
+  // legs made for that list (leg 1 Lisbon → Lisbon, leg 2 Lisbon → Porto): the travel day takes the real leg
+  const porto = { id: 'porto', layer: 'stops', coord: [-8.6110, 41.1456], props: { id: 'porto', name: 'Porto' } };
+  const leg = (id, order, to, extra = {}) => Object.assign(point(id, LISBON.centre, { order, from: 'lisbon', to, ...extra }), { _layer: 'trip' });
+  const legs = [leg('leg-1', 1, 'lisbon'), leg('leg-2', 2, 'porto', { duration: '2h50', duration_source: 'CP timetable' })];
+  const trip = buildPlan({ stops: [lisbonStop, lisbonStop, porto], nights: [2, 0, 1], start: '2026-10-30', legs });
+  const travel = trip.days.find((d) => d.title.includes('→'));
+  assert.equal(travel.title, 'Sun 1 Nov · Lisbon → Porto');
+  assert.deepEqual(travel.items[0].ref, { layer: 'trip', id: 'leg-2' });
+  assert.match(travel.items[0].text, /2h50 \(CP timetable\)/);
 });
 
 test('plan: one stop with 0 nights is a single day there, with its places and no departure day', () => {

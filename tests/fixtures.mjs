@@ -120,6 +120,10 @@ const PHOTON = {
     feat('Miradouro do Padrão dos Descobrimentos', [-9.205652, 38.693707], { key: 'tourism', value: 'viewpoint', id: 8840011, type: 'N', ...LX }),
     feat('Padrão dos Descobrimentos', [-9.205748, 38.693586], { key: 'historic', value: 'monument', id: 4290022, type: 'W', ...LX }),
   ],
+  'Lisbon Airport': [
+    feat('Lisbon Airport Shuttle', [-9.133300, 38.770500], { key: 'aeroway', value: 'terminal', id: 8840055, type: 'N', ...LX, district: 'Olivais' }),
+    feat('Lisbon Airport', [-9.134110, 38.774170], { key: 'aeroway', value: 'aerodrome', id: 4290066, type: 'W', ...LX, district: 'Olivais' }),
+  ],
   'Jardim Zoológico': [
     feat('Jardim Zoológico de Lisboa', [-9.170650, 38.743530], { key: 'tourism', value: 'zoo', id: 4290033, type: 'W', ...LX, district: 'São Domingos de Benfica' }),
     feat('Jardim Zoológico', [-9.168540, 38.742150], { key: 'railway', value: 'station', id: 8840044, type: 'N', ...LX, district: 'São Domingos de Benfica' }),
