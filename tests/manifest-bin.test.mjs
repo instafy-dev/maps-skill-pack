@@ -44,9 +44,12 @@ test('the labels say what a step did, in the words of the plan', () => {
   assert.equal(done('add-point', null), 'looked up places', 'a loop, uncounted');
   assert.equal(done('cite', 6), 'read 6 sources');
   assert.deepEqual(uw.validate, { live: 'Checking the map', done: 'built the map', role: 'outcome', when: 'success' });
+  // A finished quiet step reads in the past tense in the turn's step list: "Working on the map" beside its check
+  // mark read as still running.
   for (const sub of ['new', 'geocode', 'fit', 'serve', 'host', 'snapshot', 'wait', '*']) {
-    assert.deepEqual(uw[sub], { live: 'Working on the map', role: 'quiet' }, sub);
+    assert.deepEqual(uw[sub], { live: 'Working on the map', done: 'worked on the map', role: 'quiet' }, sub);
   }
+  for (const [sub, label] of Object.entries(uw)) assert.ok(label.done, `uw ${sub} has a past tense`);
   // nothing a page or a command prints can reach a label: they are fixed text here
   for (const [sub, label] of Object.entries(uw)) {
     for (const text of [label.live, ...(typeof label.done === 'object' ? Object.values(label.done) : [label.done ?? ''])]) {

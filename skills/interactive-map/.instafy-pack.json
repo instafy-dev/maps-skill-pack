@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "name": "interactive-map",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Interactive maps, trips and place lookups as an Instafy skill pack",
   "license": "AGPL-3.0-only",
   "homepage": "https://github.com/instafy-dev/maps-skill-pack",
@@ -121,54 +121,67 @@
       },
       "new": {
         "live": "Working on the map",
+        "done": "worked on the map",
         "role": "quiet"
       },
       "geocode": {
         "live": "Working on the map",
+        "done": "worked on the map",
         "role": "quiet"
       },
       "fit": {
         "live": "Working on the map",
+        "done": "worked on the map",
         "role": "quiet"
       },
       "set": {
         "live": "Working on the map",
+        "done": "worked on the map",
         "role": "quiet"
       },
       "snapshot": {
         "live": "Working on the map",
+        "done": "worked on the map",
         "role": "quiet"
       },
       "host": {
         "live": "Working on the map",
+        "done": "worked on the map",
         "role": "quiet"
       },
       "serve": {
         "live": "Working on the map",
+        "done": "worked on the map",
         "role": "quiet"
       },
       "reload": {
         "live": "Working on the map",
+        "done": "worked on the map",
         "role": "quiet"
       },
       "upgrade": {
         "live": "Working on the map",
+        "done": "worked on the map",
         "role": "quiet"
       },
       "lookups": {
         "live": "Working on the map",
+        "done": "worked on the map",
         "role": "quiet"
       },
       "wait": {
         "live": "Working on the map",
+        "done": "worked on the map",
         "role": "quiet"
       },
       "doctor": {
         "live": "Working on the map",
+        "done": "worked on the map",
         "role": "quiet"
       },
       "*": {
         "live": "Working on the map",
+        "done": "worked on the map",
         "role": "quiet"
       }
     }

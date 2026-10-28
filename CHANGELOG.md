@@ -3,6 +3,13 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.9 (2026-10-28)
+
+- **A finished step reads as done.** In the turn's step list a finished `uw new`, `uw host`, `uw geocode` and the
+  other setup steps read "Working on the map" beside their check mark, as if still running. Those quiet labels now
+  have a past tense, "worked on the map", which the step list shows once the step is done. They still never appear in
+  the turn's one-line summary.
+
 ## 0.1.8 (2026-10-28)
 
 Fixes from the third 28 Oct 2026 drive ("3 days in Lisbon … what to see each day", on a phone).
