@@ -29,7 +29,9 @@ add-point <dir> --layer <id> --at lng,lat --name "Label" [...]     (only for coo
     {"why":"Alfama's lanes"}
     JSON
   Not in OpenStreetMap under its name (new, renamed, small)? Geocode its street address instead:
-    --query "<street address, district, city>" --name "<real name>" --props '{"source":"<where the address came from>"}'
+    --query "<street address, district, city>" --name "<real name>" --props-file - <<'JSON'
+    {"source":"<where the address came from>"}
+    JSON
   --name in Latin script also becomes name_en (the label English maps show); OSM's English name is kept as osm_name_en.
   Geocodes with the place search and appends (or replaces, same id) a point in data/<layer>.geojson. Prints the chosen match and
   the alternatives: check them. --pick N chooses candidate N (1-based) instead. A match farther than --max-km (default 8)

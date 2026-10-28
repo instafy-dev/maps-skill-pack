@@ -446,7 +446,7 @@ export async function snapshot(argv) {
       'SKIPPED: Playwright is not available, so no screenshots were taken and NOTHING was checked visually.',
       stale.length ? `Removed ${stale.length} old PNG(s) so they are not mistaken for new ones.` : null,
       'To enable: npm i -D playwright && npx playwright install chromium   (or set UW_PLAYWRIGHT=/path/to/node_modules/playwright).',
-      'Tell the user the map was validated but not looked at.',
+      'Tell the user the map\'s data was checked, but not how it looks.',
     ]);
     return 3;
   }

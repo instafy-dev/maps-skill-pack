@@ -3,6 +3,20 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.7 (2026-10-28)
+
+Fixes to 0.1.6.
+
+- **Plain words in what the agent passes on.** `uw stay` told the agent to say its picks came "from public
+  registers/OSM", and `uw snapshot` without a browser to say the map "was validated". Both lines are copied into the
+  reply, so they now say "from OpenStreetMap and public registers" and that "the map's data was checked, but not how
+  it looks".
+- **No words in single-quoted `--props` left.** Three examples still put words in single-quoted JSON, which an
+  apostrophe breaks as "Alfama's" did: a stop placed by hand (`"station_of":"<City>"`, as in "L'Aquila"), a place
+  geocoded by its address (`"source":"<where the address came from>"`) and `uw validate`'s hint for a day with no
+  sourced place. They use `--props-file -` with a quoted heredoc, as does "One base"'s area to stay in, whose note
+  now goes in that object instead of a double-quoted `--note`.
+
 ## 0.1.6 (2026-10-28)
 
 Fixes from the 28 Oct 2026 drive ("3 days in Lisbon … what to see each day").

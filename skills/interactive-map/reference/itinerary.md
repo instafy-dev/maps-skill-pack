@@ -88,7 +88,8 @@ stop's best stay. A 0-night stop shares its travel day ("Tainan → Tainan HSR �
 **6. Reconcile, then preview.** `uw validate <site> --signal`. It checks the map against the route ("expect"):
 `asked for but not on the map: <Stop> (2 nights)` or `on the map but in no day of the plan` is an error. Place the
 stop (the retry command `uw handoff --apply` or the lookup printed, with `--timeout 120`; else `uw add-point <site>
---layer stations --query "<City>" --country "<Country>" --kind city --allow-far --id <id> --props '{"nights":N,"station_of":"<City>","no_station":true}'`), then
+--layer stations --query "<City>" --country "<Country>" --kind city --allow-far --id <id> --props-file - <<'JSON'`, then
+`{"nights":N,"station_of":"<City>","no_station":true}` and `JSON` on their own lines), then
 `uw plan … --ids <every stop> --nights … --force`. Still not placed (exit 4 again): keep going, and the reply's route
 line names it as missing with its nights ("<Stop> (2 nights) is not on the map yet: the place lookup was down"). Then preview (SKILL.md step 9): the card goes out before Phase B, so the traveller has the map while the days
 fill in.
@@ -136,8 +137,9 @@ comes first.
    `uw stay <site> --near <its lng,lat> --near-label "<area>" --stop <slug>` (step 3's rules: hotels unless asked,
    a reason each). The base is the rank-1 stay; each day starts and ends there. Never the area itself as a hotel. No
    stay found (exit 2 after widening, or exit 4): pin the area as the recommendation, labelled as one:
-   `uw add-point <site> --layer stays --query "<area>, <City>" --kind area --id <area slug> --note "Area to stay in: <why, from the page>" --props '{"stop":"<slug>"}'`
-   (the days start there), and the reply says places to stay were not looked up yet.
+   `uw add-point <site> --layer stays --query "<area>, <City>" --kind area --id <area slug> --props-file - <<'JSON'`, then
+   `{"stop":"<slug>","note":"Area to stay in: <why, from the page>"}` and `JSON` on their own lines (the days start
+   there), and the reply says places to stay were not looked up yet.
 3. **Places by area**: per day an area worth the day (a neighbourhood, a district a ride away, a day trip), 2-3 sourced
    places in it (Phase B step 1, with `"stop":"<slug>"`). Never put a place on a day because a list had room.
 4. **Plan**: `uw plan <site> --stops stops --ids <slug> --nights N --start <date> --stays stays --sights sights,food,daytrips`.
