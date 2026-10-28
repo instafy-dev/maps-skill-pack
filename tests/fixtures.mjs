@@ -128,6 +128,13 @@ const PHOTON = {
     feat('Jardim Zoológico de Lisboa', [-9.170650, 38.743530], { key: 'tourism', value: 'zoo', id: 4290033, type: 'W', ...LX, district: 'São Domingos de Benfica' }),
     feat('Jardim Zoológico', [-9.168540, 38.742150], { key: 'railway', value: 'station', id: 8840044, type: 'N', ...LX, district: 'São Domingos de Benfica' }),
   ],
+  // A landmark whose own name has a word more than the query ("Basilique du …"), listed first, and a hotel and a café
+  // named after it nearby, whose names are the query's words plus a generic one. In the search's answer shape.
+  'Sacré-Cœur': [
+    feat('Basilique du Sacré-Cœur', [2.343076, 48.886719], { key: 'amenity', value: 'place_of_worship', id: 4290077, type: 'W', district: 'Montmartre', city: 'Paris', country: 'France' }),
+    feat('Hôtel du Sacré-Cœur', [2.341860, 48.885120], { key: 'tourism', value: 'hotel', id: 8840088, type: 'N', district: 'Montmartre', city: 'Paris', country: 'France' }),
+    feat('Café Sacré-Cœur', [2.342500, 48.885800], { key: 'amenity', value: 'cafe', id: 8840099, type: 'N', district: 'Montmartre', city: 'Paris', country: 'France' }),
+  ],
 };
 
 // cafés around the three Taipei hotels (Via ~ 3, Everstar 1, Lore 0 within 800 m)

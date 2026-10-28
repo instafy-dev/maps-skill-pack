@@ -96,6 +96,47 @@ test('plan (CLI): places that fit no day are named, never dropped quietly', asyn
   assert.match(text.out, /Not on any day \(each day already has --per-day 2 of their kind\): (?:[^,]+, ){5}[^,]+ and 0 more|Not on any day \(each day already has --per-day 2 of their kind\): (?:[^,]+, ){5}[^,]+\. Add nights/);
 });
 
+test('plan (CLI): places with no "stop" that fit no day are named too (they go to the nearest stop)', async () => {
+  const { dir } = await makeSite('lx5');
+  // the same places without "stop": the plan puts them at the nearest stop, as it always did
+  fs.writeFileSync(path.join(dir, 'data', 'sights.geojson'), JSON.stringify({ type: 'FeatureCollection', features: LISBON.places.map((p) => point(p.id, p.coord, { name: p.name, ...src(p) })) }));
+  const r = await run(['plan', 'lx5', '--stops', 'stops', '--ids', 'lisbon', '--nights', '1', '--start', '2026-10-30', '--stays', 'stays', '--sights', 'sights', '--per-day', '2', '--json']);
+  assert.equal(r.code, 0, r.err);
+  const placed = r.json.plan.days.flatMap((d) => d.items.filter((it) => it.ref?.layer === 'sights')).length;
+  assert.equal(placed, 2);
+  assert.equal(r.json.not_on_plan?.length, LISBON.places.length - 2, JSON.stringify(r.json.not_on_plan));
+});
+
+test('buildPlan: a trip that goes the same way twice takes each leg at its place in the order', () => {
+  // Lisbon → Porto → Lisbon → Porto: legs 1 and 3 join the same two stops, with different trains
+  const porto = { id: 'porto', layer: 'stops', coord: [-8.6110, 41.1456], props: { id: 'porto', name: 'Porto' } };
+  const leg = (order, from, to, duration) => Object.assign(point(`leg-${order}`, LISBON.centre, { order, from, to, duration, duration_source: 'CP timetable' }), { _layer: 'trip' });
+  const legs = [leg(1, 'lisbon', 'porto', '2h50'), leg(2, 'porto', 'lisbon', '2h55'), leg(3, 'lisbon', 'porto', '3h15')];
+  const trip = buildPlan({ stops: [lisbonStop, porto, lisbonStop, porto], nights: [1, 1, 1, 1], start: '2026-10-30', legs });
+  const travel = trip.days.filter((d) => d.title.includes('→'));
+  assert.deepEqual(travel.map((d) => d.items[0].ref.id), ['leg-1', 'leg-2', 'leg-3']);
+  assert.match(travel[2].items[0].text, /3h15/);
+  // a stop named twice in a row before the legs (legs made for Lisbon, Lisbon, Porto, Lisbon, Porto): still each its own
+  const legs5 = [leg(1, 'lisbon', 'lisbon'), leg(2, 'lisbon', 'porto', '2h50'), leg(3, 'porto', 'lisbon', '2h55'), leg(4, 'lisbon', 'porto', '3h15')];
+  const trip5 = buildPlan({ stops: [lisbonStop, lisbonStop, porto, lisbonStop, porto], nights: [1, 0, 1, 1, 1], start: '2026-10-30', legs: legs5 });
+  assert.deepEqual(trip5.days.filter((d) => d.title.includes('→')).map((d) => d.items[0].ref.id), ['leg-2', 'leg-3', 'leg-4']);
+});
+
+test('plan (CLI): the legs of a list that names a stop twice in a row keep their places in the order', async () => {
+  const { dir } = await makeSite('lx6');
+  const portoCoord = [-8.6110, 41.1456];
+  fs.writeFileSync(path.join(dir, 'data', 'stops.geojson'), JSON.stringify({ type: 'FeatureCollection', features: [
+    point('lisbon', LISBON.centre, { name: 'Lisbon', kind: 'city' }), point('porto', portoCoord, { name: 'Porto', kind: 'city' })] }));
+  const leg = (order, from, to, duration) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: from === 'lisbon' ? [LISBON.centre, portoCoord] : [portoCoord, LISBON.centre] },
+    properties: { id: `leg-${order}`, order, from, to, ...(duration ? { duration, duration_source: 'CP timetable' } : {}) } });
+  // made by uw legs for Lisbon, Lisbon, Porto, Lisbon, Porto (leg 1 joins Lisbon to itself)
+  fs.writeFileSync(path.join(dir, 'data', 'trip.geojson'), JSON.stringify({ type: 'FeatureCollection', features: [
+    leg(1, 'lisbon', 'lisbon'), leg(2, 'lisbon', 'porto', '2h50'), leg(3, 'porto', 'lisbon', '2h55'), leg(4, 'lisbon', 'porto', '3h15')] }));
+  const r = await run(['plan', 'lx6', '--stops', 'stops', '--ids', 'lisbon,lisbon,porto,lisbon,porto', '--nights', '1,0,1,1,1', '--start', '2026-10-30', '--legs', 'trip', '--json']);
+  assert.equal(r.code, 0, r.err + r.out);
+  assert.deepEqual(r.json.plan.days.filter((d) => d.title.includes('→')).map((d) => d.items[0].ref.id), ['leg-2', 'leg-3', 'leg-4']);
+});
+
 test('plan: a stop named twice in a row is one stay, never "Lisbon → Lisbon … Travel day"', async () => {
   await makeSite('lx2');
   const r = await run(['plan', 'lx2', '--stops', 'stops', '--ids', 'lisbon,lisbon', '--nights', '2,1', '--start', '2026-10-30', '--stays', 'stays', '--sights', 'sights', '--json']);
