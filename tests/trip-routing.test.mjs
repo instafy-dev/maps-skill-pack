@@ -81,7 +81,7 @@ test('SKILL.md sends a trip, days or nights, to the itinerary before Phase A; th
   assert.equal((md.match(/itinerary\.md/g) || []).length, 2, 'one route to the itinerary in the procedure, not a second one buried in step 1');
   const trip = fs.readFileSync(path.join(SKILL, 'reference', 'itinerary.md'), 'utf8').replace(/\s+/g, ' ');
   assert.match(trip, /Never the area itself as a hotel\. No stay found \(exit 2 after widening, or exit 4\): pin the area as the recommendation, labelled as one/);
-  assert.match(trip, /--kind area --id <area slug> --note "Area to stay in: <why, from the page>" --props '\{"stop":"<slug>"\}'`/);
+  assert.match(trip, /--kind area --id <area slug> --props-file - <<'JSON'`, then `\{"stop":"<slug>","note":"Area to stay in: <why, from the page>"\}` and `JSON` on their own lines/);
 });
 
 test('replies name no lookup service, command or exit code, and sources by who publishes the data', () => {

@@ -503,6 +503,6 @@ export async function stay(argv) {
     ...feats.map((f) => `  ${f.properties.rank}. ${f.properties.name}${f.properties.name_en ? ` (${f.properties.name_en})` : ''} — ${f.properties.why}  [${layer}:${f.properties.id}]`),
     addedBnb ? `  (fewer than ${max} hotels in range: B&Bs and guest houses were included)` : null,
     partialNote, reg,
-    'Tell the user: picks are by walking distance from public registers/OSM; no live prices or availability.']);
+    'Tell the user: picked by walking distance, from OpenStreetMap and public registers; no live prices or availability.']);
   return 0;
 }

@@ -178,7 +178,8 @@ being overwritten by another command) and sometimes `"attribution"`. Leave both 
 at the door, `--feel`), the same averaged over the walk area as `calm_night_area`, `lively_night_area`, `green_area`…
 (`--feel-within`), and `walk_min_<layer>` / `walk_km_<layer>` (street-network walking time, `--route-to`).
 Labels and units are inferred (`nearest_mrt_m` → "To mrt", metres; `cafes_10min` → "Cafes ≤10 min"; `walk_min_mrt` → min).
-Edit one feature's props by hand with `uw set <site> <layer>:<id> --props '{…}'` (no network).
+Edit one feature's props by hand with `uw set <site> <layer>:<id> --props-file - <<'JSON'`, the object, then `JSON`
+(no network).
 
 ## compare
 

@@ -457,7 +457,7 @@ export async function run(argv) {
       if (typeof d?.text === 'string' && /^Day in .+; night \d+ of \d+\.$/.test(d.text.trim()) && Array.isArray(d.items) && d.items.some((it) => it?.ref && typeof it?.url === 'string' && !/^Base: /.test(String(it.text || ''))))
         W(CFG, `${p}.text`, 'day text is still "Day in …" although the day has sourced places', `say what the day is for from those places (uw plan ${args._[0]} … --sights sights,food --force writes it from them, or write it: ≤ 140 characters, nothing their pages do not say)`);
       if (typeof d?.text === 'string' && d.text.trim() && !isPlanSkeletonText(d.text) && !(Array.isArray(d.items) && d.items.some((it) => typeof it?.url === 'string')))
-        W(CFG, `${p}.text`, 'day text with no sourced item that day: a reader cannot check it', `pin the place its page names (uw add-point ${args._[0]} --layer sights|food|daytrips … --props '{"stop":…,"source_url":…}') and add it as a ref item, or cut the claim; never copy the text into an item`);
+        W(CFG, `${p}.text`, 'day text with no sourced item that day: a reader cannot check it', `pin the place its page names (uw add-point ${args._[0]} --layer sights|food|daytrips … --props-file - with {"stop":…,"source_url":…}) and add it as a ref item, or cut the claim; never copy the text into an item`);
     });
     // a prose item (no ref) that repeats a day's text is a copy, and goes stale when that text is rewritten
     const norm = (t) => String(t ?? '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();

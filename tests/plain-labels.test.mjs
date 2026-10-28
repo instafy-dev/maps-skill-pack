@@ -65,3 +65,15 @@ test('the place cards, the Places list and the hours chip use the plain words; a
   const starter = JSON.parse(fs.readFileSync(path.join(SKILL, 'starter', 'map.config.json'), 'utf8'));
   assert.equal(starter.subtitle, undefined, 'no "neighbourhood feel layer" subtitle on a new map');
 });
+
+// A `Tell the user` line is copied into the reply (SKILL.md step 4 and Phase C), so it says what happened in the
+// person's words: no lookup service, map-data abbreviation or "validated" (28 Oct 2026 drive: "Overpass place search
+// was unavailable" reached the reply).
+test('every line uw tells the agent to pass on is in plain words', () => {
+  const lib = path.join(SKILL, 'scripts', 'lib');
+  const lines = fs.readdirSync(lib).filter((f) => f.endsWith('.mjs')).flatMap((f) =>
+    [...fs.readFileSync(path.join(lib, f), 'utf8').matchAll(/Tell the user[^'`\n]*/g)].map((m) => `${f}: ${m[0]}`));
+  assert.ok(lines.length >= 3, lines.join('\n'));
+  const jargon = /\b(OSM|Overpass|Photon|OSRM|Nominatim|Valhalla|validat\w*|exit \d+)\b/;
+  assert.deepEqual(lines.filter((line) => jargon.test(line)), []);
+});
