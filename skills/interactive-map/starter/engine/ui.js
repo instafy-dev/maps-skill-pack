@@ -1,6 +1,6 @@
 // map-pack engine: DOM chrome — bottom sheet / side panel, header controls, tabs, cards, buttons, toasts.
 // Kit-owned file: sites should not edit it.
-import { h, clamp, fill, fmtHour, fmtMetric, fmtDate, humanize, timeIcon, distM, isIOS, round6, reducedMotion, BASIS, LETTER_COLORS, safeUrl, word } from './util.js';
+import { h, clamp, fill, fmtHour, fmtMetric, fmtDate, humanize, timeIcon, distM, isIOS, round6, reducedMotion, BASIS, LETTER_COLORS, safeUrl, word, isDepartDay } from './util.js';
 import { BASIS_TAG, Question } from './question.js';
 
 const ICONS = {
@@ -47,9 +47,11 @@ function dayHeading(d, j) {
   return [[lead, t].filter(Boolean).join(' · ') || `Day ${j + 1}`, phrase];
 }
 
-/** a day row's caption, the same words as the timeline page: "4 stops · 2 not checked" */
+/** a day row's caption, the same words as the timeline page: "4 stops · 2 not checked"; the departure day (nothing is
+ * planned on it) says so, so it never reads as a day left empty */
 function dayCaption(d) {
   const items = Array.isArray(d.items) ? d.items : [];
+  if (isDepartDay(d) && !items.length) return 'Departure';
   const open = items.filter((it) => it && typeof it.check === 'string' && it.check.trim()).length;
   return [items.length ? `${items.length} ${items.length === 1 ? 'stop' : 'stops'}` : null, open ? `${open} not checked` : null].filter(Boolean).join(' · ');
 }

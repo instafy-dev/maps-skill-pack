@@ -12,7 +12,8 @@ import http from 'node:http';
 import readline from 'node:readline';
 import { spawn } from 'node:child_process';
 import { parseArgs, makeOut, readJSON, exists, UserError } from './util.mjs';
-import { staticHandler, listen, lanAddresses, remoteHint, detach, stop, readState, alive } from './cmd-serve.mjs';
+import { staticHandler, listen, lanAddresses, remoteHint, detach, stop, readState, alive, registerServer } from './cmd-serve.mjs';
+import { folderId } from './state-dir.mjs';
 import { SCRIPTS_DIR } from './site.mjs';
 import { validate, applyDefaults, fmtErrors } from './schema-lite.mjs';
 import { normalizeRecord, validateRecord, writeRecords, bumpVersion, readVersion, versionPath, stampReload, RECORDS_PATH_RE } from './records.mjs';
@@ -420,7 +421,7 @@ export async function host(argv) {
   // --no-save leaves them as changed files.
   if (!args['no-save']) for (const s of sites) ownSiteWrites(s.dir, { label: `the ${path.basename(s.dir)} map`, log: (level, text) => s.log(text) });
   for (const s of sites) { const made = s.ensureFiles(); if (made.length) console.error(`[${stamp()}]${s.prefix !== '/' ? ' ' + s.prefix : ''} created ${made.join(', ')} (empty, so viewers never fetch a 404)`); }
-  const serveStatic = staticHandler(root, { log: args.log ? (code, p) => console.error(`  ${code} ${p}`) : () => {} });
+  const serveStatic = staticHandler(root, { log: args.log ? (code, p) => console.error(`  ${code} ${p}`) : () => {}, identity: { folder: folderId(root), cmd: 'host' } });
   const server = http.createServer((req, res) => {
     let url;
     try { url = new URL(req.url, 'http://x'); } catch { res.writeHead(400); return res.end(); }
@@ -464,6 +465,7 @@ export async function host(argv) {
     }
   }
   opts.port = port;
+  const unregister = registerServer(root, { cmd: 'host', port, host: hostName });
   const local = `http://localhost:${port}/`;
   const lan = hostName === '0.0.0.0' ? lanAddresses().map((a) => `http://${a}:${port}/`) : [];
   const info = sites.map((s) => ({ prefix: s.prefix, dir: s.dir, intents: s.runnable(), bound: !!s.bound() }));
@@ -494,7 +496,7 @@ export async function host(argv) {
     const stop = () => {
       for (const s of sites) { s.unwatchReload(); for (const j of s.jobs.values()) if (j.child) try { j.child.kill('SIGTERM'); } catch {} for (const c of s.clients) try { c.end(); } catch {} }
       for (const s of sites) releaseSiteWrites(s.dir);
-      server.close(); resolve();
+      unregister(); server.close(); resolve();
     };
     process.once('SIGINT', stop); process.once('SIGTERM', stop);
   });

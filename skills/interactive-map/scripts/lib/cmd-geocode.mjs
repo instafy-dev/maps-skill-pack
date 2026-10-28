@@ -89,6 +89,30 @@ export function nameMatches(query, names, area = []) {
     bigrams.some((b) => hay.includes(b));
 }
 
+/** How closely a candidate's own name (or its English name) is the place the query names, not only a name that
+ *  contains it: 3 the same name; 2 every distinctive word of the query and no other; 1 the query's words and more
+ *  ("Miradouro do Padrão dos Descobrimentos", the viewpoint named after "Padrão dos Descobrimentos"); 0 otherwise.
+ *  Accents, case and punctuation do not count, nor words that only name the area (`area`, as in nameMatches),
+ *  generic words (hotel, museum …) or words of three letters or fewer (de, dos, the). Only the part of the query
+ *  before a comma is the name ("Padrão dos Descobrimentos, Lisboa"). Pure; exported for the tests. */
+export function nameCloseness(query, names, area = []) {
+  const norm = (x) => String(x || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const label = norm(String(query || '').split(/[,，]/)[0]);
+  if (!label) return 0;
+  const areaTokens = new Set(area.filter(Boolean).flatMap((a) => norm(a).split(' ')));
+  const words = (x) => new Set(x.split(' ').filter((t) => (t.length >= 4 || /^\d+$/.test(t)) && !GENERIC.has(t) && !areaTokens.has(t)));
+  const want = words(label);
+  let best = 0;
+  for (const n of names.filter(Boolean).map(norm)) {
+    if (n === label) return 3;
+    if (!want.size) continue;
+    const have = words(n);
+    if (![...want].every((t) => have.has(t))) continue;
+    best = Math.max(best, [...have].every((t) => want.has(t)) ? 2 : 1);
+  }
+  return best;
+}
+
 /** Wikipedia's coordinates for articles with these exact titles (redirects followed, disambiguation pages skipped):
  *  the quickest keyless answer for a city, a country or a main station. Candidates in the search's shape. */
 async function wikipediaCoords(base, label, titles, { near, maxKm = null, type, kind, derivedFrom = titles.length, derivedMaxKm = null, cache = { cacheMaxAgeMs: 30 * 864e5 } }) {
@@ -612,13 +636,26 @@ async function addPointRun(argv, ctx) {
       if (idx < 0) idx = cands.findIndex((c) => !tooFar(c));
       if (idx > 0) skipped = cands.slice(0, idx).filter((c) => tooFar(c));
       chosen = idx >= 0 ? cands[idx] : cands[0];
+      // The place itself before a place named after it, whatever order the search gave: "Padrão dos Descobrimentos"
+      // is the monument, not "Miradouro do Padrão dos Descobrimentos" (the viewpoint on it). Only a candidate that is
+      // the same name (or every word of it and no other) wins over one that merely contains it; a station or stop
+      // never wins this way unless the query asks for one ("Sagrada Família" is the church, not its metro station).
+      const closeness = (c) => nameCloseness(args.query, [c.name, c.name_en], area);
+      if (idx >= 0) {
+        const stationAsked = /station/.test(qType?.tags?.[0] || '');
+        const mine = closeness(chosen);
+        const named = cands.map((c) => ({ c, k: closeness(c) }))
+          .filter(({ c, k }) => k >= 2 && k > mine && good(c) && !tooFar(c) && !PART_TYPE.test(c.type || '') && (stationAsked || !TRANSIT_TYPE.test(c.type || '')))
+          .sort((a, b) => b.k - a.k)[0];
+        if (named) chosen = named.c;
+      }
       // Same place mapped twice (e.g. landuse/building outline + the tourism=hotel object): prefer the POI,
       // or the candidate whose OSM value equals --kind. Never "upgrade" to an entrance, platform or stop
       // (大安森林公園站 matched the station building, then moved to exit 1).
       const poiKey = /^(tourism|amenity|shop|leisure|railway|public_transport|historic|aeroway|natural|office|craft|healthcare|club|sport)=/;
       const better = cands.find((c) => c !== chosen && !tooFar(c) && c.name_match !== false && c.type_ok !== false && haversine(c.coord, chosen.coord) < 300 &&
         !PART_TYPE.test(c.type || '') &&
-        (args.kind ? c.kind === args.kind && chosen.kind !== args.kind : poiKey.test(c.type) && !poiKey.test(chosen.type || '') && !(exactName(args.query, chosen) && !exactName(args.query, c))));
+        (args.kind ? c.kind === args.kind && chosen.kind !== args.kind : poiKey.test(c.type) && !poiKey.test(chosen.type || '') && !(exactName(args.query, chosen) && !exactName(args.query, c)) && !(closeness(chosen) > closeness(c))));
       if (better) chosen = better;
       // the chosen one is a part (entrance, platform, stop) but the station / main object is listed too: take that
       if (PART_TYPE.test(chosen.type || '')) {
@@ -883,6 +920,8 @@ function clearMissing(cfg, { layer, id, name, query }) {
 // Parts of a place (entrances, platforms, stops): never the thing a person asked for by name.
 const PART_TYPE = /^(railway=(subway_entrance|entrance|train_station_entrance|platform|stop|stop_position|halt_position)|public_transport=(platform|stop_position|stop_area|entrance)|highway=(bus_stop|platform)|entrance=)/;
 const TRANSPORT_TYPE = /^(highway=bus_stop|amenity=(bus_station|taxi|ferry_terminal)|public_transport=|railway=(halt|stop|tram_stop))/;
+// Every transit object (stations included): named after the place it serves, never that place.
+const TRANSIT_TYPE = /^(railway=(station|halt|stop|tram_stop|subway_entrance|platform)|public_transport=|highway=(bus_stop|platform)|amenity=(bus_station|ferry_terminal|taxi)|aeroway=)/;
 function exactName(q, c) {
   const n = (x) => String(x || '').toLowerCase().replace(/\s+/g, '');
   return [c.name, c.name_en].some((x) => x && n(x) === n(q));

@@ -70,6 +70,24 @@ export const TW_METRO = {
 `,
 };
 
+// Lisbon places for the trip-plan tests (coordinates of the OpenStreetMap objects, rounded): three areas a 3-day stay
+// is usually split into (Alfama, Belém, Estrela) and a base hotel in Baixa. Sintra is the usual day trip.
+export const LISBON = {
+  centre: [-9.1393, 38.7107],
+  base: { id: 'baixa-hotel', name: 'Hotel in Baixa', coord: [-9.1390, 38.7110] },
+  places: [
+    { id: 'castelo', name: 'Castelo de São Jorge', area: 'alfama', coord: [-9.1335, 38.7139] },
+    { id: 'se', name: 'Sé de Lisboa', area: 'alfama', coord: [-9.1334, 38.7099] },
+    { id: 'santa-luzia', name: 'Miradouro de Santa Luzia', area: 'alfama', coord: [-9.1305, 38.7118] },
+    { id: 'jeronimos', name: 'Mosteiro dos Jerónimos', area: 'belem', coord: [-9.2068, 38.6979] },
+    { id: 'torre', name: 'Torre de Belém', area: 'belem', coord: [-9.2160, 38.6916] },
+    { id: 'padrao', name: 'Padrão dos Descobrimentos', area: 'belem', coord: [-9.2057, 38.6936] },
+    { id: 'jardim-estrela', name: 'Jardim da Estrela', area: 'estrela', coord: [-9.1593, 38.7139] },
+    { id: 'basilica-estrela', name: 'Basílica da Estrela', area: 'estrela', coord: [-9.1602, 38.7131] },
+  ],
+  daytrip: { id: 'sintra', name: 'Palácio da Pena', coord: [-9.3906, 38.7876] },
+};
+
 export async function writeRegistryCache(cacheRoot) {
   const d = path.join(cacheRoot, 'tw-hotels');
   fs.mkdirSync(d, { recursive: true });
@@ -86,6 +104,7 @@ const feat = (name, coord, { key = 'tourism', value = 'hotel', street = '', hn =
   type: 'Feature', geometry: { type: 'Point', coordinates: coord },
   properties: { osm_type: type, osm_id: id, osm_key: key, osm_value: value, name, ...(en ? { name_en: en } : {}), street, housenumber: hn, district, city, country: '臺灣' },
 });
+const LX = { district: 'Belém', city: 'Lisboa', country: 'Portugal' };
 // Photon answers by query text (osm_tag type searches get nothing)
 const PHOTON = {
   'Via Hotel Loft, Taipei': [feat('丰居旅店', VIA, { street: '民生東路一段', hn: '42', id: 4983984604, type: 'N', en: 'Via Hotel Loft' })],
@@ -94,6 +113,17 @@ const PHOTON = {
   'Qwertyuiop Hotel, Taipei': [feat('圓山大飯店', [121.526206, 25.078765], { id: 557039975 })],
   'Everstar Hotel': [feat('Hotel Wöbken', [8.191012, 53.112688], { id: 266516015, type: 'N', district: 'Eversten', city: 'Oldenburg' })],
   'Blue Door Cafe': [feat('Blue Door Cafe', [121.5250, 25.0580], { key: 'amenity', value: 'cafe', id: 77, type: 'N' })],
+  // Lisbon, the 3-day trip of the 27 Oct 2026 live test: the search lists the viewpoint on top of the monument (named
+  // after it) before the monument itself; the zoo and the metro station by it share a name. Names and tags as
+  // OpenStreetMap has them, in the search's answer shape.
+  'Padrão dos Descobrimentos': [
+    feat('Miradouro do Padrão dos Descobrimentos', [-9.205652, 38.693707], { key: 'tourism', value: 'viewpoint', id: 8840011, type: 'N', ...LX }),
+    feat('Padrão dos Descobrimentos', [-9.205748, 38.693586], { key: 'historic', value: 'monument', id: 4290022, type: 'W', ...LX }),
+  ],
+  'Jardim Zoológico': [
+    feat('Jardim Zoológico de Lisboa', [-9.170650, 38.743530], { key: 'tourism', value: 'zoo', id: 4290033, type: 'W', ...LX, district: 'São Domingos de Benfica' }),
+    feat('Jardim Zoológico', [-9.168540, 38.742150], { key: 'railway', value: 'station', id: 8840044, type: 'N', ...LX, district: 'São Domingos de Benfica' }),
+  ],
 };
 
 // cafés around the three Taipei hotels (Via ~ 3, Everstar 1, Lore 0 within 800 m)

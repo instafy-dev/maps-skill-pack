@@ -1,5 +1,5 @@
 // `validate`: check a site thoroughly; every message names file + JSON path + a fix.
-import { emptyPlanDays, isPlanSkeletonText } from './cmd-plan.mjs';
+import { emptyPlanDays, isPlanSkeletonText, dayPlaceWarnings, dayPlaceLine } from './cmd-plan.mjs';
 import { pathToFileURL } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -439,6 +439,7 @@ export async function run(argv) {
       if (d?.route !== undefined && !byId.has(d.route)) E(CFG, `${p}.route`, `route "${d.route}" is not a layer id`, `make one: uw route ${args._[0]} --layer ${d.route} --from … --to …`);
       if (d?.time !== undefined && (!isNum(d.time) || d.time < 0 || d.time > 24)) E(CFG, `${p}.time`, 'time must be an hour 0-24', '');
       if (d?.time_hint !== undefined && typeof d.time_hint !== 'boolean') E(CFG, `${p}.time_hint`, 'time_hint must be true or false (true: the hour only sets the light, no clock time is shown)', '');
+      if (d?.depart !== undefined && typeof d.depart !== 'boolean') E(CFG, `${p}.depart`, 'depart must be true or false (true: the day the traveller leaves; nothing is planned on it)', '');
       (Array.isArray(d?.items) ? d.items : []).forEach((it, j) => {
         if (it?.ref !== undefined) ref(it.ref, CFG, `${p}.items[${j}].ref`, 'item ref');
         if (it?.url !== undefined && !(typeof it.url === 'string' && /^https:\/\/[^\s]+$/.test(it.url) && it.url.length <= 2000))
@@ -471,6 +472,14 @@ export async function run(argv) {
       W(CFG, `$.plan.days[${i}].items[${j}].text`, own ? 'item repeats its day\'s text' : 'item repeats the text of another day',
         'remove it, or pin the place it names (uw add-point … then a ref item); when you rewrite a day, rewrite or remove its items in the same edit');
     }));
+    // a place far from its day's other places, or nearer another day's: the day zigzags across town
+    if (Array.isArray(days)) {
+      const find = (r) => (featuresByLayer.get(r.layer) || []).find((f) => String(f?.properties?.id) === r.id) || null;
+      for (const w of dayPlaceWarnings(cfg.plan, find)) {
+        W(CFG, `$.plan.days[${w.day}].items[${w.item}]`, `day places: ${dayPlaceLine(w, days)}`,
+          `or rebuild the days: uw plan ${args._[0]} … --sights sights,food --force (groups each stop's places by area, each day a loop from the base)`);
+      }
+    }
     if (Array.isArray(days)) {
       const gaps = emptyPlanDays(cfg.plan);
       if (gaps.full >= 2 && gaps.empty * 2 > gaps.full)

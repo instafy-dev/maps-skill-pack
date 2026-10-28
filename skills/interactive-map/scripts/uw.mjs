@@ -6,6 +6,7 @@ import path from 'node:path';
 import { UsageError } from './lib/util.mjs';
 import { setDeadline, isSkip, releaseOverpassLock, networkActive } from './lib/net.mjs';
 import { commandLimitS, runOutOfTime, jobDeadlineValue, maxCommandS } from './lib/budget.mjs';
+import { stateDirOf } from './lib/state-dir.mjs';
 
 const [major] = process.versions.node.split('.').map(Number);
 if (major < 22) {
@@ -91,7 +92,7 @@ function turnClock(dir, { touchOnly = false } = {}) {
   // the host's own clock beats the idle-gap guess
   if (HOST_TURN && process.env.UW_TURN_BUDGET == null) return { elapsedS: Math.max(0, Math.round((Date.now() - HOST_TURN.started) / 1000)), host: true };
   if (!dir) return null;
-  const f = path.join(dir, '.uwcache', 'turn.json');
+  const f = path.join(stateDirOf(dir), 'turn.json');
   const now = Date.now();
   let t = null;
   try { t = JSON.parse(fs.readFileSync(f, 'utf8')); } catch {}

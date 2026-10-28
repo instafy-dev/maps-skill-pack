@@ -1,11 +1,13 @@
 // One writer at a time per site: uw commands may run side by side on the same site (handoff --apply runs a stop's
 // steps beside the other stops'), and each one reads a layer file or map.config.json, changes it and writes it back.
-// `withSiteLock(dir, fn)` runs fn holding <site>/.uwcache/write.lock (created exclusively), so a read-change-write in
+// `withSiteLock(dir, fn)` runs fn holding the site's write.lock (created exclusively, in its state folder:
+// lib/state-dir.mjs), so a read-change-write in
 // fn never loses another command's write. Network work stays outside the lock; only the short file sections take it.
 // Re-entrant within a process. A lock whose owner is gone, or older than STALE_MS, is taken over.
 import fs from 'node:fs';
 import path from 'node:path';
 import { UserError } from './util.mjs';
+import { stateDirOf } from './state-dir.mjs';
 
 const PAUSE = new Int32Array(new SharedArrayBuffer(4));
 const STALE_MS = 60_000;
@@ -43,7 +45,7 @@ function acquire(lock) {
 export function withSiteLock(site, fn) {
   const dir = typeof site === 'string' ? site : site?.dir;
   if (!dir) return fn();
-  const lock = path.join(path.resolve(dir), '.uwcache', 'write.lock');
+  const lock = path.join(stateDirOf(dir), 'write.lock');
   const depth = held.get(lock) || 0;
   if (!depth) acquire(lock);
   held.set(lock, depth + 1);

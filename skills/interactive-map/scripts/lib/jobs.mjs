@@ -2,12 +2,14 @@
 // `uw wait [<job>]` prints its output so far and waits a little (exit 75 while it still runs: run `uw wait` again; then
 // the command's own exit code). A shell tool that gives up on a long command after its own time limit can never leave
 // the agent guessing whether the work stalled, and the command is never started twice.
-// Jobs live in .uwcache/jobs/ under the current folder: <id>.json (command, pid, times, exit code) and <id>.log.
+// Jobs live in jobs/ in the current folder's state folder (lib/state-dir.mjs: the space's folder in Instafy, else
+// .uwcache/ here): <id>.json (command, pid, times, exit code) and <id>.log.
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { UsageError, UserError } from './util.mjs';
+import { stateDirOf } from './state-dir.mjs';
 
 const UW = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'uw.mjs');
 /** Exit code of `uw wait` while the job still runs (EX_TEMPFAIL). */
@@ -20,7 +22,7 @@ export const help = `wait [<job id>] [--max 50] [--json]
   ${STILL_RUNNING} while it still runs: run \`uw wait <id>\` again. Never start the command a second time.
   Any uw command takes --detach (\`uw handoff … --apply --detach\`); host and serve have their own.`;
 
-export function jobsDir(cwd = process.cwd()) { return path.join(cwd, '.uwcache', 'jobs'); }
+export function jobsDir(cwd = process.cwd()) { return path.join(stateDirOf(cwd), 'jobs'); }
 const q = (a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${String(a).replace(/'/g, `'\\''`)}'`);
 const readJob = (dir, id) => { try { return JSON.parse(fs.readFileSync(path.join(dir, `${id}.json`), 'utf8')); } catch { return null; } };
 const writeJob = (dir, job) => fs.writeFileSync(path.join(dir, `${job.id}.json`), JSON.stringify(job, null, 2));
