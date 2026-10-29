@@ -105,7 +105,7 @@ const feat = (name, coord, { key = 'tourism', value = 'hotel', street = '', hn =
   properties: { osm_type: type, osm_id: id, osm_key: key, osm_value: value, name, ...(en ? { name_en: en } : {}), street, housenumber: hn, district, city, country: '臺灣' },
 });
 const LX = { district: 'Belém', city: 'Lisboa', country: 'Portugal' };
-// Photon answers by query text (osm_tag type searches get nothing)
+// Photon answers by query text (osm_tag type searches: PHOTON_TAGGED below)
 const PHOTON = {
   'Via Hotel Loft, Taipei': [feat('丰居旅店', VIA, { street: '民生東路一段', hn: '42', id: 4983984604, type: 'N', en: 'Via Hotel Loft' })],
   'Everstar Hotel, Taipei': [feat('圓山大飯店', [121.526206, 25.078765], { id: 557039975 }), feat('台北喜來登大飯店', [121.522555, 25.044675], { id: 267163040 })],
@@ -134,6 +134,22 @@ const PHOTON = {
     feat('Basilique du Sacré-Cœur', [2.343076, 48.886719], { key: 'amenity', value: 'place_of_worship', id: 4290077, type: 'W', district: 'Montmartre', city: 'Paris', country: 'France' }),
     feat('Hôtel du Sacré-Cœur', [2.341860, 48.885120], { key: 'tourism', value: 'hotel', id: 8840088, type: 'N', district: 'Montmartre', city: 'Paris', country: 'France' }),
     feat('Café Sacré-Cœur', [2.342500, 48.885800], { key: 'amenity', value: 'cafe', id: 8840099, type: 'N', district: 'Montmartre', city: 'Paris', country: 'France' }),
+  ],
+  // A square known by another name: OpenStreetMap maps Lisbon's Rossio as "Praça Dom Pedro IV" (place=square, "Rossio"
+  // its other name), so a name search lists only the railway station and the stops named after it (the 29 Oct 2026
+  // drive put "Rossio" on the map as the station). Names, tags and positions as OpenStreetMap has them.
+  'Rossio, Lisbon': [
+    feat('Rossio', [-9.137941, 38.714024], { key: 'railway', value: 'station', id: 898569365, type: 'W', ...LX, district: 'Santa Maria Maior' }),
+    feat('Lisboa - Rossio', [-9.141525, 38.714118], { key: 'railway', value: 'stop', id: 1932413785, type: 'N', ...LX, district: 'Santa Maria Maior' }),
+    feat('Estação Ferroviária de Lisboa - Rossio', [-9.140899, 38.714225], { key: 'building', value: 'train_station', id: 96530649, type: 'W', ...LX, district: 'Santa Maria Maior' }),
+  ],
+};
+// Photon answers to a search with osm_tag filters (a type search): by query text, only the features whose
+// key:value is one of the tags asked for. Every other tagged search gets nothing, as before.
+const PHOTON_TAGGED = {
+  'Rossio, Lisbon': [
+    feat('Praça Dom Pedro IV', [-9.139343, 38.713756], { key: 'place', value: 'square', id: 1317749306, type: 'W', ...LX, district: 'Santa Maria Maior' }),
+    feat('Rossio dos Olivais', [-9.095047, 38.767387], { key: 'highway', value: 'pedestrian', id: 581103605, type: 'W', ...LX, district: 'Parque das Nações' }),
   ],
 };
 
@@ -168,7 +184,8 @@ export function startMock() {
     if (u.pathname.startsWith('/api') && !u.pathname.includes('interpreter')) {
       const q = u.searchParams.get('q');
       const en = u.searchParams.get('lang') === 'en';
-      const feats = (u.searchParams.getAll('osm_tag').length ? [] : PHOTON[q] || []).map((f) => {
+      const tags = u.searchParams.getAll('osm_tag');
+      const feats = (tags.length ? (PHOTON_TAGGED[q] || []).filter((f) => tags.includes(`${f.properties.osm_key}:${f.properties.osm_value}`)) : PHOTON[q] || []).map((f) => {
         const { name_en, ...p } = f.properties;
         return { ...f, properties: { ...p, name: en && name_en ? name_en : p.name } };
       });

@@ -54,7 +54,8 @@ know"). Where a lodging register covers the
 area it comes first (licensed, open listings); elsewhere OpenStreetMap hotels, hostels and guest houses. Pass
 `--kinds hotel` unless the user asked for hostels or said the budget is tight (an unknown party counts as hotels);
 travellers who want character or a small place `--prefer any` (no penalty for B&Bs and small hotels). Call each
-pick by the kind it was written with: a hostel is a hostel, in the reply too. Small towns: `--radius 1500`.
+pick by the kind it was written with: a hostel is a hostel, in the reply too. A hotel in range is always among the
+picks; "No hotel within …" means there is none, and the reply says so. Small towns: `--radius 1500`.
 A station far from the centre (step 2): `uw stay <site> --near <centre lng,lat> --near-label "the centre of <City>"
 --stop <station id>` too, and let the reply say which is which. Exit 2 = nothing in range: widen it. Never say a stay
 is available, bookable or a price (a register's filed rates are not prices).

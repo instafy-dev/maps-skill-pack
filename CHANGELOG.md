@@ -3,6 +3,36 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.11 (2026-10-29)
+
+Small misses from the fourth 29 Oct 2026 drive ("3 days in Lisbon", on a 375×812 phone).
+
+- **A kind with no plain word is left out.** Arco da Rua Augusta's card said "Board": OpenStreetMap has an information
+  board by the arch under its name, and a card showed any kind as its tag. A place's kind now shows only as a plain word
+  ("Museum", "Square", "Place of worship", "Café") or not at all; a kind written by hand ("B&B", "Day trip") stays as
+  written. Every kind the uw commands write has its word.
+- **A square named like its station is the square.** "Rossio" went on the map as Rossio railway station, "Station" on
+  its card: OpenStreetMap names the square "Praça Dom Pedro IV", so the name search found only the station. A station
+  is never the place it is named after unless the query (or `--kind`) asks for transit: `uw add-point` looks for that
+  place among squares and places to walk to within 600 m of the station and takes the nearest, shown under the name
+  asked for ("Rossio", its own name under it). The station stays an alternative (`--pick N`).
+- **`uw stay` keeps a hotel with the hostels, or says it found none.** Baixa's three closest were hostels, and the reply
+  guessed "no hotels were confirmed". With hotels asked for (the default `--kinds hotel,hostel` too), a hotel in range
+  is always a pick: the closest takes the place of the last of three hostels. None in range is said: "No hotel within
+  800 m of <place>", in the line the reply copies too (JSON `no_hotel`).
+- **The raised phone sheet shows its list.** Half open, in Studio's 572 px frame, it showed the search box, the
+  "Sights" heading and half of the first sight, cut at the edge where Studio's chips and composer start. Half open now
+  shows at least 240 px of the list, as far as the frame has room, and the list fades out over its last 16 px just above
+  the bottom edge (a host's composer, the phone's home bar) instead of running on under it.
+- **Search focus leaves the sheet where it is.** Focusing "Search places" raised the sheet to the top, so the next tap
+  opened another place. Typing filters the list in place.
+- **"© OpenStreetMap contributors" once.** The Map key's Sources listed the basemap's credit and `uw stay`'s
+  "© OpenStreetMap contributors (ODbL)"; credits that say the same thing (links, case and a licence in brackets aside)
+  now show once there and in the map's ⓘ.
+
+The drive also saw the map stay dark after Studio switched to light. Not reproduced: Studio sends its new theme and the
+map follows at once, the sheet and the basemap, on screen or hidden; a browser test now guards it.
+
 ## 0.1.10 (2026-10-29)
 
 Fixes from the fourth 29 Oct 2026 drive, where a comparison page's card showed the Lisbon map and the map's own card

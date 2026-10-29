@@ -50,6 +50,8 @@ function photonAnswer(q, lang, tags) {
   return [];
 }
 const AMS = [4.9005, 52.3789];
+const LX = [-9.1372, 38.7101];
+const lx = (dx, dy) => [Math.round((LX[0] + dx / 87000) * 1e6) / 1e6, Math.round((LX[1] + dy / 111000) * 1e6) / 1e6];
 const ams = (dx, dy) => [Math.round((AMS[0] + dx / 68000) * 1e6) / 1e6, Math.round((AMS[1] + dy / 111000) * 1e6) / 1e6];
 const OSM_LODGING = [
   { type: 'node', id: 501, c: ams(200, 0), tags: { tourism: 'hotel', name: 'Hotel Nord', stars: '4' } },
@@ -57,6 +59,11 @@ const OSM_LODGING = [
   { type: 'node', id: 503, c: ams(-120, 60), tags: { tourism: 'guest_house', name: 'Little Guest House', rooms: '3' } },
   { type: 'node', id: 504, c: ams(300, 300), tags: { tourism: 'hostel', name: 'Harbour Hostel' } },
   { type: 'node', id: 505, c: ams(50, 50), tags: { tourism: 'hotel' } }, // no name: never a pick
+  // Baixa, Lisbon (the 29 Oct 2026 drive): the three closest are hostels, the first hotel is 450 m away; across the
+  // river, hostels only within 800 m
+  ...[[601, 40, 0, 'Lounge Hostel'], [602, -30, 50, 'Downtown Rooms Hostel'], [603, 0, -70, 'Draft Hostel']].map(([id, dx, dy, name]) => ({ type: 'node', id, c: lx(dx, dy), tags: { tourism: 'hostel', name } })),
+  { type: 'way', id: 604, c: lx(450, 0), tags: { tourism: 'hotel', name: 'Hotel Rua Augusta', stars: '4' } },
+  { type: 'node', id: 605, c: lx(3000, -3000), tags: { tourism: 'hostel', name: 'River Hostel' } },
 ];
 let mock;
 function startMock() {
@@ -90,7 +97,10 @@ function startMock() {
       let body = ''; req.on('data', (d) => { body += d; });
       req.on('end', () => {
         const q = decodeURIComponent(body.replace(/^data=/, '').replace(/\+/g, ' '));
-        const elements = /"tourism"~/.test(q) ? OSM_LODGING.map((e) => (e.type === 'node' ? { type: 'node', id: e.id, lon: e.c[0], lat: e.c[1], tags: e.tags } : { type: e.type, id: e.id, center: { lon: e.c[0], lat: e.c[1] }, tags: e.tags })) : [];
+        // around:R,lat,lng as Overpass reads it
+        const a = q.match(/around:(\d+),(-?[\d.]+),(-?[\d.]+)/);
+        const near = (e) => !a || haversine([Number(a[3]), Number(a[2])], e.c) <= Number(a[1]);
+        const elements = /"tourism"~/.test(q) ? OSM_LODGING.filter(near).map((e) => (e.type === 'node' ? { type: 'node', id: e.id, lon: e.c[0], lat: e.c[1], tags: e.tags } : { type: e.type, id: e.id, center: { lon: e.c[0], lat: e.c[1] }, tags: e.tags })) : [];
         res.end(JSON.stringify({ elements }));
       });
       return;
@@ -293,6 +303,31 @@ test('stay (elsewhere): OpenStreetMap lodging; Photon stands in when Overpass is
   assert.equal(busy.code, 0, busy.err);
   assert.match(busy.json.partial, /Overpass could not answer/);
   assert.ok(busy.json.picks.length >= 1);
+});
+
+test('stay keeps a hotel with the hostels, or says it found none', async () => {
+  assert.equal((await uw(['new', 'lx', '--title', 'Lisbon', '--center', LX.join(','), '--zoom', '14'])).code, 0);
+  const r = await uw(['stay', 'lx', '--near', LX.join(','), '--near-label', 'Baixa', '--stop', 'lisboa', '--json']);
+  assert.equal(r.code, 0, r.err);
+  const kinds = r.json.picks.map((p) => p.kind);
+  assert.equal(r.json.picks.length, 3);
+  assert.ok(kinds.includes('hotel'), `a hotel among ${kinds}`);
+  assert.ok(kinds.includes('hostel'));
+  assert.equal(r.json.picks.find((p) => p.kind === 'hotel').name, 'Hotel Rua Augusta');
+  assert.deepEqual(r.json.picks.map((p) => p.rank), [1, 2, 3], 'ranked by walk');
+  assert.equal(r.json.no_hotel, undefined);
+  // --kinds hostel: hostels only, and no word about hotels
+  const h = await uw(['stay', 'lx', '--near', LX.join(','), '--near-label', 'Baixa', '--stop', 'lisboa', '--kinds', 'hostel', '--json']);
+  assert.ok(h.json.picks.every((p) => p.kind === 'hostel'));
+  assert.equal(h.json.no_hotel, undefined);
+  // hostels only in range: said, in the line the reply copies
+  const far = lx(3000, -3000).join(',');
+  const n = await uw(['stay', 'lx', '--near', far, '--near-label', 'Almada', '--stop', 'almada']);
+  assert.equal(n.code, 0, n.err);
+  assert.match(n.out, /No hotel within 800 m of Almada\./);
+  assert.match(n.out, /Tell the user: .*no hotel was found within 800 m of Almada\./);
+  const j = await uw(['stay', 'lx', '--near', far, '--near-label', 'Almada', '--stop', 'almada', '--json']);
+  assert.equal(j.json.no_hotel, true);
 });
 
 // ---------------------------------------------------------------------------

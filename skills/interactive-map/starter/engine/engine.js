@@ -12,7 +12,7 @@ import {
   h, clamp, fill, fmtHour, fmtMetric, fmtNum, humanize, inWindow, center, bbox, lineCoords, cumulative, along, distM,
   pointInGeom, round6, debounce, rafThrottle, reducedMotion, prefersDark, timeIcon,
   BASIS, normBasis, fmtDate, fmtAge, fmtMoney, safeUrl, MODE_EMOJI, CAT_COLORS, THEME_COLORS, parseColor, featureName, selectPayload, word,
-  pageDescription, kindLabel, sourceLine,
+  pageDescription, kindLabel, sourceLine, uniqueCredits,
 } from './util.js';
 import { Question, guessMetric, mentionLayer, shortName } from './question.js';
 import { RecordStore, expired, stale, itemFeature, offerGroup } from './records.js';
@@ -1098,7 +1098,7 @@ function renderLayersTab() {
   const srcs = [OSM, OFM, OMT, ...(E.config.attribution || []), ...E.layers.list.map((L) => L.attribution).filter(Boolean)];
   // the credits name services and licences ("Walking times: OSRM (FOSSGIS)"): kept one tap away, collapsed like a
   // card's "How we know", so the key itself is the layers in plain words (the map's ⓘ shows them too)
-  const list = h('p.uw-note.uw-foot'); list.innerHTML = [...new Set(srcs)].join(' · ');
+  const list = h('p.uw-note.uw-foot'); list.innerHTML = uniqueCredits(srcs).join(' · ');
   E.ui.renderLayers(order.map((g) => ({ title: g, layers: by.get(g) })), E.ui.disclosure('Sources', list, 'sources'));
 }
 function compareModel() {
@@ -1407,7 +1407,7 @@ let attrib = null;
 function placeAttribution(side) {
   if (!E.map) return;
   if (attrib) E.map.removeControl(attrib);
-  const custom = [OSM, ...(E.config.attribution || [])];
+  const custom = uniqueCredits([OSM, ...(E.config.attribution || [])]);
   attrib = new maplibregl.AttributionControl({ compact: true, customAttribution: custom });
   E.map.addControl(attrib, side ? 'bottom-right' : 'top-left');
   collapseAttribution();

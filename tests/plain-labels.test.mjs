@@ -11,7 +11,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const SKILL = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'skills', 'interactive-map');
 const ENGINE = path.join(SKILL, 'starter', 'engine');
-const { kindLabel, sourceLine } = await import(pathToFileURL(path.join(ENGINE, 'util.js')).href);
+const { kindLabel, sourceLine, uniqueCredits } = await import(pathToFileURL(path.join(ENGINE, 'util.js')).href);
+const { KINDS } = await import(pathToFileURL(path.join(SKILL, 'scripts', 'lib', 'kinds.mjs')).href);
 
 test('kindLabel: OpenStreetMap area classes in plain words, other kinds as they are, nothing for a bare "yes"', () => {
   assert.equal(kindLabel('suburb'), 'Neighbourhood');
@@ -30,10 +31,34 @@ test('kindLabel: OpenStreetMap area classes in plain words, other kinds as they 
   // a class that says nothing about the place is left out, and so is no kind at all
   for (const k of ['yes', 'house', 'building', '', null, undefined]) assert.equal(kindLabel(k), '', String(k));
   // an object key is not a kind
-  assert.equal(kindLabel('constructor'), 'Constructor');
+  assert.equal(kindLabel('constructor'), '');
   for (const k of ['suburb', 'administrative', 'quarter', 'locality', 'county', 'state', 'political']) {
     assert.doesNotMatch(kindLabel(k), /suburb|administrative|political|locality/i, k);
   }
+});
+
+// The 29 Oct 2026 drive: Arco da Rua Augusta's card said "Board", the information board OpenStreetMap has by the
+// arch under its name. A kind with no plain word is left out, never shown as its tag.
+test('kindLabel: a kind with no plain word is left out; every kind the uw commands write has one', () => {
+  for (const k of ['board', 'information', 'guidepost', 'stop_position', 'tertiary', 'yes']) assert.equal(kindLabel(k), '', k);
+  assert.equal(kindLabel('station'), 'Station');
+  assert.equal(kindLabel('place_of_worship'), 'Place of worship');
+  assert.equal(kindLabel('cafe'), 'Café');
+  assert.equal(kindLabel('Day trip'), 'Day trip', 'words written by hand stay');
+  for (const k of [...Object.keys(KINDS), 'guest_house', 'city', 'area', 'square', 'attraction', 'sight', 'food', 'store', 'lodging']) {
+    assert.notEqual(kindLabel(k), '', `uw writes "${k}"`);
+  }
+});
+
+// The drive's Map key, under Sources: "© OpenStreetMap contributors · OpenFreeMap · © OpenMapTiles · © OpenStreetMap
+// contributors (ODbL) · Walking times: …": the basemap's credit, then `uw stay`'s with its licence.
+test('uniqueCredits: each credit once, whatever its link, case or licence in brackets', () => {
+  const OSM = '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a>';
+  const got = uniqueCredits([OSM, 'OpenFreeMap', '© OpenStreetMap contributors (ODbL)', 'Walking times: OSRM (FOSSGIS) on OpenStreetMap', '© OpenStreetMap contributors', '', null]);
+  assert.deepEqual(got, [OSM, 'OpenFreeMap', 'Walking times: OSRM (FOSSGIS) on OpenStreetMap']);
+  const engine = fs.readFileSync(path.join(ENGINE, 'engine.js'), 'utf8');
+  assert.match(engine, /list\.innerHTML = uniqueCredits\(srcs\)/, 'the Map key\'s Sources');
+  assert.match(engine, /const custom = uniqueCredits\(\[OSM, \.\.\.\(E\.config\.attribution \|\| \[\]\)\]\)/, 'the map\'s ⓘ');
 });
 
 test('sourceLine: map data is "Map data © OpenStreetMap", never the search that found it; other sources by name', () => {
