@@ -95,6 +95,11 @@ const KIND_WORDS = {
   aerodrome: 'Airport', camp_site: 'Campsite', convenience: 'Convenience store', atm: 'ATM', ev_charging: 'EV charging',
   tea: 'Tea / bubble tea', pool: 'Swimming pool', swimming_pool: 'Swimming pool', bike_share: 'Bike share',
   bicycle_rental: 'Bike share', books: 'Bookstore', archaeological_site: 'Archaeological site',
+  townhall: 'Town hall', cave_entrance: 'Cave', alpine_hut: 'Mountain hut', wilderness_hut: 'Hut', biergarten: 'Beer garden',
+  doctors: 'Doctor', wood: 'Forest',
+  // the kinds of lines `uw lines` writes
+  subway: 'Metro', light_rail: 'Light rail', tram: 'Tram', rail: 'Railway', hsr: 'High-speed rail', heritage: 'Heritage railway',
+  ferry: 'Ferry', cycleway: 'Cycle path',
 };
 /** Kinds whose own name is the plain word ("museum" → "Museum", "food_court" → "Food court"): the uw commands' kinds
  *  and the OpenStreetMap classes of places people go to. */
@@ -104,7 +109,12 @@ const PLAIN_KINDS = new Set(('museum gallery attraction viewpoint monument memor
   'restaurant coffee bar pub fast_food ice_cream bakery dessert nightlife nightclub karaoke hotel hostel guest_house motel ' +
   'apartment lodging station train_station tram_stop bus_stop bus_station ferry_terminal airport university library ' +
   'theatre cinema stadium arts_centre gym playground supermarket pharmacy toilets laundry coworking bookstore hot_spring ' +
-  'mall department_store shop store sight landmark venue food area stop stay home office school hospital').split(' '));
+  'mall department_store shop store sight landmark venue food area stop stay home office school hospital ' +
+  // the OpenStreetMap kinds of sights, nature and days out a trip map shows (add-point writes the place's own tag)
+  'national_park nature_reserve city_gate water_park golf_course marina pier harbour cemetery hill volcano valley cliff ' +
+  'glacier bay cape spring river canal dam reservoir forest vineyard winery brewery distillery casino observatory ' +
+  'planetarium arena concert_hall sports_centre ice_rink picnic_site tomb aqueduct battlefield manor resort spa ' +
+  'country college post_office embassy courthouse clinic dentist bank police parking car_rental boat_rental').split(' '));
 /** A place's kind as its card and list say it: the plain word for it, or nothing. A kind with no plain word is left
  *  out, never shown as its tag ("board", an information board in OpenStreetMap, read "Board"); a kind written by hand
  *  (capitals or spaces: "B&B", "Day trip") is the author's own words. */

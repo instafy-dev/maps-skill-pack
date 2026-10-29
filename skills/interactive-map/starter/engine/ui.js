@@ -412,8 +412,17 @@ export class UI {
     const p = this.panels.places; if (!p) return;
     if (!this.search) {
       this.search = h('input.uw-search', { type: 'search', placeholder: 'Search places', 'aria-label': 'Search places', enterkeyhint: 'search', autocomplete: 'off' });
-      // typing filters the list where the sheet is: focus never moves it (a jump put the next tap on another place)
+      // typing filters the list where the sheet is: focusing a box in view never moves it (a jump put the next tap on
+      // another place). A keyboard can focus it while the lowered sheet hides it under the edge: then half open shows it.
       this.search.addEventListener('input', () => this.ctx.renderPlaces());
+      this.search.addEventListener('focus', () => {
+        if (this.side || this.snap !== 'peek') return;
+        // where the box sits at peek, measured in the sheet (the browser scrolls the root to show a focused box; the
+        // root's scroll is undone, ui's constructor)
+        const inSheet = this.search.getBoundingClientRect().bottom - this.sheet.getBoundingClientRect().top;
+        const sab = parseFloat(getComputedStyle(this.probe).paddingBottom) || 0;
+        if (this.snaps.peek + inSheet > this.H - sab) this.ensureOpen('half');
+      });
       this.placesList = h('div.uw-list');
       p.append(h('label.uw-searchwrap', svg('search'), this.search), this.placesList);
     }

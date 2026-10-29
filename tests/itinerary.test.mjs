@@ -330,6 +330,26 @@ test('stay keeps a hotel with the hostels, or says it found none', async () => {
   assert.equal(j.json.no_hotel, true);
 });
 
+// Review of 0.1.11: the hotel took the place of "the last pick of a kind that has more than one", so with one pick,
+// with picks of different kinds, or with the hotel in the building of the pick it would replace, no hotel was picked,
+// and `uw stay` then said "No hotel within 800 m" while one was 450 m away.
+test('a hotel in range is a pick whatever the other picks are, and never called missing', async () => {
+  const k = new Set(['hotel', 'hostel']);
+  const c = (name, m, o = {}) => ({ name, coord: east(m), walk_min: Math.max(1, Math.round(m / 80)), walk_m: m, walk_basis: 'routed', registered: false, group: 'hotel', osm_kind: 'hostel', ...o });
+  const hotel = (name, m) => c(name, m, { osm_kind: 'hotel' });
+  assert.deepEqual(rankStays([c('Hostel A', 80), hotel('Hotel H', 400)], { max: 1, kinds: k }).map((p) => p.name), ['Hotel H'], 'one pick');
+  assert.deepEqual(rankStays([c('Hostel A', 80), c('Guest B', 120, { group: 'bnb', osm_kind: 'guest_house' }), hotel('Hotel H', 400)], { max: 2, kinds: k }).map((p) => p.name),
+    ['Hostel A', 'Hotel H'], 'picks of different kinds');
+  assert.deepEqual(rankStays([c('Hostel A', 80), c('Hostel B', 160), c('Hostel C', 240), hotel('Hotel C', 250)], { max: 3, kinds: k }).map((p) => p.name),
+    ['Hostel A', 'Hostel B', 'Hotel C'], 'a hotel in the building of the hostel it replaces');
+  assert.deepEqual(rankStays([c('Hostel A', 80), hotel('Hotel H', 400)], { max: 1, kinds: new Set(['hostel']) }).map((p) => p.name), ['Hostel A'], 'hostels asked for');
+  // the CLI: one pick near Baixa is the hotel 450 m away, and nothing says there is none
+  const one = await uw(['stay', 'lx', '--near', LX.join(','), '--near-label', 'Baixa', '--stop', 'lisboa', '--max', '1']);
+  assert.equal(one.code, 0, one.err);
+  assert.match(one.out, /1\. Hotel Rua Augusta/);
+  assert.doesNotMatch(one.out, /No hotel|no hotel/);
+});
+
 // ---------------------------------------------------------------------------
 // uw legs --follow, --source-url
 // A "U"-shaped rail line from A to B (the straight line would cut across), a branch that meets it at a T-junction

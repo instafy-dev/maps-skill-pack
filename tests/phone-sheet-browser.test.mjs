@@ -105,6 +105,25 @@ test('phone sheet in a host frame: raised, it shows the first place whole and it
   assert.match(await frame.evaluate(() => document.querySelector('.uw-list').innerText), /Torre de Belém/);
   assert.equal((await geo()).top, half.top);
 
+  // Review of 0.1.11: with the sheet lowered the search box is out of view, and a keyboard (Tab) can still focus it;
+  // it then stayed hidden under the edge. Focus brings a hidden box into view (half open); a box in view never moves.
+  await frame.evaluate(() => document.activeElement?.blur());
+  // the handle steps half → full → peek
+  await frame.click('.uw-handle');
+  await frame.waitForTimeout(500);
+  await frame.click('.uw-handle');
+  await frame.waitForTimeout(700);
+  assert.equal((await geo()).snap, 'peek');
+  const hiddenBox = await frame.evaluate(() => document.querySelector('.uw-search').getBoundingClientRect().bottom);
+  assert.ok(hiddenBox > 812 - BAR - COMPOSER, `the box is out of view at peek (${hiddenBox})`);
+  await frame.focus('.uw-search');
+  await frame.waitForTimeout(700);
+  const shown = await geo();
+  assert.equal(shown.snap, 'half', 'a hidden box that takes focus is brought into view');
+  const box = await frame.evaluate(() => document.querySelector('.uw-search').getBoundingClientRect().bottom);
+  assert.ok(box <= shown.H - shown.sab, `the box ends at ${box}, in view above ${shown.H - shown.sab}`);
+  assert.deepEqual(await frame.evaluate(() => [document.scrollingElement.scrollTop, document.body.scrollTop, document.querySelector('.uw-root').scrollTop]), [0, 0, 0], 'the page itself did not scroll');
+
   // (a guard, not a change) Studio's theme switch reaches a map on screen at once: the sheet and the basemap
   const look = () => frame.evaluate(() => ({ sheet: getComputedStyle(document.querySelector('.uw-sheet')).backgroundColor, look: document.querySelector('.uw-root').dataset.look }));
   const light = await look();

@@ -3,6 +3,28 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.12 (2026-10-29)
+
+Fixes to 0.1.11, found in its review.
+
+- **A place next to a station is taken only under a name it has.** 0.1.11 took the nearest square, park or sight within
+  600 m of a station whatever its name, and showed it under the name asked for. The search's filtered answer lists
+  places that only share a word with the station ("St Pancras Lock" for "St Pancras International") or only the city
+  (parks across Paris for "Gare du Nord, Paris"). The place is now taken only when the name asked for is its own name or
+  one of its other names in OpenStreetMap (Rossio is the square's `alt_name`: one Overpass lookup); otherwise the station
+  stays. When that cannot be checked the station stays too, and the warning names the place and its `--osm` id.
+- **`uw stay` never says there is no hotel when one is in range.** The hotel only took the place of a second pick of
+  one kind, so with `--max 1`, with picks of different kinds, or with the hotel in the building of the hostel it would
+  replace, no hotel was picked and the output said "No hotel within 800 m" while one was 450 m away. The closest hotel
+  now takes the place of the last hostel, or of the last pick; "No hotel within …" is said only when none is in range.
+- **Plain words for the kinds of places a trip goes to.** 0.1.11 left out every kind not on its list, so "National
+  park", "Nature reserve", "City gate", "Town hall", "Water park" and others that 0.1.10 showed had no kind, and neither
+  had the lines `uw lines` writes ("subway", "tram", "ferry"). They have their words again ("Metro", "Tram", "Ferry"); a
+  kind with no plain word ("board") is still left out.
+- **A search box a keyboard focuses is brought into view.** With the phone sheet lowered the box is out of view; a
+  keyboard (Tab) could focus it there and it stayed hidden. It now opens the sheet half way. Focusing a box in view
+  still never moves the sheet.
+
 ## 0.1.11 (2026-10-29)
 
 Small misses from the fourth 29 Oct 2026 drive ("3 days in Lisbon", on a 375×812 phone).

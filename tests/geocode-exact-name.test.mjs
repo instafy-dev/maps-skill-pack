@@ -19,8 +19,9 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'uw-exact-'));
 let mock;
 before(async () => { mock = await startMock(); });
 after(() => { mock?.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
-const uw = (...args) => new Promise((resolve) => {
-  const env = { ...process.env, ...NO_WIKIPEDIA, UW_CACHE: path.join(tmp, 'cache'), UW_PHOTON: mock.url, UW_OVERPASS: mock.url + '/api/interpreter', UW_NO_CACHE: '1' };
+const uw = (...args) => uwEnv({}, ...args);
+const uwEnv = (extra, ...args) => new Promise((resolve) => {
+  const env = { ...process.env, ...NO_WIKIPEDIA, UW_CACHE: path.join(tmp, 'cache'), UW_PHOTON: mock.url, UW_OVERPASS: mock.url + '/api/interpreter', UW_NO_CACHE: '1', ...extra };
   delete env.INSTAFY_CACHE_DIR;
   const p = spawn(process.execPath, [UW, ...args], { cwd: tmp, env });
   let out = '', err = '';
@@ -91,4 +92,32 @@ test('add-point: a square named like its station is the square, under the name a
   const s = await uw('add-point', 'rossio', '--layer', 'stations', '--query', 'Rossio, Lisbon', '--kind', 'train_station', '--near', BAIXA, '--id', 'rossio-station', '--json');
   assert.equal(s.code, 0, s.err);
   assert.match(s.json.chosen.type, /^(railway=station|building=train_station)$/);
+});
+
+// Review of 0.1.11: the place next to a station was taken whatever its name ("the nearest is the pick"). The live
+// filtered search for "Gare du Nord, Paris" answered parks across Paris (matched on "Paris"), and for "St Pancras
+// International" a canal lock named after it; one of those within 600 m went on the map under the station's name. The
+// place is taken only when it is the place of that name: its own name, or one of its other names in OpenStreetMap
+// (Rossio, the square's alt_name). A place that cannot be checked leaves the station, and says so.
+test('add-point: a place next to a station is taken only under a name it has; the station stays otherwise', async () => {
+  const KX = '-0.1276,51.5322', GDN = '2.3550,48.8804';
+  assert.equal((await uw('new', 'stations', '--title', 'Stations', '--center', KX, '--zoom', '13')).code, 0);
+  const lock = await uw('add-point', 'stations', '--layer', 'sights', '--query', 'St Pancras International, London', '--near', KX, '--json');
+  assert.equal(lock.code, 0, lock.err);
+  assert.equal(lock.json.chosen.type, 'railway=station', `a lock named after the station is not it: ${lock.json.chosen.name}`);
+  assert.equal(lock.json.chosen.name, 'St Pancras International');
+  const gdn = await uw('add-point', 'stations', '--layer', 'sights', '--query', 'Gare du Nord, Paris', '--near', GDN, '--allow-far', '--json');
+  assert.equal(gdn.code, 0, gdn.err);
+  assert.equal(gdn.json.chosen.type, 'railway=station', `a park next to it is not it: ${gdn.json.chosen.name}`);
+  const feats = JSON.parse(fs.readFileSync(path.join(tmp, 'stations', 'data', 'sights.geojson'), 'utf8')).features;
+  assert.ok(!feats.some((f) => /Satragne|Lock/.test(`${f.properties.name} ${f.properties.name_en}`)), 'no other place under the station\'s name');
+  // the square whose other name is the one asked for is still the square; unchecked (Overpass busy), the station stays
+  const BAIXA = '-9.137024,38.710124';
+  assert.equal((await uw('new', 'rossio2', '--title', 'Lisbon', '--center', BAIXA, '--zoom', '14')).code, 0);
+  const sq = await uw('add-point', 'rossio2', '--layer', 'sights', '--query', 'Rossio, Lisbon', '--near', BAIXA, '--json');
+  assert.equal(sq.json.chosen.type, 'place=square');
+  const busy = await uwEnv({ UW_OVERPASS: mock.url + '/busy/api/interpreter' }, 'add-point', 'rossio2', '--layer', 'sights', '--query', 'Rossio, Lisbon', '--near', BAIXA, '--id', 'rossio-busy', '--timeout', '20', '--json');
+  assert.equal(busy.code, 0, busy.err);
+  assert.equal(busy.json.chosen.type, 'railway=station');
+  assert.ok((busy.json.warnings || []).some((w) => /could not be checked/.test(w) && /Praça Dom Pedro IV/.test(w) && /--osm osm-w1317749306/.test(w)), JSON.stringify(busy.json.warnings));
 });
