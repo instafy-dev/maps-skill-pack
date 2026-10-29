@@ -22,13 +22,14 @@ export const help = `plan <dir> --stops <layer> --start YYYY-MM-DD [--ids taipei
   with "stop" = the stop id, else the nearest stop within 60 km; an item copies the feature's source_url/source as its
   link; --sights may list several layers, e.g. sights,food,daytrips). A stop's places are grouped by area: the
   closest ones share a day, each day's in walking order from the base (a loop), the area nearest the base first; the
-  first day of the trip takes an area too when the full days would hold more than 2 places each. A full day that gets sourced
+  first day of the trip (its arrival, no travel before it) is one of its days: it takes an area too as soon as there are
+  more places than full days, so every day before the departure gets a place before any gets a second. A full day that gets sourced
   places gets a text from them instead of "Day in …": their names, the first with its "why" (the reason its page
   gives), ≤ 140 characters. The day after the last night is the departure ("depart": true, "Leave <stop>."): nothing
   is planned on it. Prints a warning for a place that is far from its day's other places or closer to another day's
   (plan-checks.json). Refuses to replace an existing plan without --force. Days with no sourced place keep "Day in …":
   add places. --sights also says the trip is about what to see each day: the plan keeps those layers ("sights"), and
-  \`uw validate\` fails while a full day has no sourced place.`;
+  \`uw validate\` fails while a full day (the arrival day of the trip too) has no sourced place.`;
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -43,6 +44,8 @@ const cityOf = (p) => {
 const isStation = (p) => !!p?.station_of || p?.kind === 'train_station';
 
 const SKELETON_DAY = /^Day in .+?(?:; night \d+ of \d+)?\.$/;
+/** The trip's first day as \`uw plan\` writes it: the arrival, before its places are added ("… Then: <places>"). */
+const ARRIVAL_DAY = /^Arrive in .+; night 1 of \d+\.$/;
 
 /** The departure day `uw plan` writes (marked "depart"; older plans: a title ending ": depart"). Nothing is planned on
  *  it, so it is never an empty day to fill. */
@@ -56,13 +59,15 @@ export function isPlanSkeletonText(text) {
   return /^(?:Leave .+\.|Travel day(?:; night 1 of \d+ in .+| via .+|; leave from .+)\.)$/.test(String(text ?? '').trim());
 }
 
-/** Full days (a whole day at a stop, not travel) still as `uw plan` wrote them: no items and the skeleton text; and
- *  thin ones: fewer than two sourced items (a day with one city-page sight is not "2-3 per city" yet).
+/** Full days (a day at a stop, not travel and not the departure; the trip's arrival day too: "3 days in Lisbon" is
+ *  three days to fill, the first one the arrival) still as `uw plan` wrote them: nothing but the base and the skeleton
+ *  text; and thin ones: fewer than two sourced items (a day with one city-page sight is not "2-3 per city" yet).
  *  Pure; used by validate and the turn clock to say "add sights" while there is time. */
 export function emptyPlanDays(plan) {
   const days = Array.isArray(plan?.days) ? plan.days : [];
-  const full = days.filter((d, i) => (i > 0 || days.length === 1) && !String(d?.title || '').includes('→') && !isDepartDay(d));
-  const empty = full.filter((d) => (!Array.isArray(d.items) || d.items.length === 0) && SKELETON_DAY.test(String(d.text || '')));
+  const full = days.filter((d) => !String(d?.title || '').includes('→') && !isDepartDay(d));
+  const onlyBase = (d) => !Array.isArray(d.items) || d.items.every((it) => /^Base: /.test(String(it?.text || '')));
+  const empty = full.filter((d) => onlyBase(d) && (SKELETON_DAY.test(String(d.text || '')) || ARRIVAL_DAY.test(String(d.text || ''))));
   const thin = full.filter((d) => sourcedItems(d) < 2);
   // nothing to see: not one sourced place (a pinned place with its page, or a place with only its page's link)
   const bare = full.filter((d) => sourcedItems(d) === 0).map((d) => String(d.title || ''));
@@ -182,7 +187,7 @@ const CHECKS = (() => {
 })();
 /** The thresholds of the grouping and the day-places check (plan-checks.json), with `over` replacing any of them. */
 export function planChecks(over = {}) {
-  return { same_area_km: 1.5, first_day_over: 2, near_km: 1.5, closer_ratio: 2, far_km: 4, trip_out_km: 15, ...CHECKS, ...over };
+  return { same_area_km: 1.5, first_day_over: 1, near_km: 1.5, closer_ratio: 2, far_km: 4, trip_out_km: 15, ...CHECKS, ...over };
 }
 
 const refOf = (r) => (typeof r === 'string' && r.includes(':') ? { layer: r.slice(0, r.indexOf(':')), id: r.slice(r.indexOf(':') + 1) }
@@ -357,8 +362,9 @@ export function buildPlan({ stops: stopsIn, nights: nightsIn, start, legs = [], 
   }
   // pass 2: a stop's places go on its full days grouped by area (≤ perDay of a layer each), each day in walking order
   // from the base, the area nearest the base first. The trip's first day (an arrival with no travel before it) takes
-  // an area too when the full days would hold more than plan-checks.json's first_day_over places each; a stop with no
-  // full day gets them on its arrival day. A stop visited twice shares its places across both visits.
+  // an area too when the full days would hold more than plan-checks.json's first_day_over places each (1: as soon as
+  // there are more places than full days, so no day of the stay is left without one while another has two); a stop
+  // with no full day gets them on its arrival day. A stop visited twice shares its places across both visits.
   const used = new Set();
   const placedOn = new Map(); // day → the sight features placed on it (for its text)
   for (const v of visits) {
@@ -484,7 +490,7 @@ export async function run(argv) {
     !sightLayers.length ? 'No --sights: add 2-3 per city (uw add-point … --layer sights --props-file - with {"stop":"<id>","source_url":"https://…","source":"…"}), then re-run with --sights sights --force.' : null,
     sightLayers.length && !sights.length ? `--sights ${sightLayers.join(',')}: no place in them yet, so every full day is empty and uw validate fails until each has a sourced place. Add 2-3 a day (reference/itinerary.md Phase B step 1), then this command again with --force.` : null,
     drafted ? `Day texts: ${drafted} full day(s) say what they are for, from their sourced places (names and the page's reason); keep them or reword them in the traveller's words (≤ 140 characters, nothing those pages do not say).` : null,
-    gaps.empty ? `${gaps.empty} of ${gaps.full} full days still say "Day in …": add 2-3 sourced places for those stops (reference/itinerary.md Phase B step 1), then this command again with --force.` : null,
+    gaps.empty ? `${gaps.empty} of ${gaps.full} full days still have no places ("Day in …", or only the arrival): add 2-3 sourced places for those stops (reference/itinerary.md Phase B step 1), then this command again with --force.` : null,
     ...misplaced.slice(0, 4).map((w) => `Day places: ${dayPlaceLine(w, plan.days)}.`),
     left.length ? `Not on any day (each day already has --per-day ${perDay} of their kind): ${left.slice(0, 6).map((f) => f.properties.name_en || f.properties.name || f.properties.id).join(', ')}${left.length > 6 ? ` and ${left.length - 6} more` : ''}. Add nights, raise --per-day, or leave them out of the reply.` : null,
     'Next: uw validate, then the preview card. Never in the reply: file or folder names, commands or layer ids.',

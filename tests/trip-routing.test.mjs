@@ -28,7 +28,7 @@ const point = (id, coord, props = {}) => ({ type: 'Feature', geometry: { type: '
 test('uw new: nights in --expect point to the itinerary; without them the next step says where a trip goes', () => {
   const trip = uw(['new', 'lx', '--title', 'Lisbon in 3 days', '--center', LISBON.centre.join(','), '--zoom', '13', '--expect', 'Lisbon:3']);
   assert.equal(trip.code, 0, trip.err);
-  assert.match(trip.out, /Next: a trip \(Lisbon \(3 nights\)\): follow reference\/itinerary\.md \("One base" for days in one place\), not SKILL\.md steps 4-8/);
+  assert.match(trip.out, /Then: a trip \(Lisbon \(3 nights\)\): follow reference\/itinerary\.md \("One base" for days in one place\), not SKILL\.md steps 4-8/);
   assert.doesNotMatch(trip.out, /uw add-point .* once per option/);
   const map = uw(['new', 'cafes', '--title', 'Cafés', '--center', LISBON.centre.join(','), '--zoom', '13']);
   assert.match(map.out, /once per option\. A trip \(days or nights somewhere\): reference\/itinerary\.md instead\./);

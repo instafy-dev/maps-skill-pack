@@ -139,6 +139,20 @@ function targetFor(l, prop) {
   }
   return null;
 }
+/**
+ * A sign: text drawn centred on its own icon, as a road-number shield is (the sprite's box with the number on it). It
+ * keeps the colours its sprite draws it in at every hour: the night look turned the number light and dimmed the light
+ * box, so shields read as blank grey boxes. Pure; exported for the tests.
+ */
+export function isSign(l) {
+  const lay = l?.layout || {};
+  if (l?.type !== 'symbol' || lay['icon-image'] == null || lay['text-field'] == null) return false;
+  if (lay['icon-text-fit'] != null && lay['icon-text-fit'] !== 'none') return true;
+  const anchor = lay['text-anchor'], off = lay['text-offset'];
+  const centred = anchor == null || anchor === 'center';
+  const noOffset = off == null || (Array.isArray(off) && off.length === 2 && off.every((x) => x === 0));
+  return centred && noOffset;
+}
 const COLOR_PROPS = { background: ['background-color'], fill: ['fill-color', 'fill-outline-color'], line: ['line-color'],
   'fill-extrusion': ['fill-extrusion-color'], symbol: ['text-color', 'text-halo-color'] };
 const DEFAULTS = { 'text-color': '#000000', 'text-halo-color': 'rgba(0,0,0,0)' };
@@ -161,7 +175,7 @@ export class Look {
   constructor(map, owned) {
     this.map = map; this.owned = owned || new Set(); this.entries = []; this.last = new Map(); this.state = { dark: -1, warm: -1 };
     for (const l of map.getStyle().layers) {
-      if (l.id.startsWith('uw-')) continue;
+      if (l.id.startsWith('uw-') || isSign(l)) continue;
       for (const prop of COLOR_PROPS[l.type] || []) {
         if (this.owned.has(l.id + '|' + prop)) continue;
         const t = targetFor(l, prop); if (!t) continue;

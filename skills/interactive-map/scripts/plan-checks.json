@@ -1,9 +1,9 @@
 {
   "schema": "instafy.plan-checks@1",
-  "about": "How uw plan groups a stop's places into days and how uw plan and uw validate judge whether a day's places belong together (lib/cmd-plan.mjs). Distances are straight lines in km. grouping: places closer than same_area_km are one area, and a stop's days share an area's places evenly rather than by distance; the trip's first day (an arrival with no travel before it) takes an area too when the full days would otherwise hold more than first_day_over places each. day_places: a place is fine near its day's other places (near_km); it is flagged when another day has a place closer_ratio times nearer (it belongs to that day's area), or, failing that, when it is farther than far_km from every other place of its day (the day zigzags). A place farther than trip_out_km from the day's base is a trip out of town (a day trip) and is judged on its own.",
+  "about": "How uw plan groups a stop's places into days and how uw plan and uw validate judge whether a day's places belong together (lib/cmd-plan.mjs). Distances are straight lines in km. grouping: places closer than same_area_km are one area, and a stop's days share an area's places evenly rather than by distance; the trip's first day (an arrival with no travel before it) takes an area too when the full days would otherwise hold more than first_day_over places each (1: every day of the stay gets a place before any gets a second). day_places: a place is fine near its day's other places (near_km); it is flagged when another day has a place closer_ratio times nearer (it belongs to that day's area), or, failing that, when it is farther than far_km from every other place of its day (the day zigzags). A place farther than trip_out_km from the day's base is a trip out of town (a day trip) and is judged on its own.",
   "grouping": {
     "same_area_km": 1.5,
-    "first_day_over": 2
+    "first_day_over": 1
   },
   "day_places": {
     "near_km": 1.5,

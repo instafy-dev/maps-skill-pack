@@ -77,6 +77,14 @@ export function boundsFor(center, zoom) {
   return [[round6(center[0] - dLng), round6(center[1] - dLat)], [round6(center[0] + dLng), round6(center[1] + dLat)]];
 }
 
+/** The one command that serves a site and posts its card, run from the site's folder (SKILL.md step 3): the title
+ *  in single quotes when it has a character the shell reads inside double quotes. Pure; exported for the tests. */
+export function cardCommand(title) {
+  const t = String(title ?? '');
+  const quoted = /^[^"$`\\!]*$/.test(t) ? `"${t}"` : `'${t.replace(/'/g, `'\\''`)}'`;
+  return `instafy preview open --title ${quoted} --serve-cmd "uw host . --port {port}" --start --json`;
+}
+
 export async function newSite(argv) {
   const args = parseArgs(argv, { title: 'string', subtitle: 'string', ask: 'string', center: 'string', zoom: 'number', lang: 'string', force: 'bool', expect: 'string' }, { positionals: [1, 1], command: 'new' });
   if (args.help) return console.log(helps.newSite);
@@ -129,9 +137,11 @@ export async function newSite(argv) {
   out.result({ ok: true, dir, files: n, title: cfg.title, view: cfg.view }, [
     `Created ${rel} (${n} files) — "${cfg.title}"${center ? ` centred on ${center.join(',')} @ z${cfg.view.zoom}` : ''}.`,
     center ? null : 'No --center given: set view.center/zoom/bounds in map.config.json (validate will remind you).',
+    // the card before any lookup (SKILL.md step 3): a slow lookup can then cost the map content, never its card
+    `Next, at once: its card, from ${rel}: ${cardCommand(cfg.title)}`,
     trip.length
-      ? `Next: a trip (${describeItems(trip)}): follow reference/itinerary.md ("One base" for days in one place), not SKILL.md steps 4-8; uw validate fails until the plan has its days.`
-      : `Next (SKILL.md procedure step 4): uw add-point ${rel} --layer <options> --query "<name, city>" --near <lng,lat from geocode> --id <slug>, once per option. A trip (days or nights somewhere): reference/itinerary.md instead.`,
+      ? `Then: a trip (${describeItems(trip)}): follow reference/itinerary.md ("One base" for days in one place), not SKILL.md steps 4-8; uw validate fails until the plan has its days.`
+      : `Then (SKILL.md procedure step 4): uw add-point ${rel} --layer <options> --query "<name, city>" --near <lng,lat from geocode> --id <slug>, once per option. A trip (days or nights somewhere): reference/itinerary.md instead.`,
   ]);
 }
 

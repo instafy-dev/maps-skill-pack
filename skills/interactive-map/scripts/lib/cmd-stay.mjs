@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import { parseArgs, makeOut, parseLngLat, haversine, round6, slugify, writeGeoJSON, writeJSON, readJSON, exists, UsageError, UserError } from './util.mjs';
 import { openSite, checkLayerId, configLayer, layerPath, layerRelPath, resolvePoint, addAttribution, titleCase, viewCenter, withSiteLock } from './site.mjs';
-import { isSkip, withCap, overpassBatch, partialLine } from './net.mjs';
+import { isSkip, withCap, withReserve, timeLeft, overpassBatch, partialLine } from './net.mjs';
 import { geocodeSearch, countryMatches, forgetMissing, partialProps } from './cmd-geocode.mjs';
 import { placesSearch } from './osm-places.mjs';
 import { walkTable } from './route-lookups.mjs';
@@ -44,7 +44,11 @@ export const helps = {
   min walk" when estimated), how (the walk's basis and metres, the OpenStreetMap tags: the card's "How we know"), stop
   (the --near id), walk_min, walk_m, walk_basis, and in Taiwan licence + tw_* (rooms, class, FILED rates: not prices).
   Runs per stop: the points for that --near are replaced, the other stops' points stay. Exit 2 = nothing in range
-  (widen --radius). Never a booking or a live price: say so in the reply.`,
+  (widen --radius). Never a booking or a live price: say so in the reply.
+  It answers within its time limit (30 s; --timeout) with what it found: the lodging search gets most of it, the
+  rest is kept for the walks and the write, so a busy Overpass gives the place search's shorter list (partial), a
+  busy router straight-line walks, and a register that cannot answer in time gives way to OpenStreetMap. None found
+  in time: exit 4 with "No places to stay found near <place>" and the command to try again later.`,
 };
 
 // ---------------------------------------------------------------------------
@@ -271,6 +275,7 @@ export async function station(argv) {
 // ---------------------------------------------------------------------------
 // stay
 const OSM_LODGING = { hotel: 'hotel', motel: 'hotel', hostel: 'hostel', guest_house: 'bnb', apartment: 'bnb' };
+const shq = (a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${String(a).replace(/'/g, `'\\''`)}'`);
 const KIND_WORD = { hotel: 'hotel', tourist_hotel: 'tourist hotel', bnb: 'B&B', hostel: 'hostel', guest_house: 'guest house', apartment: 'apartment', motel: 'motel' };
 const WALK_M_PER_MIN = 80, DETOUR = 1.3;
 export const HOSTEL_NAME = /青年旅舍|青旅|背包|膠囊|hostel|backpacker|capsule/i;
@@ -352,6 +357,9 @@ async function twCandidates(at, radius) {
 export const lodgingQuery = ([lng, lat], radius) =>
   `nwr["tourism"~"^(hotel|motel|hostel|guest_house|apartment)$"]["name"](around:${Math.round(radius)},${lat},${lng});\nout center tags 200;`;
 const LODGING_TIMEOUT_S = 40;
+/** Of the command's time, kept back from the lodging search for the walks, the English names and the write (ms; at
+ *  most 40 % of the limit, net.mjs withReserve), and kept back from a lodging register for OpenStreetMap. */
+const AFTER_SEARCH_MS = 8000, REGISTER_FALLBACK_MS = 12000;
 
 /** Ask OpenStreetMap for the lodging around several anchors in one batched request and keep each answer in the cache,
  *  so the `stay` commands that follow (one per anchor, possibly side by side) are answered from disk. Anchors an
@@ -378,7 +386,9 @@ async function osmCandidates(at, radius, out) {
   }
   const list = [];
   for (const e of els) {
-    const c = e.type === 'node' ? [e.lon, e.lat] : e.center ? [e.center.lon, e.center.lat] : null;
+    // a node has its point; a way or relation its centre (Overpass), or its point (the place search's stand-in)
+    const lon = e.lon ?? e.center?.lon, lat = e.lat ?? e.center?.lat;
+    const c = lon != null && lat != null ? [lon, lat] : null;
     const t = e.tags || {};
     if (!c || !t.name) continue;
     const kind = t.tourism;
@@ -456,20 +466,37 @@ export async function stay(argv) {
   const minRooms = args['min-rooms'] ?? 10;
 
   let got, srcLabel, srcUrl, attribution, asOf = null;
-  if (tw) {
-    try {
-      const r = await twCandidates(anchor.coord, radius);
-      got = { list: r.list, total: r.total, partial: null }; asOf = r.as_of;
-      srcLabel = `Taiwan lodging register (data.gov.tw 7780${asOf ? `, as of ${asOf}` : ''})`; srcUrl = r.source.page;
-      attribution = '旅館資料：交通部觀光署 (data.gov.tw，政府資料開放授權條款第1版)';
-    } catch (e) {
-      if (isSkip(e) || source === 'tw') throw e;
-      out.warn(`Taiwan lodging register unavailable (${e.message}); using OpenStreetMap`);
-    }
-  }
-  if (!got) {
-    got = await osmCandidates(anchor.coord, radius, out);
-    srcLabel = 'OpenStreetMap'; srcUrl = 'https://www.openstreetmap.org/copyright'; attribution = '© OpenStreetMap contributors (ODbL)';
+  try {
+    // the lodging search gets most of the command's time; the rest is for the walks, the names and the write, so the
+    // command ends within its limit with what it found (a run that waited on a busy Overpass for two minutes outlived
+    // the turn that started it)
+    await withReserve(AFTER_SEARCH_MS, async () => {
+      if (tw) {
+        try {
+          // a register that cannot answer in its share (a first download on a slow link) leaves time for OpenStreetMap
+          const r = await (source === 'tw' ? twCandidates(anchor.coord, radius) : withReserve(REGISTER_FALLBACK_MS, () => twCandidates(anchor.coord, radius)));
+          got = { list: r.list, total: r.total, partial: null }; asOf = r.as_of;
+          srcLabel = `Taiwan lodging register (data.gov.tw 7780${asOf ? `, as of ${asOf}` : ''})`; srcUrl = r.source.page;
+          attribution = '旅館資料：交通部觀光署 (data.gov.tw，政府資料開放授權條款第1版)';
+        } catch (e) {
+          if (source === 'tw' || (isSkip(e) && (e.deadline || timeLeft() < 2000))) throw e;
+          out.warn(`Taiwan lodging register unavailable (${e.message}); using OpenStreetMap`);
+        }
+      }
+      if (!got) {
+        got = await osmCandidates(anchor.coord, radius, out);
+        srcLabel = 'OpenStreetMap'; srcUrl = 'https://www.openstreetmap.org/copyright'; attribution = '© OpenStreetMap contributors (ODbL)';
+      }
+    });
+  } catch (e) {
+    if (!isSkip(e)) throw e;
+    // none found in time: said plainly, with the command that tries again with more time later (exit 4: the map is
+    // valid without them)
+    const retry = `uw stay ${argv.filter((a, i) => a !== '--json' && a !== '--timeout' && argv[i - 1] !== '--timeout' && !a.startsWith('--timeout=')).map(shq).join(' ')} --timeout 120`;
+    const line = `No places to stay found near ${toName}: the lodging search did not answer in time (${e.message}).`;
+    out.result({ ok: false, skipped: true, status: 'unavailable', none_found: true, layer, stop, near: { ref: args.near, name: toName }, radius, picks: [], error: line, retry, exit_code: 4 },
+      [line, `Tell the user: places to stay near ${toName} were not looked up yet (the search was busy).`, `Try again later: ${retry}`]);
+    return 4;
   }
   const isHostel = (c) => stayKind(c) === 'hostel';
   const wantGroup = (c) => (c.group === 'bnb' ? kinds.has('bnb') : isHostel(c) ? kinds.has('hostel') : kinds.has('hotel'));
@@ -499,6 +526,7 @@ export async function stay(argv) {
   // English name of the same lodging (the place search, ≤ 120 m away and lodging-tagged); never invented
   for (const c of picks) {
     if (c.name_en) continue;
+    if (timeLeft() < 3000) break; // a nicety: never at the cost of the picks
     try {
       const hits = await withCap(6000, () => geocodeSearch(c.name, { near: c.coord, limit: 3, lang: 'en', onEmpty: 'stop', tags: ['tourism:hotel', 'tourism:hostel', 'tourism:guest_house', 'tourism:motel'] }));
       const h = hits.find((x) => haversine(x.coord, c.coord) <= 120 && /[A-Za-z]{3}/.test(x.name) && x.name !== c.name);

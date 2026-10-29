@@ -64,6 +64,8 @@ const OSM_LODGING = [
   ...[[601, 40, 0, 'Lounge Hostel'], [602, -30, 50, 'Downtown Rooms Hostel'], [603, 0, -70, 'Draft Hostel']].map(([id, dx, dy, name]) => ({ type: 'node', id, c: lx(dx, dy), tags: { tourism: 'hostel', name } })),
   { type: 'way', id: 604, c: lx(450, 0), tags: { tourism: 'hotel', name: 'Hotel Rua Augusta', stars: '4' } },
   { type: 'node', id: 605, c: lx(3000, -3000), tags: { tourism: 'hostel', name: 'River Hostel' } },
+  // by the Taiwan test station: what OpenStreetMap lists when the lodging register cannot answer
+  { type: 'node', id: 701, c: east(220), tags: { tourism: 'hotel', name: 'Shuanglian Inn' } },
 ];
 let mock;
 function startMock() {
@@ -73,6 +75,8 @@ function startMock() {
     hits.push(u.pathname + u.search);
     res.setHeader('content-type', 'application/json');
     if (u.pathname.startsWith('/busy/')) { req.on('data', () => {}); req.on('end', () => { res.statusCode = 504; res.end('<html>504</html>'); }); return; }
+    // a service that never answers (the client gives up)
+    if (u.pathname.startsWith('/hang/')) { req.on('data', () => {}); return; }
     if (u.pathname.startsWith('/osrm404/')) { res.statusCode = 404; res.end('{"code":"NoRoute"}'); return; }
     if (u.pathname.includes('/table/v1/')) {
       const pts = u.pathname.split('/').pop().split(';').map((p) => p.split(',').map(Number));
@@ -88,7 +92,9 @@ function startMock() {
     }
     if (u.pathname === '/reverse') {
       const tag = u.searchParams.get('osm_tag');
-      const rows = OSM_LODGING.filter((e) => e.tags.name && `tourism:${e.tags.tourism}` === tag);
+      const at = [Number(u.searchParams.get('lon')), Number(u.searchParams.get('lat'))];
+      const within = (e) => haversine(at, e.c) <= Number(u.searchParams.get('radius')) * 1000;
+      const rows = OSM_LODGING.filter((e) => e.tags.name && `tourism:${e.tags.tourism}` === tag && within(e));
       res.end(JSON.stringify({ type: 'FeatureCollection', features: rows.map((e) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: e.c },
         properties: { osm_type: e.type[0].toUpperCase(), osm_id: e.id, osm_key: 'tourism', osm_value: e.tags.tourism, name: e.tags.name } })) }));
       return;
@@ -112,15 +118,16 @@ function startMock() {
 
 const baseEnv = () => ({ ...process.env, ...NO_WIKIPEDIA, UW_CACHE: cache, UW_PHOTON: mock.url, UW_OVERPASS: mock.url + '/api/interpreter', UW_OSRM: mock.url, UW_VALHALLA: mock.url,
   UW_NO_CACHE: '1', UW_TURN_BUDGET: '0' });
-const uw = (args, env = {}) => new Promise((resolve) => {
-  const p = spawn(process.execPath, [UW, ...args], { cwd: tmp, env: { ...baseEnv(), ...env } });
+const uw = (args, env = {}, { node = [] } = {}) => new Promise((resolve) => {
+  const t0 = Date.now();
+  const p = spawn(process.execPath, [...node, UW, ...args], { cwd: tmp, env: { ...baseEnv(), ...env } });
   let out = '', err = '';
   p.stdout.on('data', (d) => { out += d; }); p.stderr.on('data', (d) => { err += d; });
   const t = setTimeout(() => p.kill(), 90000);
   p.on('close', (code) => {
     clearTimeout(t);
     let json = null; if (args.includes('--json')) { try { json = JSON.parse(out); } catch {} }
-    resolve({ code, out, err, json });
+    resolve({ code, out, err, json, ms: Date.now() - t0 });
   });
 });
 const readFC = (site, layer) => JSON.parse(fs.readFileSync(path.join(tmp, site, 'data', `${layer}.geojson`), 'utf8'));
@@ -147,7 +154,7 @@ before(async () => {
   fs.writeFileSync(nat, JSON.stringify({ ...j, rows: [...j.rows, ...REG_ROWS] }));
   mock = await startMock();
 });
-after(() => { mock?.server.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
+after(() => { mock?.server.closeAllConnections?.(); mock?.server.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
 
 // ---------------------------------------------------------------------------
 // uw new --ask
@@ -348,6 +355,62 @@ test('a hotel in range is a pick whatever the other picks are, and never called 
   assert.equal(one.code, 0, one.err);
   assert.match(one.out, /1\. Hotel Rua Augusta/);
   assert.doesNotMatch(one.out, /No hotel|no hotel/);
+});
+
+// A "3 days in Lisbon" turn ran `uw stay` three times while Overpass was busy: each waited on it for up to two
+// minutes (its limit), the turn ended with all three still running, and the map had no places to stay. It now answers
+// within its own limit (30 s) with what the place search found, or says plainly that it found none.
+test('Overpass never answers: uw stay answers within its 30 s with the place search\'s picks, hotels and hostels both', { timeout: 120000 }, async () => {
+  assert.equal((await uw(['new', 'lxb', '--title', 'Lisbon', '--center', LX.join(','), '--zoom', '14'])).code, 0);
+  const hang = { UW_OVERPASS: mock.url + '/hang/api/interpreter' };
+  const near = ['--near', LX.join(','), '--near-label', 'Baixa'];
+  const [hotels, hostels] = await Promise.all([
+    uw(['stay', 'lxb', ...near, '--stop', 'baixa', '--kinds', 'hotel', '--json'], hang),
+    uw(['stay', 'lxb', ...near, '--stop', 'baixa-hostels', '--kinds', 'hostel', '--json'], hang),
+  ]);
+  for (const [r, kind] of [[hotels, 'hotel'], [hostels, 'hostel']]) {
+    assert.equal(r.code, 0, r.out + r.err);
+    assert.ok(r.ms < 31000, `${kind}s: answered after ${r.ms} ms, past its 30 s`);
+    assert.match(r.json.partial, /Overpass could not answer/);
+    assert.ok(r.json.picks.length >= 1 && r.json.picks.every((p) => p.kind === kind), `${kind}s: ${r.json.picks.map((p) => `${p.name} (${p.kind})`)}`);
+    assert.ok(r.json.picks.every((p) => /^\d+ min walk to Baixa · /.test(p.why)), 'walked, with time left after the search');
+  }
+  assert.equal(hotels.json.picks[0].name, 'Hotel Rua Augusta');
+  assert.deepEqual(hostels.json.picks.map((p) => p.name).sort(), ['Downtown Rooms Hostel', 'Draft Hostel', 'Lounge Hostel']);
+  const written = readFC('lxb', 'stays').features.map((f) => f.properties.stop);
+  assert.ok(written.includes('baixa') && written.includes('baixa-hostels'), 'both runs wrote their picks');
+});
+
+test('nothing answers in time: uw stay says plainly it found none, within its limit, and how to try again', { timeout: 60000 }, async () => {
+  assert.equal((await uw(['new', 'lxn', '--title', 'Lisbon', '--center', LX.join(','), '--zoom', '14'])).code, 0);
+  const env = { UW_OVERPASS: mock.url + '/hang/api/interpreter', UW_PHOTON: mock.url + '/hang' };
+  const args = ['stay', 'lxn', '--near', LX.join(','), '--near-label', 'Baixa', '--stop', 'baixa', '--timeout', '10'];
+  const r = await uw(args, env);
+  assert.equal(r.code, 4, r.out + r.err);
+  assert.ok(r.ms < 12000, `answered after ${r.ms} ms`);
+  assert.match(r.out, /^No places to stay found near Baixa: the lodging search did not answer in time/m);
+  assert.match(r.out, /^Tell the user: places to stay near Baixa were not looked up yet \(the search was busy\)\.$/m);
+  assert.match(r.out, /^Try again later: uw stay lxn --near -9\.1372,38\.7101 --near-label Baixa --stop baixa --timeout 120$/m);
+  const j = await uw([...args, '--json'], env);
+  assert.equal(j.code, 4);
+  assert.equal(j.json.none_found, true);
+  assert.deepEqual(j.json.picks, []);
+  assert.doesNotMatch(j.json.retry, /--json|--timeout 10/);
+  assert.ok(!fs.existsSync(path.join(tmp, 'lxn', 'data', 'stays.geojson')), 'nothing written');
+});
+
+test('a lodging register that cannot answer in time gives way to OpenStreetMap, within the limit', { timeout: 120000 }, async () => {
+  // a first download of the register on a slow link (no cached copy); the preload holds every register request open
+  const cold = path.join(tmp, 'cold-cache');
+  const env = { UW_CACHE: cold };
+  assert.equal((await uw(['new', 'twc', '--title', 'Taipei', '--center', S.join(','), '--zoom', '14'])).code, 0);
+  assert.equal((await uw(['add-point', 'twc', '--layer', 'stations', '--at', S.join(','), '--name', 'Shuanglian', '--id', 'sl'])).code, 0);
+  const r = await uw(['stay', 'twc', '--near', 'stations:sl', '--json'], env, { node: ['--import', pathToFileURL(path.join(HERE, 'hang-register-fetch.mjs')).href] });
+  assert.equal(r.code, 0, r.out + r.err);
+  assert.ok(r.ms < 31000, `answered after ${r.ms} ms`);
+  assert.match(r.err, /Taiwan lodging register unavailable .*; using OpenStreetMap/);
+  assert.equal(r.json.source, 'OpenStreetMap');
+  assert.deepEqual(r.json.picks.map((p) => p.name), ['Shuanglian Inn']);
 });
 
 // ---------------------------------------------------------------------------

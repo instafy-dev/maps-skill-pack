@@ -114,6 +114,20 @@ test('phone sheet in a host frame: raised, it shows the first place whole and it
   await frame.click('.uw-handle');
   await frame.waitForTimeout(700);
   assert.equal((await geo()).snap, 'peek');
+  // resting, the tab bar ends PEEK_GAP above the frame's bottom edge, where the host's floating chips start (it
+  // touched them), and the gap under it is the sheet's own colour: nothing of the list shows there
+  const rest = await frame.evaluate(() => {
+    const tabs = document.querySelector('.uw-tabs').getBoundingClientRect(), body = document.querySelector('.uw-body');
+    const sab = parseFloat(getComputedStyle(document.querySelector('.uw-root')).getPropertyValue('--sab')) || 0;
+    const d = document.createElement('div'); d.style.height = 'var(--uw-list-end)'; body.append(d); const listEnd = d.getBoundingClientRect().height; d.remove();
+    return { H: innerHeight, sab, tabsBottom: tabs.bottom, bodyBottom: body.getBoundingClientRect().bottom, listEnd };
+  });
+  const { PEEK_GAP } = await import(pathToFileURL(path.join(SKILL, 'starter', 'engine', 'ui.js')).href);
+  assert.ok(PEEK_GAP >= 8);
+  const edge = rest.H - rest.sab;
+  assert.ok(rest.tabsBottom <= edge - PEEK_GAP + 1 && rest.tabsBottom >= edge - PEEK_GAP - 1, `the tabs end at ${rest.tabsBottom}, the edge is at ${edge}: ${JSON.stringify(rest)}`);
+  // the mask: the body is transparent below (its bottom - --uw-list-end), so all of it under the tab bar is
+  assert.ok(rest.bodyBottom - rest.listEnd <= rest.tabsBottom + 1, `the list is hidden from ${rest.bodyBottom - rest.listEnd} px, under the tabs at ${rest.tabsBottom}: ${JSON.stringify(rest)}`);
   const hiddenBox = await frame.evaluate(() => document.querySelector('.uw-search').getBoundingClientRect().bottom);
   assert.ok(hiddenBox > 812 - BAR - COMPOSER, `the box is out of view at peek (${hiddenBox})`);
   await frame.focus('.uw-search');

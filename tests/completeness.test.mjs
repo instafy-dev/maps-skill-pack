@@ -275,14 +275,14 @@ test('the printed report starts and ends with the requested stops the map leaves
   assert.ok(r.out.indexOf('REQUESTED BUT NOT ON THE MAP') < r.out.indexOf('handoff --apply:'), 'said before the step count');
 });
 
-test('the team handoff recipe opens the preview while the map job runs, before the first wait', () => {
-  // r11: a Taiwan builder whose lookups were slow ran out of turn before step 9, so no card was posted although the
-  // map was mostly built; a card opened early shows the map as it fills in
+test('the team handoff recipe has its card before the map job runs, and refreshes it once the job is done', () => {
+  // a Taiwan builder whose lookups were slow ran out of turn before its card, so no card was posted although the
+  // map was mostly built; the card now goes out right after `uw new` (step 1), before the job
   const recipe = fs.readFileSync(path.join(SKILL, 'reference', 'itinerary.md'), 'utf8').replace(/\s+/g, ' ');
   const handoff = recipe.slice(recipe.indexOf('## Research-team handoff'));
-  const open = handoff.indexOf('Open the preview while it runs');
-  assert.ok(open > 0, 'the handoff section says to open the preview while the job runs');
-  assert.ok(open < handoff.indexOf('before the first `uw wait`') + 1 && handoff.includes('`instafy preview open … --start`), before the first `uw wait`'));
+  const open = handoff.indexOf('The card is out since step 1, before the job');
+  assert.ok(open > 0, 'the handoff section says the card is out before the job');
+  assert.ok(handoff.indexOf('`uw handoff handoff/<task-slug> --site <site> --apply --detach') < open);
   assert.doesNotMatch(recipe, /uw host … --detach|Open it from the card/);
-  assert.ok(handoff.indexOf('`instafy preview check` comes once the job is done') > open);
+  assert.ok(handoff.indexOf('SKILL.md step 9 comes once the job is done') > open);
 });

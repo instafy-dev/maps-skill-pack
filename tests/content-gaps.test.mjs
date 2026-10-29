@@ -218,13 +218,18 @@ test('uw plan writes what each full day is for from its sourced places; days wit
     place('sights', 'unsourced', PORTO, { name: 'A view from memory', stop: 'porto' }),
   ];
   const plan = buildPlan({ stops: [stop('porto', 'Porto', PORTO), stop('lisbon', 'Lisbon', LISBON)], nights: [3, 3], start: '2027-05-07', sights, perDay: 3 });
-  const porto = plan.days.filter((d) => /· Porto$/.test(d.title)).slice(1); // the two full days
-  assert.equal(porto.length, 2);
-  const texts = porto.map((d) => d.text);
+  // Porto's arrival day and its two full days: each takes places before any takes a second (four places, three days)
+  const porto = plan.days.filter((d) => /· Porto$/.test(d.title));
+  assert.equal(porto.length, 3);
+  assert.ok(porto.every((d) => d.items.some((it) => it.ref?.layer)), porto.map((d) => d.title).join(' | '));
+  // a day with a sourced place says what it is for; the arrival day adds its places to "Arrive in …"
+  const texts = porto.filter((d) => d.items.some((it) => it.url)).map((d) => d.text);
+  assert.equal(texts.length, 2);
   assert.ok(texts.every((t) => !/^Day in /.test(t)), texts.join(' | '));
   assert.ok(texts.some((t) => /Livraria Lello \(the 1906 bookshop; timed tickets\)/.test(t)), texts.join(' | '));
   assert.ok(texts.some((t) => /Eat: Mercado do Bolhão/.test(t)), 'food is "Eat: …"');
-  assert.ok(texts.every((t) => !/from memory/.test(t)), 'an unsourced place never makes it into a text');
+  assert.ok(porto.every((d) => !/from memory/.test(d.text)), 'an unsourced place never makes it into a text');
+  assert.match(porto.find((d) => d.items.every((it) => !it.url)).text, /^Day in Porto; night \d of 3\.$/, 'a day with only an unsourced place keeps "Day in …"');
   for (const t of texts) assert.ok(t.length <= 140);
   // Lisbon has nothing sourced: its full days stay "Day in …" for the builder to fill
   assert.ok(plan.days.filter((d) => /· Lisbon$/.test(d.title)).slice(1).every((d) => /^Day in Lisbon; night \d of 3\.$/.test(d.text)));

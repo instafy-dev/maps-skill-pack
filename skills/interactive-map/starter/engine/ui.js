@@ -113,10 +113,13 @@ class Slider {
  *  places whole. The 29 Oct 2026 drive's 572 px frame showed the search box, the "Sights" heading and half of the
  *  first sight. */
 export const LIST_MIN = 240;
+/** The sheet showing below its tab bar at peek (px), so the tabs never touch what sits at the frame's bottom edge (a
+ *  host's floating chips and composer, a phone's home bar). Nothing of the list shows in it. */
+export const PEEK_GAP = 12;
 /** Where the phone sheet's top sits at each snap (px from the frame top). H: frame height; safeTop / safeBot: --sat /
  *  --sab (the device's safe area, raised to an embedding host's chrome: Studio's bar, composer, reply peek);
- *  content: what the peek shows (grab + lens row + progress + tab bar).
- *  The peek ends the tab bar exactly at H - safeBot, so Places / Layers / Compare are never under a host's composer,
+ *  content: what the peek shows (grab + lens row + progress + tab bar, and PEEK_GAP of sheet under the tab bar).
+ *  The peek ends that content exactly at H - safeBot, so Places / Layers / Compare are never under a host's composer,
  *  and a taller inset moves the sheet up. The map keeps at least 30% of the area between the insets (≥ 96 px); a peek
  *  taller than that is clipped by `cut` px (the ask's verdict lines), never the tab bar. A peek that fits under the
  *  middle (content + safeBot ≤ H/2 - 40, every map without a host) is where it always was: H - content - safeBot.
@@ -191,8 +194,10 @@ export class UI {
     this.qbox.style.maxHeight = ''; this.qbox.style.overflow = ''; // measure the ask at its full height
     const tabsH = this.tabsEl.hidden ? 0 : Math.max(this.tabsEl.offsetHeight, 45); // 0 while a card hides it; ~1 before tabs are built
     const extra = (this.lensRow.hidden ? 0 : this.lensRow.offsetHeight) + (this.progressEl.hidden ? 0 : this.progressEl.offsetHeight);
-    // with a card open (its own head replaces the ask on phones) the peek still shows the card's head
-    const content = Math.max(this.card && this.qmode ? 116 : 0, this.grab.offsetHeight + extra + tabsH);
+    // with a card open (its own head replaces the ask on phones) the peek still shows the card's head; the tab bar
+    // ends PEEK_GAP above the bottom edge
+    this.peekGap = !this.tabsEl.hidden && !this.sheet.classList.contains('has-card') ? PEEK_GAP : 0;
+    const content = Math.max(this.card && this.qmode ? 116 : 0, this.grab.offsetHeight + extra + tabsH + this.peekGap);
     const s = sheetSnaps({ H, safeTop, safeBot, content });
     this.peekH = content + safeBot;
     this.qboxH = this.qbox.hidden ? 0 : this.qbox.offsetHeight;
@@ -233,7 +238,9 @@ export class UI {
     // edge (engine.css, --uw-list-end) instead of running on under it
     const below = Math.max(0, y - this.snaps.full);
     this.body.style.paddingBottom = `calc(${below}px + var(--sab) + 16px)`;
-    this.body.style.setProperty('--uw-list-end', `calc(${below}px + var(--sab))`);
+    // at peek the gap under the tab bar is the sheet's own colour: the list and its 16 px fade stay below it
+    const gap = name === 'peek' && this.peekGap ? this.peekGap + 16 : 0;
+    this.body.style.setProperty('--uw-list-end', `calc(${below + gap}px + var(--sab))`);
     this.handle.setAttribute('aria-expanded', String(name !== 'peek'));
     this.ctx.onSnap?.(name);
   }

@@ -90,7 +90,7 @@ test('the skill sends props with words in them through stdin, never single-quote
   const trip = fs.readFileSync(path.join(SKILL, 'reference', 'itinerary.md'), 'utf8');
   // every example that carries a "why" (words from a page) uses stdin
   for (const line of trip.split('\n').filter((l) => /--props '/.test(l))) assert.doesNotMatch(line, /"why"/, line);
-  assert.match(trip, /--props-file - <<'JSON'\n\s*\{"stop":"<station id>","source_url":"https:\/\/…","source":"<site name>","why":"<what the page says to do there>"\}\n\s*JSON/);
+  assert.match(trip, /--props-file - <<'JSON'\n\s*\{"stop":"<station id>","source_url":"<its own page>","source":"<site name>","why":"<what the page says to do there>"\}\n\s*JSON/);
 });
 
 // Every example the agent copies from (the skill, its references, every command's help and hints) keeps words out of
