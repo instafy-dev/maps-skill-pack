@@ -5,7 +5,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { parseArgs, makeOut, exists, readJSON, UsageError, UserError } from './util.mjs';
+import { parseArgs, makeOut, exists, UsageError, UserError } from './util.mjs';
 import { ensureGitignore, SCRIPTS_DIR } from './site.mjs';
 import { stateDirOf, stateDirsOf, folderId } from './state-dir.mjs';
 import { signalPass } from './snapshot-signal.mjs';
@@ -24,8 +24,8 @@ export const helps = {
             it answers, print the URL and return. Reuses a server already serving <dir> on that port (also one the
             space started again by itself). Log and pid: serve.log and serve.json in <dir>'s state folder (in an
             Instafy space the space's own folder, INSTAFY_CACHE_DIR; else <dir>/.uwcache). Prints the command that
-            starts the same server in the foreground ("serve_cmd") and the \`instafy preview open … --serve-cmd …\`
-            line that gives it a preview card the space can start again after the server stops.
+            starts the same server in the foreground ("serve_cmd"). In Instafy a map is not detached: one
+            \`instafy preview open … --serve-cmd "uw host . --port {port}" --start\` serves it and shows its card.
   --stop    stop the background server of <dir>.`,
   snapshot: `snapshot <dir> [--out <dir>/snapshots] [--only desktop|mobile] [--hash "t=22&v=0.8"] [--eval "<js>"] [--tag name]
          [--thumb] [--scheme light|dark] [--wait ms] [--signal [--strict]] [--json]
@@ -193,7 +193,6 @@ async function probe(port) {
 async function answers(port) { return (await probe(port)).ok; }
 
 const shellWord = (a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : !a.includes("'") ? `'${a}'` : `"${a.replace(/["\\$`]/g, (c) => `\\${c}`)}"`);
-const shellQuote = (s) => `"${String(s).replace(/["\\$`]/g, (c) => `\\${c}`)}"`;
 /** The executable `name` a shell finds first on PATH (null when none). */
 function onPath(name, env = process.env) {
   for (const d of String(env.PATH || '').split(path.delimiter).filter(Boolean)) {
@@ -220,14 +219,6 @@ export function serveCommand(cmd, dir, { port, host, extra = [] }, { env = proce
   const prog = uwOnPath(env) ? ['uw'] : [onPath('node', env) ? 'node' : process.execPath, path.join(SCRIPTS_DIR, 'uw.mjs')];
   return [...prog, cmd, site, '--port', String(port), '--host', host, ...extra].map(shellWord).join(' ');
 }
-/** The \`instafy preview open\` line for a server of \`dir\` on \`port\`, with its start command. */
-function previewLine(dir, port, serveCmd) {
-  let title = '';
-  try { title = String(readJSON(path.join(dir, 'map.config.json'))?.title || ''); } catch { /* not a map site */ }
-  title = title.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, 120) || path.basename(dir);
-  return `instafy preview open --port ${port} --title ${shellQuote(title)} --serve-cmd ${shellQuote(serveCmd)} --json`;
-}
-
 // One background server per site folder. `host` serves everything `serve` does plus __uw/*: asking for `host` replaces
 // a static `serve`; asking for `serve` reuses a `host`.
 export async function detach(args, dir, cmd = 'serve', extra = []) {
@@ -236,8 +227,6 @@ export async function detach(args, dir, cmd = 'serve', extra = []) {
   const port = args.port ?? 4173;
   const urls = (p) => ({ local: `http://localhost:${p}/`, lan: host === '0.0.0.0' || host === '::' ? lanAddresses().map((a) => `http://${a}:${p}/`) : [] });
   const serveCmd = serveCommand(cmd, dir, { port, host, extra });
-  const preview = previewLine(dir, port, serveCmd);
-  const startLines = [`Preview card (Instafy): ${preview}`, `  (--serve-cmd: the space starts the map again with it after the server stops or the space sleeps)`];
   let prev = readState(dir);
   if (!(prev && prev.dir === dir && prev.port === port && alive(prev.pid) && await answers(port))) {
     // no record of a running server here, but one of this very folder answers on the port (started again by the
@@ -249,8 +238,8 @@ export async function detach(args, dir, cmd = 'serve', extra = []) {
   if (prev) {
     if (prevCmd === cmd || prevCmd === 'host') {
       try { fs.mkdirSync(path.dirname(stateFile(dir)), { recursive: true }); fs.writeFileSync(stateFile(dir), JSON.stringify({ pid: prev.pid, cmd: prevCmd, port, host: prev.host || host, dir, started_at: prev.started_at || new Date().toISOString() }) + '\n'); } catch { /* the server keeps its own record */ }
-      out.result({ ok: true, reused: true, cmd: prevCmd, pid: prev.pid, dir, port, ...urls(port), serve_cmd: serveCmd, preview_cmd: preview },
-        [`Already serving ${path.relative(process.cwd(), dir) || '.'} at http://localhost:${port}/ (uw ${prevCmd}, pid ${prev.pid}).`, ...startLines, remoteHint(port)]);
+      out.result({ ok: true, reused: true, cmd: prevCmd, pid: prev.pid, dir, port, ...urls(port), serve_cmd: serveCmd },
+        [`Already serving ${path.relative(process.cwd(), dir) || '.'} at http://localhost:${port}/ (uw ${prevCmd}, pid ${prev.pid}).`, remoteHint(port)]);
       return 0;
     }
     process.kill(prev.pid, 'SIGTERM');
@@ -270,9 +259,9 @@ export async function detach(args, dir, cmd = 'serve', extra = []) {
   if (!(await answers(port))) throw new UserError(`the background server did not start; see ${logFile}`);
   fs.writeFileSync(stateFile(dir), JSON.stringify({ pid: child.pid, cmd, port, host, dir, started_at: new Date().toISOString() }) + '\n');
   const u = urls(port);
-  out.result({ ok: true, reused: false, cmd, pid: child.pid, dir, port, ...u, serve_cmd: serveCmd, preview_cmd: preview },
+  out.result({ ok: true, reused: false, cmd, pid: child.pid, dir, port, ...u, serve_cmd: serveCmd },
     [`Serving ${path.relative(process.cwd(), dir) || '.'} at ${u.local} in the background (uw ${cmd}, pid ${child.pid}; stop: uw ${cmd} ${args._[0]} --stop).`,
-      ...u.lan.map((x) => `  on your network: ${x}  (phone on the same Wi-Fi)`), ...startLines, remoteHint(port)]);
+      ...u.lan.map((x) => `  on your network: ${x}  (phone on the same Wi-Fi)`), remoteHint(port)]);
   return 0;
 }
 

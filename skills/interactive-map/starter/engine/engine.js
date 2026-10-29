@@ -23,6 +23,9 @@ import { signalReport } from './signal.js';
 import { applyTheme } from './theme.js';
 
 window.__uwReady = false;
+// The page's ready mark (Instafy's preview card): the card's picture waits for "true", set with __uwReady once the map
+// is idle with its tiles drawn and its description written, so a card never shows a half-drawn map.
+document.documentElement.setAttribute('data-instafy-ready', 'false');
 window.__uwErrors = window.__uwErrors || [];
 // a host may say hello as soon as the frame loads, long before the map is ready: keep those messages for bind.js
 window.__uwEarly = [];
@@ -1729,7 +1732,7 @@ async function boot() {
   restoreAfterReload();
 
   let done = false;
-  const ready = () => { if (done) return; done = true; window.__uwReady = true; document.documentElement.dataset.uwReady = '1'; E.emit('ready', { title: config.title || '' }); navStart(); follow.start(); };
+  const ready = () => { if (done) return; done = true; window.__uwReady = true; document.documentElement.dataset.uwReady = '1'; document.documentElement.setAttribute('data-instafy-ready', 'true'); E.emit('ready', { title: config.title || '' }); navStart(); follow.start(); };
   map.once('idle', () => { collapseAttribution(); layoutNotes(); ready(); });
   map.triggerRepaint();
   setTimeout(ready, 15000);

@@ -168,8 +168,8 @@ lane that covered several stops, `stop`; `legs[]` with `from`, `to`, `mode`, opt
 `uw handoff handoff/<task-slug> --site <site> --apply --detach --route "Porto:3,Lisbon:4" --start 2027-05-07`
 
 It takes several minutes, so it runs as a job: then `uw wait` (prints its output; exit 75 = still running: run
-`uw wait` again; never start it twice, never patch the map by hand while it runs). Open the preview while it runs (SKILL.md step 9:
-`uw host … --detach`, then `instafy preview open`), before the first `uw wait`: the card shows the map as it fills in,
+`uw wait` again; never start it twice, never patch the map by hand while it runs). Open the preview while it runs (SKILL.md step 9's
+one `instafy preview open … --start`), before the first `uw wait`: the card shows the map as it fills in,
 so slow lookups cannot end the turn with no card (r11: a builder whose lookups were slow ran out of turn before
 step 9). `instafy preview check` comes once the job is done. Each stop is looked up in the
 country its handoff file names (`--country` for files without one). It checks every file, re-reads the cited pages (a
@@ -248,7 +248,6 @@ Write for the traveller, 5-8 short lines:
    the lodging register when one was used, plus the operator's journey planner when `uw transit` gave times).
 7. `Unverified:` prices and availability (never checked), train times not sourced, anything "Not found yet",
    handoff unknowns.
-8. "Open it from the card." (SKILL.md step 9).
 
 Never in the reply: file or folder names (not the handoff or site folder either: "Research details: handoff/…" helps
 nobody), command names, lookup services (Overpass, Photon, OSRM) or exit codes, layer ids (`stays:…`),
