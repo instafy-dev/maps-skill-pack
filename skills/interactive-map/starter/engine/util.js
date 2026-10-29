@@ -104,7 +104,7 @@ const PLAIN_KINDS = new Set(('museum gallery attraction viewpoint monument memor
   'restaurant coffee bar pub fast_food ice_cream bakery dessert nightlife nightclub karaoke hotel hostel guest_house motel ' +
   'apartment lodging station train_station tram_stop bus_stop bus_station ferry_terminal airport university library ' +
   'theatre cinema stadium arts_centre gym playground supermarket pharmacy toilets laundry coworking bookstore hot_spring ' +
-  'mall department_store shop store sight food area stop').split(' '));
+  'mall department_store shop store sight landmark venue food area stop stay home office school hospital').split(' '));
 /** A place's kind as its card and list say it: the plain word for it, or nothing. A kind with no plain word is left
  *  out, never shown as its tag ("board", an information board in OpenStreetMap, read "Board"); a kind written by hand
  *  (capitals or spaces: "B&B", "Day trip") is the author's own words. */
