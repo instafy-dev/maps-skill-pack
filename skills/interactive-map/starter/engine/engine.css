@@ -438,6 +438,13 @@ html, body {
   flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
   touch-action: pan-y; padding: 0 16px;
 }
+/* phones: the list ends just above the sheet's bottom edge (the frame's edge, a host's composer, the home bar): its
+   rows fade out over 16 px there instead of running on under it. --uw-list-end is how far the body reaches past that
+   edge (ui.js setSnap). */
+.uw-root:not(.is-side) .uw-body {
+  -webkit-mask-image: linear-gradient(to top, transparent var(--uw-list-end, 0px), #000 calc(var(--uw-list-end, 0px) + 16px));
+  mask-image: linear-gradient(to top, transparent var(--uw-list-end, 0px), #000 calc(var(--uw-list-end, 0px) + 16px));
+}
 .uw-panel { padding: 4px 0 12px; }
 .uw-cardpanel { padding-top: 6px; animation: uw-in 0.28s ease-out; }
 @keyframes uw-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }

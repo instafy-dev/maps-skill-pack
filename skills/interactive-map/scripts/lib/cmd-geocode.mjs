@@ -34,7 +34,9 @@ add-point <dir> --layer <id> --at lng,lat --name "Label" [...]     (only for coo
     JSON
   --name in Latin script also becomes name_en (the label English maps show); OSM's English name is kept as osm_name_en.
   Geocodes with the place search and appends (or replaces, same id) a point in data/<layer>.geojson. Prints the chosen match and
-  the alternatives: check them. --pick N chooses candidate N (1-based) instead. A match farther than --max-km (default 8)
+  the alternatives: check them. --pick N chooses candidate N (1-based) instead. A station is never the place it is named
+  after unless the query (or --kind) asks for transit: "Rossio" is the square next to Rossio station, shown as "Rossio"
+  with its own name under it. A match farther than --max-km (default 8)
   from --near is refused (exit 2) unless --allow-far. Without --near the config's view.center is used as bias and the
   match must fall inside view.bounds (+50%) or --max-km of view.center. If no candidate's name resembles the query it is refused too (exit 2):
   check the list, then --pick N or --allow-mismatch. Query words that only name the area (the city, region or country
@@ -646,8 +648,10 @@ async function addPointRun(argv, ctx) {
       // the same name (or every word of it and no other) wins over one that merely contains it; a station or stop
       // never wins this way unless the query asks for one ("Sagrada Família" is the church, not its metro station).
       const closeness = (c) => nameCloseness(args.query, [c.name, c.name_en], area);
+      // the query (or --kind) asks for a kind of transit: a station may be the place asked for
+      const transitAsked = (qType?.tags || []).some((t) => /^(railway|public_transport|aeroway|amenity:bus_station)/.test(t)) ||
+        /station|stop|airport|terminal|metro|mrt|subway|rail|hsr/i.test(String(args.kind || ''));
       if (idx >= 0) {
-        const transitAsked = (qType?.tags || []).some((t) => /^(railway|public_transport|aeroway|amenity:bus_station)/.test(t));
         const mine = closeness(chosen);
         const named = cands.map((c) => ({ c, k: closeness(c) }))
           .filter(({ c, k }) => k >= 2 && k > mine && good(c) && !tooFar(c) && !PART_TYPE.test(c.type || '') && (transitAsked || !TRANSIT_TYPE.test(c.type || '')))
@@ -666,6 +670,28 @@ async function addPointRun(argv, ctx) {
       if (PART_TYPE.test(chosen.type || '')) {
         const main = cands.find((c) => c !== chosen && !tooFar(c) && c.name_match !== false && !PART_TYPE.test(c.type || '') && haversine(c.coord, chosen.coord) < 400);
         if (main) chosen = main;
+      }
+      // A station is named after the place it serves, so it is never that place unless the query asks for transit:
+      // "Rossio" is the square, and the station by it is "Rossio" too. The square is often mapped under another name
+      // ("Praça Dom Pedro IV", "Rossio" its other name), so the search lists only the station. The place of that name
+      // is looked for among squares and places to walk to next to the station; the nearest is the pick, under the
+      // name asked for.
+      if (!transitAsked && !placeKind && !geocodeDegraded() && STATION_TYPE.test(chosen.type || '') && closeness(chosen) >= 2) {
+        const station = chosen;
+        try {
+          const places = await geocodeSearch(args.query, { near: station.coord, limit: 6, lang: args.lang || 'default', tags: NAMED_PLACE_TAGS, onEmpty: 'stop' });
+          const place = places.filter((c) => !TRANSIT_TYPE.test(c.type || '') && haversine(c.coord, station.coord) <= NAMED_PLACE_M && !tooFar(c))
+            .sort((a, b) => haversine(a.coord, station.coord) - haversine(b.coord, station.coord))[0];
+          if (place) {
+            if (near) place.distance_km = Math.round(haversine(near, place.coord) / 10) / 100;
+            // known by the name asked for, which its own name may not carry: that name is the one the map shows
+            if (nameMatches(args.query, [place.name, place.name_en], area) !== true) place.name_en = queryLabel(args.query);
+            Object.assign(place, { name_match: true, type_ok: null });
+            cands.push(place);
+            chosen = place;
+            out.log(`"${station.name}" is a station [${station.type}]; took the place it is named after: ${place.name} [${place.type}], ${Math.round(haversine(place.coord, station.coord))} m from it (--pick N takes the station).`);
+          }
+        } catch (e) { if (isSkip(e)) warnings.push(`"${station.name}" is a station; the place it is named after could not be looked up (${e.message})`); }
       }
     }
     // the search's match missing, far, or unsure (no name match, wrong type, found only by a type search) → the registers
@@ -927,6 +953,12 @@ const PART_TYPE = /^(railway=(subway_entrance|entrance|train_station_entrance|pl
 const TRANSPORT_TYPE = /^(highway=bus_stop|amenity=(bus_station|taxi|ferry_terminal)|public_transport=|railway=(halt|stop|tram_stop))/;
 // Every transit object (stations included): named after the place it serves, never that place.
 const TRANSIT_TYPE = /^(railway=(station|halt|stop|tram_stop|subway_entrance|platform)|public_transport=|highway=(bus_stop|platform)|amenity=(bus_station|ferry_terminal|taxi)|aeroway=)/;
+// A station (or its building): what a query for the place it is named after can find instead of that place.
+const STATION_TYPE = /^(railway=(station|halt)|public_transport=station|building=(train_station|transportation))$/;
+// Where the place a station is named after is looked for: squares (often mapped as a pedestrian area), the quarter,
+// a park or a sight, within NAMED_PLACE_M of the station.
+const NAMED_PLACE_TAGS = ['place:square', 'highway:pedestrian', 'place:quarter', 'place:neighbourhood', 'leisure:park', 'tourism:attraction'];
+const NAMED_PLACE_M = 600;
 function exactName(q, c) {
   const n = (x) => String(x || '').toLowerCase().replace(/\s+/g, '');
   return [c.name, c.name_en].some((x) => x && n(x) === n(q));

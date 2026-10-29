@@ -78,11 +78,13 @@ test('phone peek: the tab bar ends above the host inset (98 px composer, 150 px 
 });
 
 test('phone peek without a host is where it always was; a peek too tall for the frame cuts the ask, never the tabs', async () => {
-  const { sheetSnaps } = await eng('ui.js');
+  const { sheetSnaps, LIST_MIN } = await eng('ui.js');
   for (const [H, safeTop, safeBot, content] of [[844, 0, 0, 315], [844, 47, 34, 315], [844, 47, 34, 120], [667, 20, 0, 240], [932, 59, 34, 380], [740, 0, 0, 59]]) {
     const s = sheetSnaps({ H, safeTop, safeBot, content });
     assert.equal(s.peek, Math.max(Math.round(H * 0.5) + 40, H - content - safeBot), `standalone ${H}/${safeBot}/${content}`);
-    assert.equal(s.half, Math.round(H * 0.5));
+    // half open is the middle, or LIST_MIN above the peek when the middle shows less of the list than that
+    const mid = Math.round(H * 0.5);
+    assert.equal(s.half, s.peek - mid >= LIST_MIN ? mid : s.peek - LIST_MIN);
     assert.equal(s.full, safeTop + 10);
     assert.equal(s.cut, 0);
   }
@@ -97,6 +99,23 @@ test('phone peek without a host is where it always was; a peek too tall for the 
   assert.match(ui, /name === 'peek' && this\.peekCut > 0/);
   // a hint shown above the sheet moves with it when a host's inset lifts the peek
   assert.match(ui, /if \(this\.toasts\.style\.bottom\) this\.toasts\.style\.bottom = `\$\{Math\.round\(this\.H - y \+ 10\)\}px`;/);
+});
+
+// The 29 Oct 2026 drive, on a 375×812 phone: Studio's frame is 572 px between its bar and its composer, and the half
+// open sheet showed the search box, the "Sights" heading and half of the first sight.
+test('phone half open shows the list: LIST_MIN above the peek, as far as the frame has room', async () => {
+  const { sheetSnaps, LIST_MIN } = await eng('ui.js');
+  assert.ok(LIST_MIN >= 200);
+  for (const content of [103, 121, 160]) {
+    const s = sheetSnaps({ H: 572, safeTop: 0, safeBot: 0, content });
+    assert.ok(s.peek - s.half >= LIST_MIN, `content ${content}: ${JSON.stringify(s)}`);
+    assert.ok(s.full < s.half && s.half < s.peek);
+  }
+  // a frame too short for that keeps the snaps in order
+  for (const [H, content] of [[300, 160], [220, 120]]) {
+    const s = sheetSnaps({ H, safeTop: 0, safeBot: 0, content });
+    assert.ok(s.full < s.half && s.half < s.peek, `${H}: ${JSON.stringify(s)}`);
+  }
 });
 
 // ---------------------------------------------------------------- F9 / F15: no job credentials in spawned processes

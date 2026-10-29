@@ -84,21 +84,51 @@ export const humanize = (k) => FEEL_LABELS[k] || (/_area$/.test(k) && FEEL_LABEL
   .replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
 
 /** OpenStreetMap's own classes for areas and boundaries, in the words a visitor uses ("Suburb" is a neighbourhood in
- *  town, "Administrative" any area with a border); null: no word at all (a bare "Yes" or "House" says nothing). */
+ *  town, "Administrative" any area with a border), and kinds whose word is not their name ("place_of_worship"). null:
+ *  no word at all (a bare "Yes" or "House" says nothing). */
 const KIND_WORDS = {
   suburb: 'Neighbourhood', quarter: 'Neighbourhood', neighbourhood: 'Neighbourhood', neighborhood: 'Neighbourhood', city_block: 'Neighbourhood',
   borough: 'District', district: 'District', administrative: 'Area', political: 'Area', locality: 'Area', region: 'Area', county: 'Area',
   state: 'Area', province: 'Area', municipality: 'Town', city: 'City', town: 'Town', village: 'Village', hamlet: 'Village',
   isolated_dwelling: 'Village', islet: 'Island', yes: null, house: null, building: null, address: null,
+  cafe: 'Café', marketplace: 'Market', mrt_station: 'Metro station', subway_entrance: 'Metro entrance', halt: 'Station',
+  aerodrome: 'Airport', camp_site: 'Campsite', convenience: 'Convenience store', atm: 'ATM', ev_charging: 'EV charging',
+  tea: 'Tea / bubble tea', pool: 'Swimming pool', swimming_pool: 'Swimming pool', bike_share: 'Bike share',
+  bicycle_rental: 'Bike share', books: 'Bookstore', archaeological_site: 'Archaeological site',
 };
-/** A place's kind as its card and list say it: plain words for map classes, else the kind itself ("food_court" →
- *  "Food court"). */
+/** Kinds whose own name is the plain word ("museum" → "Museum", "food_court" → "Food court"): the uw commands' kinds
+ *  and the OpenStreetMap classes of places people go to. */
+const PLAIN_KINDS = new Set(('museum gallery attraction viewpoint monument memorial castle palace fort ruins tower lighthouse ' +
+  'church cathedral chapel basilica mosque synagogue temple shrine place_of_worship monastery square park garden zoo ' +
+  'aquarium theme_park artwork fountain beach peak island lake waterfall bridge market night_market food_court ' +
+  'restaurant coffee bar pub fast_food ice_cream bakery dessert nightlife nightclub karaoke hotel hostel guest_house motel ' +
+  'apartment lodging station train_station tram_stop bus_stop bus_station ferry_terminal airport university library ' +
+  'theatre cinema stadium arts_centre gym playground supermarket pharmacy toilets laundry coworking bookstore hot_spring ' +
+  'mall department_store shop store sight food area stop').split(' '));
+/** A place's kind as its card and list say it: the plain word for it, or nothing. A kind with no plain word is left
+ *  out, never shown as its tag ("board", an information board in OpenStreetMap, read "Board"); a kind written by hand
+ *  (capitals or spaces: "B&B", "Day trip") is the author's own words. */
 export const kindLabel = (k) => {
   const text = String(k ?? '').trim(), key = text.toLowerCase();
   if (!key) return '';
   if (Object.prototype.hasOwnProperty.call(KIND_WORDS, key)) return KIND_WORDS[key] || '';
+  if (/^[a-z0-9_]+$/.test(text) && !PLAIN_KINDS.has(key)) return '';
   return text.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
 };
+/** The map's credits, each once: a credit that says what an earlier one says ("© OpenStreetMap contributors (ODbL)"
+ *  after the linked "© OpenStreetMap contributors") is dropped. Compared by its words, without links, case or a licence
+ *  in brackets. */
+export function uniqueCredits(list) {
+  const seen = new Set();
+  return (list || []).filter((c) => {
+    if (typeof c !== 'string' || !c.trim()) return false;
+    const key = c.replace(/<[^>]*>/g, ' ').replace(/&copy;/gi, '©').replace(/\((?:ODbL|CC[ -][^)]*|licen[cs]e[^)]*)\)/gi, ' ')
+      .toLowerCase().replace(/\s+/g, ' ').trim();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 /** A card's source line: map data reads "Map data © OpenStreetMap" (never which search found it), any other source its
  *  own name without the lookup in brackets ("Wikipedia (its article's coordinates)" → "Source: Wikipedia"); a place a
  *  fallback found adds "data may be incomplete". */

@@ -71,3 +71,24 @@ test('add-point: the monument, not the viewpoint named after it that the search 
   assert.equal(a.code, 0, a.err);
   assert.equal(a.json.chosen.type, 'aeroway=aerodrome');
 });
+
+// The 29 Oct 2026 drive: "Rossio, Lisbon" (a square Visit Lisboa lists) went on the map as Rossio railway station,
+// "Station" on its card, because OpenStreetMap names the square "Praça Dom Pedro IV" and the name search found only the
+// station. A station is named after the place it serves: the place of that name next to it is the pick.
+test('add-point: a square named like its station is the square, under the name asked for; a station asked for stays one', async () => {
+  const BAIXA = '-9.137024,38.710124';
+  assert.equal((await uw('new', 'rossio', '--title', 'Lisbon', '--center', BAIXA, '--zoom', '14')).code, 0);
+  const r = await uw('add-point', 'rossio', '--layer', 'sights', '--query', 'Rossio, Lisbon', '--country', 'Portugal', '--strict-name', '--near', BAIXA, '--json');
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.json.chosen.type, 'place=square');
+  assert.ok(r.json.alternatives.some((c) => c.type === 'railway=station'), 'the station stays an alternative (--pick)');
+  const feat = JSON.parse(fs.readFileSync(path.join(tmp, 'rossio', 'data', 'sights.geojson'), 'utf8')).features[0];
+  assert.equal(feat.properties.id, 'rossio');
+  assert.equal(feat.properties.kind, 'square');
+  assert.equal(feat.properties.name_en, 'Rossio', 'shown under the name asked for');
+  assert.equal(feat.properties.name, 'Praça Dom Pedro IV', 'its own name is on the card under it');
+  // a query that asks for the station gets the station
+  const s = await uw('add-point', 'rossio', '--layer', 'stations', '--query', 'Rossio, Lisbon', '--kind', 'train_station', '--near', BAIXA, '--id', 'rossio-station', '--json');
+  assert.equal(s.code, 0, s.err);
+  assert.match(s.json.chosen.type, /^(railway=station|building=train_station)$/);
+});

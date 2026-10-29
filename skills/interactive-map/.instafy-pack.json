@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "name": "interactive-map",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "Interactive maps, trips and place lookups as an Instafy skill pack",
   "license": "AGPL-3.0-only",
   "homepage": "https://github.com/instafy-dev/maps-skill-pack",
@@ -187,6 +187,6 @@
     }
   },
   "files": 108,
-  "bytes": 3169568,
-  "tree_sha256": "ddbb5a0ab9306808217eff04168066204dc47cdc5478603edb94cdd9a89eb715"
+  "bytes": 3178447,
+  "tree_sha256": "933be179a824053191fead265c06375b538f6270dfcd9e769faea737f88b54a7"
 }

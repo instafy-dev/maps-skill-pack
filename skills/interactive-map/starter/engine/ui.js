@@ -109,6 +109,10 @@ class Slider {
 }
 
 // ---------- phone sheet snaps ----------
+/** How much of its list a half-open phone sheet shows (px above the peek): the search box, a group's heading and two
+ *  places whole. The 29 Oct 2026 drive's 572 px frame showed the search box, the "Sights" heading and half of the
+ *  first sight. */
+export const LIST_MIN = 240;
 /** Where the phone sheet's top sits at each snap (px from the frame top). H: frame height; safeTop / safeBot: --sat /
  *  --sab (the device's safe area, raised to an embedding host's chrome: Studio's bar, composer, reply peek);
  *  content: what the peek shows (grab + lens row + progress + tab bar).
@@ -124,7 +128,10 @@ export function sheetSnaps({ H, safeTop = 0, safeBot = 0, content = 0 }) {
   const peek = Math.round(Math.max(want, floor));
   const cut = Math.max(0, peek - want);
   // half open sits between the peek and full when a tall inset already lifted the peek past the middle
-  const half = peek - 40 < Math.round(H * 0.5) ? Math.round((peek + full) / 2) : Math.round(H * 0.5);
+  const middle = peek - 40 < Math.round(H * 0.5) ? Math.round((peek + full) / 2) : Math.round(H * 0.5);
+  // and it shows LIST_MIN of the list (the search box, a group's heading, two places whole), as far as the frame
+  // has room: in a short frame under a tall peek the middle raised the sheet by a sliver of a row
+  const half = Math.max(Math.min(full + 40, Math.round((peek + full) / 2)), Math.min(middle, peek - LIST_MIN));
   return { full, half, peek, cut };
 }
 
@@ -177,7 +184,7 @@ export class UI {
     const side = W >= 900 || (W > H && W >= 600 && H < 600);
     if (side !== this.side) { this.side = side; this.root.classList.toggle('is-side', side); this.ctx.onLayout?.(side); }
     this.H = H;
-    if (side) { this.sheet.style.transform = ''; this.sheet.style.height = ''; this.body.style.paddingBottom = ''; return; }
+    if (side) { this.sheet.style.transform = ''; this.sheet.style.height = ''; this.body.style.paddingBottom = ''; this.body.style.removeProperty('--uw-list-end'); return; }
     const cs = getComputedStyle(this.probe);
     const safeTop = parseFloat(cs.paddingTop) || 0, safeBot = parseFloat(cs.paddingBottom) || 0;
     // peek = header + sliders + the tab bar, so Places / Plan / Compare are visible without opening the sheet first
@@ -221,7 +228,12 @@ export class UI {
     this.qbox.style.maxHeight = cut == null ? '' : cut + 'px'; this.qbox.style.overflow = cut == null ? '' : 'hidden';
     // a hint shown above the sheet follows it (a host's inset can lift the peek after the hint appeared)
     if (this.toasts.style.bottom) this.toasts.style.bottom = `${Math.round(this.H - y + 10)}px`;
-    this.body.style.paddingBottom = `calc(${Math.max(0, y - this.snaps.full)}px + var(--sab) + 16px)`;
+    // the body runs past the frame's bottom by what the sheet is lowered: its padding lets the last row scroll up
+    // above the bottom edge (a host's composer, the phone's home bar: --sab), and the list fades out just above that
+    // edge (engine.css, --uw-list-end) instead of running on under it
+    const below = Math.max(0, y - this.snaps.full);
+    this.body.style.paddingBottom = `calc(${below}px + var(--sab) + 16px)`;
+    this.body.style.setProperty('--uw-list-end', `calc(${below}px + var(--sab))`);
     this.handle.setAttribute('aria-expanded', String(name !== 'peek'));
     this.ctx.onSnap?.(name);
   }
@@ -400,8 +412,8 @@ export class UI {
     const p = this.panels.places; if (!p) return;
     if (!this.search) {
       this.search = h('input.uw-search', { type: 'search', placeholder: 'Search places', 'aria-label': 'Search places', enterkeyhint: 'search', autocomplete: 'off' });
+      // typing filters the list where the sheet is: focus never moves it (a jump put the next tap on another place)
       this.search.addEventListener('input', () => this.ctx.renderPlaces());
-      this.search.addEventListener('focus', () => this.ensureOpen('full'));
       this.placesList = h('div.uw-list');
       p.append(h('label.uw-searchwrap', svg('search'), this.search), this.placesList);
     }
