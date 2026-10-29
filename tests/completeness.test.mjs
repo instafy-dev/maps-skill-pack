@@ -282,6 +282,7 @@ test('the team handoff recipe opens the preview while the map job runs, before t
   const handoff = recipe.slice(recipe.indexOf('## Research-team handoff'));
   const open = handoff.indexOf('Open the preview while it runs');
   assert.ok(open > 0, 'the handoff section says to open the preview while the job runs');
-  assert.ok(open < handoff.indexOf('before the first `uw wait`') + 1 && handoff.includes('`instafy preview open`), before the first `uw wait`'));
+  assert.ok(open < handoff.indexOf('before the first `uw wait`') + 1 && handoff.includes('`instafy preview open … --start`), before the first `uw wait`'));
+  assert.doesNotMatch(recipe, /uw host … --detach|Open it from the card/);
   assert.ok(handoff.indexOf('`instafy preview check` comes once the job is done') > open);
 });

@@ -536,7 +536,8 @@ the first touch on the map.
 `error {id,code}`, `link {layer,id,kind,url}`, `photo {layer,id,photo_id,action}`, `verdict {lines}`. Each is also sent as a `uw:event` window event and, inside an iframe, as
 `parent.postMessage({ source: 'instafy-map', v: 1, type, payload, title }, '*')` (without `feature`).
 
-`window.__uwReady` turns `true` once the map is idle with all layers; `window.__uwErrors` lists problems.
+`window.__uwReady` turns `true` once the map is idle with all layers, and `<html data-instafy-ready>` turns from
+`"false"` to `"true"` with it (Instafy's preview card takes its picture then); `window.__uwErrors` lists problems.
 
 ## Layout rules (for custom.js)
 

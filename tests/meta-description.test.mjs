@@ -1,5 +1,6 @@
 // The map's page says what it is in its <meta name="description"> ("Trip · 3 days · 14 places"), so a link preview
-// (Instafy's preview card) has a facts line without another command. Only numbers and fixed words: never the title or a
+// (Instafy's preview card) has a facts line without another command, and marks itself ready (data-instafy-ready) once
+// drawn, so the card's picture is never of a half-drawn map. Only numbers and fixed words: never the title or a
 // place name, which come from the web and the person's request.
 // The browser test needs Playwright (UW_PLAYWRIGHT=/path/to/playwright, optionally UW_BROWSER_CHANNEL=chrome).
 // Run: node --test tests/meta-description.test.mjs
@@ -65,10 +66,23 @@ test('the map page sets its description once its layers are drawn (context dots 
   closers.push(() => browser.close());
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
   await ctx.route(/^https?:\/\/(?!127\.0\.0\.1|localhost)/, (r) => r.abort());
+  // Every change of the page's ready mark, with the description the page had then.
+  await ctx.addInitScript(() => {
+    window.__marks = [];
+    new MutationObserver(() => window.__marks.push([
+      document.documentElement.getAttribute('data-instafy-ready'),
+      document.querySelector('meta[name="description"]')?.content ?? null,
+    ])).observe(document, { attributes: true, subtree: true, attributeFilter: ['data-instafy-ready'] });
+  });
   const page = await ctx.newPage();
   await page.goto(`http://127.0.0.1:${port}/`);
   await page.waitForFunction(() => window.__uwReady === true, null, { timeout: 60000 });
   const metas = await page.evaluate(() => [...document.querySelectorAll('meta[name="description"]')].map((m) => m.content));
   assert.deepEqual(metas, ['Trip · 2 days · 3 places']);
+  // The ready mark Instafy's preview card waits for before its picture: "false" while the map draws, "true" once it is
+  // drawn, with its description already in.
+  const marks = await page.evaluate(() => window.__marks);
+  assert.deepEqual(marks.map(([mark]) => mark), ['false', 'true']);
+  assert.equal(marks[1][1], 'Trip · 2 days · 3 places');
   await ctx.close();
 });

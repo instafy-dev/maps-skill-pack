@@ -94,9 +94,9 @@ test('the preview card can start the map again: --serve-cmd from host --detach, 
   const port = await freePort();
   const h = await uw(['host', 'lx', '--detach', '--port', String(port), '--json']);
   assert.equal(h.code, 0, h.err);
-  assert.match(h.json.preview_cmd, new RegExp(`^instafy preview open --port ${port} --title "Lisbon" --serve-cmd ".+" --json$`));
-  assert.ok(h.json.preview_cmd.includes(`--serve-cmd "${h.json.serve_cmd}"`));
-  assert.match(h.out + h.err, /--serve-cmd/);
+  // In Instafy one `instafy preview open --start` serves a map and shows its card: --detach never offers a second way.
+  assert.equal(h.json.preview_cmd, undefined);
+  assert.doesNotMatch(h.out + h.err, /instafy preview open/);
   const argv = argvOf(h.json.serve_cmd);
   assert.deepEqual(argv.slice(-6), ['host', path.join(work, 'lx'), '--port', String(port), '--host', '127.0.0.1']);
   // a request that names another host (a tunnel's, a LAN name) is not told which folder or process this is

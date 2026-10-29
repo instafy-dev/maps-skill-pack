@@ -93,12 +93,15 @@ test("UW_PLAYWRIGHT still wins over the runtime's Playwright", { skip }, () => {
   assert.equal(out.b.launchedWith, 'mine');
 });
 
-test('SKILL.md: after `instafy preview open`, run `instafy preview check` and fix what it lists; the file stays ≤ 9.5 KB', () => {
+test('SKILL.md: one `instafy preview open --start` serves the map and shows its card, then `instafy preview check`; the file stays ≤ 9.5 KB', () => {
   const md = fs.readFileSync(path.join(HERE, '..', 'skills', 'interactive-map', 'SKILL.md'), 'utf8');
-  const open = md.indexOf('instafy preview open --port 4173');
-  const check = md.indexOf('instafy preview check --port 4173 --phone');
+  const flat = md.replace(/\s+/g, ' ');
+  const open = flat.indexOf('instafy preview open --title "<title>" --serve-cmd "uw host . --port {port}" --start --json');
+  const check = flat.indexOf('instafy preview check --port <port> --phone');
   assert.ok(open > 0 && check > open, 'the check follows the card');
-  assert.match(md.slice(check, check + 200), /fix every\s+error it lists; open the PNG/);
+  assert.match(flat.slice(check, check + 200), /fix every error it lists; open the PNG/);
+  // The CLI picks the port, so none is named; and no sentence points at a card the turn may not have posted.
+  assert.doesNotMatch(md, /--port 4173|free port|Open it from the card/);
   // the managed copy adds a ~350-byte note (scripts/sync-map-pack.mjs); keep both inside the prompt budget
   assert.ok(Buffer.byteLength(md) <= 9.5 * 1024 - 400, `${Buffer.byteLength(md)} bytes`);
 });

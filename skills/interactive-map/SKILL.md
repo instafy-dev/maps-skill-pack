@@ -62,11 +62,11 @@ Long commands: `--detach`, then `uw wait` (exit 75: again).
    criteria/lenses are "pending" and join on re-run. Letters follow the rank (A = best); the verdict is generated.
    "NOTHING MEASURED YET SEPARATES": say "too close to call so far"; run the step it names.
 8. `uw fit <site>`, then `uw validate <site> --signal`; fix every error.
-9. Preview: `uw host <site> --host 0.0.0.0 --port 4173 --detach` (outlives the turn; runs bound.json buttons).
-   With `instafy`: run the `instafy preview open --port 4173 … --serve-cmd "…" --json` line it prints (the card
-   can restart the map; gallery: `--path /<site>/`). Exit 2 = the server is not up: re-run `--detach` once. Then
-   `instafy preview check --port 4173 --phone` (same `--path`): fix every error it lists; open the PNG it names.
-   Never post a URL (not even localhost): "Open it from the card".
+9. Preview, one command from the site's folder: `instafy preview open --title "<title>" --serve-cmd "uw host .
+   --port {port}" --start --json`. It picks the port, starts the map (outlives the turn; runs bound.json buttons),
+   posts the card and takes its picture once the map is drawn; the card can restart it. Exit 2 names a log: read it,
+   fix, run it again. Then `instafy preview check --port <port> --phone` (the JSON's `port`): fix every error it
+   lists; open the PNG it names. Never post a URL (not even localhost). Without `instafy`: `uw host <site> --detach`.
    Public link only on request (`instafy-frontend-previews`).
 
 **Phase B: refine (in order, one at a time, while the time printed by question/validate allows)**
@@ -88,7 +88,7 @@ sources by publisher (OpenStreetMap, Wikipedia) in one line; say what is unverif
 verdict as `uw question` printed it (the pick and why, by name, no map letter; then the persona line),
 the `Assumed:` line, what is estimated or partial (PARTIAL: "may be incomplete"), every `Tell the user` line
 (a register match: name the listing, never ask to confirm), anything "Not found yet" (what was searched; they can
-send its address), "Open it from the card" (step 9). End with a ```suggestions block, a chip per line: skipped or
+send its address). End with a ```suggestions block, a chip per line: skipped or
 unavailable steps ("Try the café search again", "Add the calm/lively layer").
 
 ## Config and later changes

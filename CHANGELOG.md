@@ -3,6 +3,25 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.10 (2026-10-29)
+
+Fixes from the fourth 29 Oct 2026 drive, where a comparison page's card showed the Lisbon map and the map's own card
+died, and the map turn ended with "Open the map from its preview card" and no card.
+
+- **One command serves the map and shows its card.** Step 9 ran `uw host <site> --port 4173 --detach`, then the
+  `instafy preview open` line it printed, and turns skipped the second step. Every site in a space was put on 4173.
+  Now step 9 is one `instafy preview open --title "<title>" --serve-cmd "uw host . --port {port}" --start --json`
+  from the site's folder: Instafy picks a free port for the map, starts it, posts the card and takes its picture.
+  The skill names no port. `uw host … --detach` no longer prints a second way to show the map in Instafy.
+- **No sentence points at a card.** "Open it from the card" left the skill's reply (step 9, Phase C) and the trip
+  guide's reply: the card speaks for itself, and a turn that posted none never says it did.
+- **The card's picture waits for the map.** The engine marks the page `<html data-instafy-ready="false">` while it
+  draws and `"true"` once it is idle with its tiles drawn and its description written, with `window.__uwReady`.
+  Instafy's preview picture waits for that mark, so a card no longer shows an empty map.
+
+Step 9 needs an Instafy runtime whose `instafy preview open --start` picks the port (`{port}`); the runtime release
+that pins this version has it.
+
 ## 0.1.9 (2026-10-28)
 
 - **A finished step reads as done.** In the turn's step list a finished `uw new`, `uw host`, `uw geocode` and the
