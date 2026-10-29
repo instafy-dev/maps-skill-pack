@@ -35,8 +35,9 @@ add-point <dir> --layer <id> --at lng,lat --name "Label" [...]     (only for coo
   --name in Latin script also becomes name_en (the label English maps show); OSM's English name is kept as osm_name_en.
   Geocodes with the place search and appends (or replaces, same id) a point in data/<layer>.geojson. Prints the chosen match and
   the alternatives: check them. --pick N chooses candidate N (1-based) instead. A station is never the place it is named
-  after unless the query (or --kind) asks for transit: "Rossio" is the square next to Rossio station, shown as "Rossio"
-  with its own name under it. A match farther than --max-km (default 8)
+  after unless the query (or --kind) asks for transit: a square or place within 600 m of it that has that name (its own,
+  or another OpenStreetMap name: "Rossio" is "Praça Dom Pedro IV") is taken, shown as "Rossio" with its own name under
+  it; none, or none that could be checked, keeps the station (said). A match farther than --max-km (default 8)
   from --near is refused (exit 2) unless --allow-far. Without --near the config's view.center is used as bias and the
   match must fall inside view.bounds (+50%) or --max-km of view.center. If no candidate's name resembles the query it is refused too (exit 2):
   check the list, then --pick N or --allow-mismatch. Query words that only name the area (the city, region or country
@@ -674,24 +675,39 @@ async function addPointRun(argv, ctx) {
       // A station is named after the place it serves, so it is never that place unless the query asks for transit:
       // "Rossio" is the square, and the station by it is "Rossio" too. The square is often mapped under another name
       // ("Praça Dom Pedro IV", "Rossio" its other name), so the search lists only the station. The place of that name
-      // is looked for among squares and places to walk to next to the station; the nearest is the pick, under the
-      // name asked for.
+      // is looked for among squares and places to walk to next to the station, and taken only when that is its name:
+      // its own, or one of its other names in OpenStreetMap. The search's filtered answer also lists places that only
+      // share a word with it or a city ("St Pancras Lock"; parks across Paris for "Gare du Nord, Paris"): those are
+      // not it, and the station stays.
       if (!transitAsked && !placeKind && !geocodeDegraded() && STATION_TYPE.test(chosen.type || '') && closeness(chosen) >= 2) {
         const station = chosen;
+        const fromStation = (c) => haversine(c.coord, station.coord);
+        let nearby = [];
         try {
           const places = await geocodeSearch(args.query, { near: station.coord, limit: 6, lang: args.lang || 'default', tags: NAMED_PLACE_TAGS, onEmpty: 'stop' });
-          const place = places.filter((c) => !TRANSIT_TYPE.test(c.type || '') && haversine(c.coord, station.coord) <= NAMED_PLACE_M && !tooFar(c))
-            .sort((a, b) => haversine(a.coord, station.coord) - haversine(b.coord, station.coord))[0];
-          if (place) {
-            if (near) place.distance_km = Math.round(haversine(near, place.coord) / 10) / 100;
-            // known by the name asked for, which its own name may not carry: that name is the one the map shows
-            if (nameMatches(args.query, [place.name, place.name_en], area) !== true) place.name_en = queryLabel(args.query);
-            Object.assign(place, { name_match: true, type_ok: null });
-            cands.push(place);
-            chosen = place;
-            out.log(`"${station.name}" is a station [${station.type}]; took the place it is named after: ${place.name} [${place.type}], ${Math.round(haversine(place.coord, station.coord))} m from it (--pick N takes the station).`);
-          }
+          nearby = places.filter((c) => NAMED_PLACE_TYPE.test(c.type || '') && fromStation(c) <= NAMED_PLACE_M && !tooFar(c))
+            .sort((a, b) => fromStation(a) - fromStation(b));
         } catch (e) { if (isSkip(e)) warnings.push(`"${station.name}" is a station; the place it is named after could not be looked up (${e.message})`); }
+        // its own name is the one asked for, else one of its other names (one Overpass lookup for all of them)
+        let place = nearby.find((c) => closeness(c) >= 2) || null;
+        if (!place && nearby.some((c) => c.osm_id)) {
+          try {
+            const names = await osmNames(nearby.map((c) => c.osm_id).filter(Boolean));
+            place = nearby.find((c) => nameCloseness(args.query, names.get(c.osm_id) || [], area) >= 2) || null;
+          } catch (e) {
+            const c = nearby[0];
+            warnings.push(`"${station.name}" is a station; whether ${c.name} [${c.type}], ${Math.round(fromStation(c))} m from it, is the place it is named after could not be checked (${e.message}): the station was kept. If that place is meant: add-point ${args._[0]} --layer ${layer} --osm ${c.osm_id} --name "${queryLabel(args.query)}"`);
+          }
+        }
+        if (place) {
+          if (near) place.distance_km = Math.round(haversine(near, place.coord) / 10) / 100;
+          // known by the name asked for, which its own name may not carry: that name is the one the map shows
+          if (nameMatches(args.query, [place.name, place.name_en], area) !== true) place.name_en = queryLabel(args.query);
+          Object.assign(place, { name_match: true, type_ok: null });
+          cands.push(place);
+          chosen = place;
+          out.log(`"${station.name}" is a station [${station.type}]; took the place it is named after: ${place.name} [${place.type}], ${Math.round(fromStation(place))} m from it (--pick N takes the station).`);
+        }
       }
     }
     // the search's match missing, far, or unsure (no name match, wrong type, found only by a type search) → the registers
@@ -958,7 +974,24 @@ const STATION_TYPE = /^(railway=(station|halt)|public_transport=station|building
 // Where the place a station is named after is looked for: squares (often mapped as a pedestrian area), the quarter,
 // a park or a sight, within NAMED_PLACE_M of the station.
 const NAMED_PLACE_TAGS = ['place:square', 'highway:pedestrian', 'place:quarter', 'place:neighbourhood', 'leisure:park', 'tourism:attraction'];
+// only those (a fallback provider's answer to a filtered search can be any place: a city's own point)
+const NAMED_PLACE_TYPE = new RegExp(`^(${NAMED_PLACE_TAGS.map((t) => t.replace(':', '=')).join('|')})$`);
 const NAMED_PLACE_M = 600;
+// the keys OpenStreetMap keeps a place's names under: its name, other, old, official and short names, in any language
+const NAME_KEY = /^(name|alt_name|old_name|official_name|short_name|loc_name|int_name|nat_name|reg_name)(:[a-z]{2,3}(-[A-Za-z]+)?)?$/;
+/** Every name OpenStreetMap has for these objects (osm-w123 ids), by id: one Overpass lookup. */
+async function osmNames(ids) {
+  const refs = ids.map((id) => String(id).match(/^osm-([nwr])(\d+)$/i)).filter(Boolean)
+    .map((m) => `${{ n: 'node', w: 'way', r: 'relation' }[m[1].toLowerCase()]}(${m[2]});`);
+  const names = new Map();
+  if (!refs.length) return names;
+  const data = await overpass(`[out:json][timeout:25];\n(${refs.join('')});\nout tags;`, { timeoutS: 25, quick: true });
+  for (const el of data.elements || []) {
+    const t = el.tags || {};
+    names.set(`osm-${String(el.type)[0]}${el.id}`, Object.keys(t).filter((k) => NAME_KEY.test(k)).flatMap((k) => String(t[k]).split(';')).map((x) => x.trim()).filter(Boolean));
+  }
+  return names;
+}
 function exactName(q, c) {
   const n = (x) => String(x || '').toLowerCase().replace(/\s+/g, '');
   return [c.name, c.name_en].some((x) => x && n(x) === n(q));

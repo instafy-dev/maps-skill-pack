@@ -37,8 +37,8 @@ export const helps = {
   houses and + 2 for places with fewer than --min-rooms (10) registered rooms (a hotel 6 min away beats a 4-room B&B 4
   min away); --prefer any ranks by walk alone, --prefer bnb puts B&Bs first. --kinds hotel (default hotel,hostel; bnb
   is added when fewer than --max hotels are in range). With hotels asked for, a hotel in range is always a pick (the
-  closest replaces the last of three hostels), and none in range is said: "No hotel within <radius> m of <place>", in
-  the Tell the user line too (JSON no_hotel). A lng,lat --near is named by --near-label in the walk texts
+  closest replaces the last hostel, or the last pick), and only none in range is said: "No hotel within <radius> m of
+  <place>", in the Tell the user line too (JSON no_hotel). A lng,lat --near is named by --near-label in the walk texts
   ("6 min walk to the centre of Hualien"), and --stop says which stop the picks belong to (default: the --near id).
   Each point gets: rank, why in plain words ("6 min walk to Hualien Station · registered hotel, 120 rooms"; "about 6
   min walk" when estimated), how (the walk's basis and metres, the OpenStreetMap tags: the card's "How we know"), stop
@@ -284,9 +284,9 @@ export function stayKind(c) {
 }
 
 /** Rank lodging candidates by walk minutes with small penalties; adds rank + why. `kinds`: the kinds asked for
- *  (--kinds): with hotels among them, the closest hotel takes the place of the last pick of a kind that has more than
- *  one when no pick is a hotel, so the closest three are never all hostels while a hotel is in range (the 29 Oct 2026
- *  drive: Baixa's three closest were hostels, and the reply had no hotel). Exported for the tests. */
+ *  (--kinds): with hotels among them and no pick a hotel, the closest hotel takes the place of the last pick of a kind
+ *  that has more than one, else of the last pick, so the picks are never all hostels while a hotel is in range (the
+ *  29 Oct 2026 drive: Baixa's three closest were hostels, and the reply had no hotel). Exported for the tests. */
 export function rankStays(cands, { max = 3, to = 'the station', prefer = 'hotel', minRooms = 10, kinds = null } = {}) {
   const scored = cands.map((c) => {
     let pen = 0;
@@ -299,13 +299,15 @@ export function rankStays(cands, { max = 3, to = 'the station', prefer = 'hotel'
   }).sort((a, b) => a.score - b.score || a.walk_m - b.walk_m);
   // one per building: two listings within 30 m are usually one hotel registered twice (仟台 / 千台) or two floors
   const kept = [];
-  const apart = (c) => !kept.some((k) => k !== c && haversine(k.coord, c.coord) < 30);
-  for (const c of scored) { if (kept.length >= max) break; if (apart(c)) kept.push(c); }
-  if (kinds?.has('hotel') && !kept.some((c) => stayKind(c) === 'hotel')) {
-    const best = scored.find((c) => stayKind(c) === 'hotel' && apart(c));
+  for (const c of scored) { if (kept.length >= max) break; if (!kept.some((k) => haversine(k.coord, c.coord) < 30)) kept.push(c); }
+  if (kinds?.has('hotel') && kept.length && !kept.some((c) => stayKind(c) === 'hotel')) {
     const count = (k) => kept.filter((c) => stayKind(c) === k).length;
-    const last = kept.findLastIndex((c) => count(stayKind(c)) > 1);
-    if (best && last >= 0) kept.splice(last, 1, best);
+    let at = kept.findLastIndex((c) => count(stayKind(c)) > 1);
+    if (at < 0) at = kept.length - 1;
+    // apart from the picks that stay (a hotel in the building of the hostel it replaces is still a pick)
+    const rest = kept.filter((_, i) => i !== at);
+    const best = scored.find((c) => stayKind(c) === 'hotel' && !rest.some((k) => haversine(k.coord, c.coord) < 30));
+    if (best) kept.splice(at, 1, best);
   }
   kept.sort((a, b) => a.score - b.score || a.walk_m - b.walk_m);
   return kept.map((c, i) => {
@@ -490,8 +492,9 @@ export async function stay(argv) {
   let picks = rankStays(pool, { max, to: toName, prefer, minRooms, kinds });
   let addedBnb = false;
   if (picks.length < max && spare.length) { picks = rankStays([...pool, ...spare], { max, to: toName, prefer, minRooms, kinds }); addedBnb = picks.some((c) => c.group === 'bnb'); }
-  // hotels were asked for and none is in range: said, so the reply does not guess
-  const noHotel = kinds.has('hotel') && !picks.some((c) => stayKind(c) === 'hotel');
+  // hotels were asked for and none is in range: said, so the reply does not guess (only when none is: a hotel the
+  // picks left out is still in range)
+  const noHotel = kinds.has('hotel') && !got.list.some((c) => wantGroup(c) && stayKind(c) === 'hotel');
   // a Latin name helps the traveller search for the place (registers often only have the Chinese one): OpenStreetMap's
   // English name of the same lodging (the place search, ≤ 120 m away and lodging-tagged); never invented
   for (const c of picks) {

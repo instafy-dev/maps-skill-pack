@@ -143,6 +143,15 @@ const PHOTON = {
     feat('Lisboa - Rossio', [-9.141525, 38.714118], { key: 'railway', value: 'stop', id: 1932413785, type: 'N', ...LX, district: 'Santa Maria Maior' }),
     feat('Estação Ferroviária de Lisboa - Rossio', [-9.140899, 38.714225], { key: 'building', value: 'train_station', id: 96530649, type: 'W', ...LX, district: 'Santa Maria Maior' }),
   ],
+  // Stations that are the place asked for, with a place next to them that the search's filtered answer lists but that
+  // is not that place: a lock named after the station (one word in common), and a park Photon matched on "Paris" alone
+  // (the live answer for "Gare du Nord, Paris" was parks across Paris; this one is put next to the station).
+  'St Pancras International, London': [
+    feat('St Pancras International', [-0.127600, 51.532200], { key: 'railway', value: 'station', id: 7020001, type: 'N', district: 'Somers Town', city: 'London', country: 'United Kingdom' }),
+  ],
+  'Gare du Nord, Paris': [
+    feat('Gare du Nord', [2.355000, 48.880400], { key: 'railway', value: 'station', id: 7020011, type: 'N', city: 'Paris', country: 'France' }),
+  ],
 };
 // Photon answers to a search with osm_tag filters (a type search): by query text, only the features whose
 // key:value is one of the tags asked for. Every other tagged search gets nothing, as before.
@@ -151,6 +160,19 @@ const PHOTON_TAGGED = {
     feat('Praça Dom Pedro IV', [-9.139343, 38.713756], { key: 'place', value: 'square', id: 1317749306, type: 'W', ...LX, district: 'Santa Maria Maior' }),
     feat('Rossio dos Olivais', [-9.095047, 38.767387], { key: 'highway', value: 'pedestrian', id: 581103605, type: 'W', ...LX, district: 'Parque das Nações' }),
   ],
+  'St Pancras International, London': [
+    feat('St Pancras Lock', [-0.130300, 51.535300], { key: 'tourism', value: 'attraction', id: 7020002, type: 'N', city: 'London', country: 'United Kingdom' }),
+  ],
+  'Gare du Nord, Paris': [
+    feat('Square Alban-Satragne', [2.357800, 48.878600], { key: 'leisure', value: 'park', id: 7020012, type: 'W', city: 'Paris', country: 'France' }),
+  ],
+};
+// Overpass answers to an object lookup (`way(id)`, `node(id)`): the object's tags, its other names among them. The
+// square OpenStreetMap maps as "Praça Dom Pedro IV" has "Rossio" as its other name.
+const OSM_TAGS = {
+  'way/1317749306': { place: 'square', name: 'Praça Dom Pedro IV', alt_name: 'Rossio', highway: 'pedestrian', area: 'yes' },
+  'node/7020002': { tourism: 'attraction', name: 'St Pancras Lock', lock: 'yes' },
+  'way/7020012': { leisure: 'park', name: 'Square Alban-Satragne' },
 };
 
 // cafés around the three Taipei hotels (Via ~ 3, Everstar 1, Lore 0 within 800 m)
@@ -194,6 +216,12 @@ export function startMock() {
       let body = ''; req.on('data', (d) => { body += d; });
       req.on('end', () => {
         const q = decodeURIComponent(body.replace(/^data=/, '').replace(/\+/g, ' '));
+        // an object lookup by id: its tags
+        const ids = [...q.matchAll(/\b(node|way|relation)\((\d+)\)/g)];
+        if (ids.length) {
+          res.end(JSON.stringify({ elements: ids.filter(([, t, id]) => OSM_TAGS[`${t}/${id}`]).map(([, type, id]) => ({ type, id: Number(id), tags: OSM_TAGS[`${type}/${id}`] })) }));
+          return;
+        }
         // MRT stations near Via (places --kinds mrt_station), cafés (--kinds cafe); everything else: nothing
         const elements = /"station"="subway"/.test(q) ? [
           { type: 'node', id: 9001, lat: 25.0577, lon: 121.5208, tags: { railway: 'station', station: 'subway', name: '雙連', 'name:en': 'Shuanglian' } },

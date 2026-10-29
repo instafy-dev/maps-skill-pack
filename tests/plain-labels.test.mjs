@@ -50,6 +50,24 @@ test('kindLabel: a kind with no plain word is left out; every kind the uw comman
   }
 });
 
+// Review of 0.1.11: the list of kinds that are plain words left out OpenStreetMap kinds a trip map shows every day
+// (add-point writes the place's own tag value), which 0.1.10 showed: "National park", "City gate", "Town hall".
+test('kindLabel: the plain words for the kinds of places a trip goes to stay', () => {
+  for (const [k, word] of [['national_park', 'National park'], ['nature_reserve', 'Nature reserve'], ['city_gate', 'City gate'],
+    ['townhall', 'Town hall'], ['water_park', 'Water park'], ['golf_course', 'Golf course'], ['marina', 'Marina'], ['pier', 'Pier'],
+    ['cemetery', 'Cemetery'], ['hill', 'Hill'], ['volcano', 'Volcano'], ['cave_entrance', 'Cave'], ['winery', 'Winery'],
+    ['observatory', 'Observatory'], ['concert_hall', 'Concert hall'], ['sports_centre', 'Sports centre'], ['biergarten', 'Beer garden'],
+    ['alpine_hut', 'Mountain hut'], ['picnic_site', 'Picnic site'], ['country', 'Country'], ['post_office', 'Post office']]) {
+    assert.equal(kindLabel(k), word, k);
+  }
+  // and every kind of line `uw lines` writes (its KIND_EMOJI)
+  const lines = fs.readFileSync(path.join(SKILL, 'scripts', 'lib', 'cmd-lines.mjs'), 'utf8').match(/const KIND_EMOJI = \{([^}]*)\}/)[1];
+  const lineKinds = [...lines.matchAll(/(\w+):/g)].map((m) => m[1]);
+  assert.ok(lineKinds.length >= 8, lines);
+  for (const k of lineKinds) assert.notEqual(kindLabel(k), '', `uw lines writes "${k}"`);
+  assert.equal(kindLabel('subway'), 'Metro');
+});
+
 // The drive's Map key, under Sources: "© OpenStreetMap contributors · OpenFreeMap · © OpenMapTiles · © OpenStreetMap
 // contributors (ODbL) · Walking times: …": the basemap's credit, then `uw stay`'s with its licence.
 test('uniqueCredits: each credit once, whatever its link, case or licence in brackets', () => {
