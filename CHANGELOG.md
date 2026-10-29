@@ -3,6 +3,39 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.13 (2026-10-29)
+
+Fixes from a "Plan 3 days in Lisbon for a first visit: where to stay, what to see each day, on a map" run, where the
+turn ended with no card and no places to stay, and its three sights cited one city page.
+
+- **The card comes first.** The card was posted at the end (step 9), and the turn ended while `uw stay` still ran, so
+  there was no card; the reply pointed at the map anyway. `SKILL.md` step 3 now runs the one `instafy preview open
+  --title "<title>" --serve-cmd "uw host . --port {port}" --start --json` right after `uw new` writes the site, before
+  any lookup, and `uw new` names that command as the next step. A slow lookup can cost the map content, never its card.
+  Step 9 is now `uw reload <site>` (open viewers update) and `instafy preview check` (refreshes the card's picture);
+  the trip guide and the team handoff do the same. No reply line points at a card (already so since 0.1.10).
+- **`uw stay` answers within its own time.** It waited on a busy Overpass for up to two minutes (its 120 s limit),
+  three runs side by side, and the turn ended with all three still running. Its limit is now 30 s: the lodging
+  search gets most of it and the rest is kept for the walks, the English names and the write, so a busy Overpass
+  gives the place search's shorter list (marked partial), and a lodging register that cannot answer in time (a first
+  download on a slow link) gives way to OpenStreetMap. Hotels and hostels alike. When nothing answers in time it says
+  so plainly: "No places to stay found near <place>: …", the line for the reply, and the command to try again later
+  (exit 4). The place search's list also keeps hotels mapped as buildings: it dropped every place that was not a
+  single point, so a fallback near Baixa had hostels and no hotel.
+- **Every day of the stay gets a place.** With three sights for three days the arrival day had none and the next two
+  had one and two. The trip's arrival day is one of its days now: it takes a place as soon as there are more places
+  than full days (`plan-checks.json` `first_day_over` 1), and `uw validate` fails while it has nothing to see in a plan
+  made with `--sights`, as for the other days.
+- **A place cites its own page.** The trip guide says a city's page only tells which places are worth it: each place's
+  source is its own page, the one `uw cite` reads. `uw validate` warns when places cite one page (anchors on that page
+  included) and says how to give each its own.
+- **Road numbers draw on a dark map.** The night look turned a road shield's number light and dimmed its light box,
+  so shields read as blank grey boxes. A sign (text drawn centred on its own icon) keeps its sprite's colours at every
+  hour.
+- **The resting phone sheet clears what sits below it.** Its tab bar ended at the frame's bottom edge, against the
+  host's floating chips. It now ends 12 px above that edge, over the sheet's own colour, with nothing of the list
+  showing in the gap.
+
 ## 0.1.12 (2026-10-29)
 
 Fixes to 0.1.11, found in its review.

@@ -6,7 +6,7 @@ the plan; the builder lane follows this file later.
 Use this for an itinerary: two or more places with nights ("3 nights Taipei, then Hualien…", "10 days in Japan with
 hotels and trains", "a rail loop with places to stay"), or days in one place ("3 days in Lisbon": "One base" below).
 It replaces steps 4-8 of SKILL.md; the hard rules, the
-preview step and the turn clock stay. It works anywhere: where an open-data adapter covers the area (`uw adapter list
+card (step 3), step 9 and the turn clock stay. It works anywhere: where an open-data adapter covers the area (`uw adapter list
 --at <lng,lat>`, e.g. a national lodging register) its data comes first; elsewhere OpenStreetMap. Region extras: when
 `reference/regions/<country>.md` exists (e.g. `taiwan.md`), read it too.
 
@@ -33,6 +33,7 @@ out ("flying home from Taipei"), so the last day never strands them.
 `uw new <site> --title "<Country> by train" --subtitle "7–14 May · 7 nights" --ask "<the question in your words, ≤ 60 characters>" --center <lng,lat> --zoom 7 --expect "<Stop>:<nights>,…"`
 (the ask is the map's heading, e.g. "Two weeks in Taiwan by train": never the user's message pasted in; `--expect`
 is the route from step 0: every stop the user named or you chose, so `uw validate` fails while one is missing).
+Then its card at once (SKILL.md step 3), before any lookup: a slow lookup can cost the map content, never its card.
 
 **2. One station per stop**, in travel order (a stop visited twice is added once):
 `uw station <site> --city "<City>" --country "<Country>" --nights N` (it finds the city centre itself, in that
@@ -56,6 +57,8 @@ area it comes first (licensed, open listings); elsewhere OpenStreetMap hotels, h
 travellers who want character or a small place `--prefer any` (no penalty for B&Bs and small hotels). Call each
 pick by the kind it was written with: a hostel is a hostel, in the reply too. A hotel in range is always among the
 picks; "No hotel within …" means there is none, and the reply says so. Small towns: `--radius 1500`.
+It answers within about 30 s with what it found (a busy lookup gives fewer, marked partial; exit 4 = none found:
+say places to stay were not looked up yet): wait for it, never run it twice.
 A station far from the centre (step 2): `uw stay <site> --near <centre lng,lat> --near-label "the centre of <City>"
 --stop <station id>` too, and let the reply say which is which. Exit 2 = nothing in range: widen it. Never say a stay
 is available, bookable or a price (a register's filed rates are not prices).
@@ -93,8 +96,8 @@ stop (the retry command `uw handoff --apply` or the lookup printed, with `--time
 --layer stations --query "<City>" --country "<Country>" --kind city --allow-far --id <id> --props-file - <<'JSON'`, then
 `{"nights":N,"station_of":"<City>","no_station":true}` and `JSON` on their own lines), then
 `uw plan … --ids <every stop> --nights … --force`. Still not placed (exit 4 again): keep going, and the reply's route
-line names it as missing with its nights ("<Stop> (2 nights) is not on the map yet: the place lookup was down"). Then preview (SKILL.md step 9): the card goes out before Phase B, so the traveller has the map while the days
-fill in.
+line names it as missing with its nights ("<Stop> (2 nights) is not on the map yet: the place lookup was down"). Then SKILL.md step 9 (open viewers update, the card's picture is refreshed), before Phase B: the traveller has
+the map while the days fill in.
 
 ## Phase B: make it worth following (one step at a time, while the turn clock shows more than ~3 min left)
 
@@ -104,13 +107,15 @@ full day has no sourced place, as it fails for a stop asked for that is not on t
 when most full days are empty, and the turn clock prints how many are empty or thin. While any is and time is left,
 add sights rather than reply. Step 1 comes first.
 
-1. **Sights with sources, 2-3 per city.** There is no search tool: start from the city's Wikivoyage page
-   (`uw cite https://en.wikivoyage.org/wiki/<City> --grep "<what you need>"`, sections See/Do), then open the
-   official tourism site, the attraction's own site, a national park or Wikipedia and check it is current (closures, renovations, seasonal hours). A refused site (it bans agents, robots.txt, a bot
+1. **Sights with sources, 2-3 per city.** A city's page (its Wikivoyage See/Do, the official tourism site) only
+   says which places are worth it; it is never a place's source. Each place's source is its own page, the one you
+   cite: `uw cite <its own page> --grep "<its name>"` (the attraction's own site, a national park's, else its
+   Wikipedia article), checked for being current (closures, renovations, seasonal hours); that page is its
+   `source_url` (`uw validate` warns when places share one). A refused site (it bans agents, robots.txt, a bot
    check) is a plain link, never fetched another way. At most about 8 pages per city. Then per sight:
    ```
    uw add-point <site> --layer sights --query "<local-language name>" --country "<Country>" --strict-name --near <that station's lng,lat> --id <slug> --props-file - <<'JSON'
-   {"stop":"<station id>","source_url":"https://…","source":"<site name>","why":"<what the page says to do there>"}
+   {"stop":"<station id>","source_url":"<its own page>","source":"<site name>","why":"<what the page says to do there>"}
    JSON
    ```
    (props with words in them always go on stdin like this: an apostrophe in single-quoted JSON breaks the command;
@@ -149,8 +154,8 @@ add sights rather than reply. Step 1 comes first.
    list had room. Every full day gets its places before the reply: `uw validate` fails while one has none.
 4. **Plan**: `uw plan <site> --stops stops --ids <slug> --nights N --start <date> --stays stays --sights sights,food,daytrips`.
    Every day is a loop from the base: a stop's places are grouped by area (the closest share a day, in walking
-   order, the area nearest the base first; the arrival day takes one when the other days would hold more than 2
-   places each), then the departure day. Never "<city> →
+   order, the area nearest the base first; every day before the departure, the arrival day too, gets a place before
+   any gets a second), then the departure day. Never "<city> →
    <city>": a stop named twice in a row is one stay. The reply says where to stay and why, then each day's area.
 
 **Days that hang together.** `uw plan` and `uw validate` warn when a day has a place far from its other places, or
@@ -169,10 +174,8 @@ lane that covered several stops, `stop`; `legs[]` with `from`, `to`, `mode`, opt
 `uw handoff handoff/<task-slug> --site <site> --apply --detach --route "Porto:3,Lisbon:4" --start 2027-05-07`
 
 It takes several minutes, so it runs as a job: then `uw wait` (prints its output; exit 75 = still running: run
-`uw wait` again; never start it twice, never patch the map by hand while it runs). Open the preview while it runs (SKILL.md step 9's
-one `instafy preview open … --start`), before the first `uw wait`: the card shows the map as it fills in,
-so slow lookups cannot end the turn with no card (r11: a builder whose lookups were slow ran out of turn before
-step 9). `instafy preview check` comes once the job is done. Each stop is looked up in the
+`uw wait` again; never start it twice, never patch the map by hand while it runs). The card is out since step 1,
+before the job, so slow lookups cannot end the turn with no card. SKILL.md step 9 comes once the job is done. Each stop is looked up in the
 country its handoff file names (`--country` for files without one). It checks every file, re-reads the cited pages (a
 place its page does not name loses that source), then runs steps 2-5 itself: per city the station (or the city
 centre when no station is found, said in the unverified list; a stop neither placed is tried once more after the

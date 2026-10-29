@@ -55,9 +55,10 @@ const OWN_DETACH = new Set(['host', 'serve']);
 
 // Network commands get a time limit (seconds): --timeout <s> overrides it, --timeout 0 = the longest allowed
 // (lib/budget.mjs: no command runs past 9 minutes, the host's turn or the run it belongs to). Phase-A commands
-// (places, enrich, add-point) are short so the first useful map is quick; slow enrichments (feel, areas…) get longer.
+// (places, enrich, add-point, stay) are short so the first useful map is quick; slow enrichments (feel, areas…) get
+// longer. `stay` answers within its 30 s with what it found (a command an agent waits on must end while it still waits).
 // Past the limit the command is SKIPPED: exit 4, one "skipped: …" line, files and config left valid.
-export const NET_TIMEOUT_S = { geocode: 45, handoff: 90, 'add-point': 90, places: 45, enrich: 30, lines: 60, route: 30, legs: 45, isochrone: 45, station: 45, stay: 120, cite: 30, transit: 30,
+export const NET_TIMEOUT_S = { geocode: 45, handoff: 90, 'add-point': 90, places: 45, enrich: 30, lines: 60, route: 30, legs: 45, isochrone: 45, station: 45, stay: 30, cite: 30, transit: 30,
   air: 30, feel: 90, areas: 45, doorstep: 30, photos: 60, wiki: 30, adapter: 120 };
 // slow, optional layers: skipped at once when the turn budget is used up (Phase A commands still get a short try)
 const OPTIONAL = new Set(['lines', 'route', 'legs', 'isochrone', 'air', 'feel', 'areas', 'doorstep', 'photos', 'wiki', 'adapter']);

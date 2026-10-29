@@ -37,19 +37,19 @@ test('uw plan hours are lighting hints: every generated day says so', () => {
 test('empty full days are counted; the turn clock prints facts, the skill decides', () => {
   const plan = lisbonPorto();
   const gaps = emptyPlanDays(plan);
-  assert.equal(gaps.full, 5, 'Porto 2 + Lisbon 3 full days');
-  assert.equal(gaps.empty, 5);
+  assert.equal(gaps.full, 6, 'Porto 3 (its arrival day is the trip\'s first) + Lisbon 3 full days');
+  assert.equal(gaps.empty, 6);
   const busy = clockAdvice(323, gaps, 480);
   assert.match(busy, /time: 5m23s used, about 2m37s left for tool work this turn\./);
-  assert.match(busy, /5 of 5 full days are still empty/);
+  assert.match(busy, /6 of 6 full days are still empty/);
   // no phase recipe in the tool: what to do with the facts is the skill's (SKILL.md, itinerary.md Phase B)
   assert.doesNotMatch(busy, /Phase B|add 2-3|One more|Serve \+ post/);
   assert.match(clockAdvice(500, gaps, 480), /No time left for network steps: reply/, 'past the budget');
   // one unsourced or city-page item a day (finish-taiwan-big: 6 of 7 full days had exactly one sight) is thin
   for (const d of plan.days) d.items.push({ text: 'Sight', url: 'https://en.wikivoyage.org/wiki/Porto' });
   assert.equal(emptyPlanDays(plan).empty, 0);
-  assert.equal(emptyPlanDays(plan).thin, 5);
-  assert.match(clockAdvice(323, emptyPlanDays(plan), 480), /5 of 5 full days have fewer than 2 sourced sights/);
+  assert.equal(emptyPlanDays(plan).thin, 6);
+  assert.match(clockAdvice(323, emptyPlanDays(plan), 480), /6 of 6 full days have fewer than 2 sourced sights/);
   for (const d of plan.days) d.items.push({ text: 'Sight 2', url: 'https://example.org/sight-2' });
   assert.equal(emptyPlanDays(plan).thin, 0);
   assert.doesNotMatch(clockAdvice(323, emptyPlanDays(plan), 480), /full days/);
@@ -87,7 +87,7 @@ test('validate warns on a mostly empty plan and checks time_hint', () => {
   fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
   const v = spawnSync(process.execPath, [UW, 'validate', dir], { encoding: 'utf8' });
   assert.equal(v.status, 0, v.stdout + v.stderr);
-  assert.match(v.stdout + v.stderr, /5 of 5 full days are still empty/);
+  assert.match(v.stdout + v.stderr, /6 of 6 full days are still empty/);
   cfg.plan.days[0].time_hint = 'yes';
   fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
   const bad = spawnSync(process.execPath, [UW, 'validate', dir], { encoding: 'utf8' });

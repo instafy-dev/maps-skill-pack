@@ -98,12 +98,13 @@ test('validate: a plan made with --sights fails while a full day has nothing to 
   assert.equal((await run(['fit', 'lx-bare'])).code, 0);
   const bare = await run(['validate', 'lx-bare']);
   assert.notEqual(bare.code, 0, 'a day with nothing to see is an error, not a warning');
-  assert.match(bare.out + bare.err, /2 of 2 full days have nothing to see \(no sourced place\): Fri 30 Oct · Lisbon, Sat 31 Oct · Lisbon/);
+  // "3 days in Lisbon" is three days to fill: the arrival day is one of them
+  assert.match(bare.out + bare.err, /3 of 3 full days have nothing to see \(no sourced place\): Thu 29 Oct · Lisbon, Fri 30 Oct · Lisbon, Sat 31 Oct · Lisbon/);
   // the same days without --sights (an ask about where to stay, not what to see): only the warning, as before
   await run(['plan', 'lx-bare', '--stops', 'stops', '--ids', 'lisbon', '--nights', '3', '--start', '2026-10-29', '--stays', 'stays', '--force']);
   const stayOnly = await run(['validate', 'lx-bare']);
   assert.equal(stayOnly.code, 0, stayOnly.out + stayOnly.err);
-  assert.match(stayOnly.out + stayOnly.err, /2 of 2 full days are still empty/);
+  assert.match(stayOnly.out + stayOnly.err, /3 of 3 full days are still empty/);
   // the places pinned, the plan rebuilt with --sights: every full day has something to see
   fs.writeFileSync(path.join(dir, 'data', 'sights.geojson'), JSON.stringify({ type: 'FeatureCollection', features: LISBON.places.map((p) => point(p.id, p.coord, { name: p.name, stop: 'lisbon', ...src(p) })) }));
   await run(['plan', 'lx-bare', '--stops', 'stops', '--ids', 'lisbon', '--nights', '3', '--start', '2026-10-29', '--stays', 'stays', '--sights', 'sights,food,daytrips', '--force']);
@@ -266,4 +267,61 @@ test('the map: the departure day reads "Departure", and a trip\'s days do not co
   assert.equal(dayCaption({ title: 'Sun 1 Nov · Lisbon', items: [{ text: 'a' }, { text: 'b' }] }), '2 stops');
   const days = ['a', 'b', 'c'].map((t) => ({ title: t, items: [] }));
   assert.equal(pageDescription({ plan: { days: [...days, { title: 'Mon 2 Nov · Lisbon: depart', depart: true, items: [] }] } }, 8), 'Trip · 3 days · 8 places');
+});
+
+// "3 days in Lisbon" with three sights (the castle in Alfama, the tower and the monastery in Belém): the arrival day
+// had none and the next two had 1 and 2. Every day of the stay gets a place before any gets a second.
+test('plan: three places for three days, one each: the arrival day is one of the days to fill', () => {
+  const three = sightFeats(LISBON.places.filter((p) => ['castelo', 'torre', 'jeronimos'].includes(p.id)));
+  const plan = buildPlan({ stops: [lisbonStop], nights: [3], start: '2026-10-30', stays: [baseStay], sights: three });
+  const before = plan.days.filter((d) => !d.depart);
+  assert.equal(before.length, 3);
+  assert.deepEqual(before.map((d) => d.items.filter((it) => it.ref?.layer === 'sights').length), [1, 1, 1], before.map((d) => `${d.title}: ${d.text}`).join(' | '));
+  assert.match(plan.days[0].text, /^Arrive in Lisbon; night 1 of 3\. Then: Castelo de São Jorge/, 'the area nearest the base on the arrival day');
+  // two places for three days: the full days first (the arrival day is a half day), and validate asks for one more
+  const two = buildPlan({ stops: [lisbonStop], nights: [3], start: '2026-10-30', stays: [baseStay], sights: three.slice(0, 2) });
+  assert.deepEqual(two.days.filter((d) => !d.depart).map((d) => d.items.filter((it) => it.ref?.layer === 'sights').length), [0, 1, 1]);
+});
+
+test('validate: a plan made with --sights fails while the arrival day has nothing to see', async () => {
+  const { dir } = await makeSite('lx-arrive');
+  const pick = (ids) => JSON.stringify({ type: 'FeatureCollection', features: LISBON.places.filter((p) => ids.includes(p.id)).map((p) => point(p.id, p.coord, { name: p.name, stop: 'lisbon', ...src(p) })) });
+  fs.writeFileSync(path.join(dir, 'data', 'sights.geojson'), pick(['castelo', 'torre']));
+  const plan = ['plan', 'lx-arrive', '--stops', 'stops', '--ids', 'lisbon', '--nights', '3', '--start', '2026-10-30', '--stays', 'stays', '--sights', 'sights', '--force'];
+  assert.equal((await run(plan)).code, 0);
+  assert.equal((await run(['fit', 'lx-arrive'])).code, 0);
+  const v = await run(['validate', 'lx-arrive']);
+  assert.notEqual(v.code, 0, v.out + v.err);
+  assert.match(v.out + v.err, /1 of 3 full days have nothing to see \(no sourced place\): Fri 30 Oct · Lisbon/);
+  // a third place: every day has one
+  fs.writeFileSync(path.join(dir, 'data', 'sights.geojson'), pick(['castelo', 'torre', 'se']));
+  assert.equal((await run(plan)).code, 0);
+  const ok = await run(['validate', 'lx-arrive']);
+  assert.equal(ok.code, 0, ok.out + ok.err);
+  assert.doesNotMatch(ok.out + ok.err, /nothing to see/);
+});
+
+// Three sights all cited one city guide page ("Source: Wikivoyage" on each, the same Lisbon page): each place's
+// source is its own page, and validate says when places share one.
+test('validate: places that cite one page are named; each with its own page passes', async () => {
+  const { dir } = await makeSite('lx-src');
+  const three = LISBON.places.filter((p) => ['castelo', 'torre', 'jeronimos'].includes(p.id));
+  const write = (srcOf) => fs.writeFileSync(path.join(dir, 'data', 'sights.geojson'), JSON.stringify({ type: 'FeatureCollection',
+    features: three.map((p) => point(p.id, p.coord, { name: p.name, stop: 'lisbon', source: 'Wikivoyage', source_url: srcOf(p) })) }));
+  const plan = ['plan', 'lx-src', '--stops', 'stops', '--ids', 'lisbon', '--nights', '3', '--start', '2026-10-30', '--stays', 'stays', '--sights', 'sights', '--force'];
+  write(() => 'https://en.wikivoyage.org/wiki/Lisbon');
+  assert.equal((await run(plan)).code, 0);
+  assert.equal((await run(['fit', 'lx-src'])).code, 0);
+  const shared = await run(['validate', 'lx-src']);
+  assert.equal(shared.code, 0, 'a warning, not an error');
+  assert.match(shared.out + shared.err, /3 places cite one page \(https:\/\/en\.wikivoyage\.org\/wiki\/Lisbon\): Castelo de São Jorge, Mosteiro dos Jerónimos, Torre de Belém\. A page about a whole city or a list of places says which are worth it; it is not their source/);
+  assert.match(shared.out + shared.err, /uw cite <that page> --grep "<its name>"/);
+  // anchors on one page are still one page
+  write((p) => `https://en.wikivoyage.org/wiki/Lisbon#${p.id}`);
+  assert.match((await run(['validate', 'lx-src'])).out, /3 places cite one page \(https:\/\/en\.wikivoyage\.org\/wiki\/Lisbon\)/);
+  write((p) => `https://en.wikipedia.org/wiki/${encodeURIComponent(p.name.replace(/ /g, '_'))}`);
+  assert.equal((await run(plan)).code, 0);
+  const own = await run(['validate', 'lx-src']);
+  assert.equal(own.code, 0, own.out + own.err);
+  assert.doesNotMatch(own.out + own.err, /cite one page/);
 });

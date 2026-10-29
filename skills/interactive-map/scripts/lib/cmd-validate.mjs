@@ -487,12 +487,27 @@ export async function run(argv) {
       const sightLayers = cfg.plan?.sights;
       if (sightLayers !== undefined && !(Array.isArray(sightLayers) && sightLayers.every((x) => typeof x === 'string')))
         E(CFG, '$.plan.sights', 'sights must be the layer ids uw plan --sights was given', 'rebuild: uw plan … --sights sights,food --force');
+      // each place's source is its own page: places that share one cite a city or listing page, which only says which
+      // places are worth it (three sights once all cited one city guide page)
+      if (Array.isArray(sightLayers)) {
+        const byPage = new Map();
+        for (const id of sightLayers) for (const f of featuresByLayer.get(id) || []) {
+          const u = f?.properties?.source_url;
+          if (typeof u !== 'string' || !/^https?:\/\//i.test(u)) continue;
+          const page = u.replace(/#.*$/, '');
+          if (!byPage.has(page)) byPage.set(page, []);
+          byPage.get(page).push(String(f.properties.name_en || f.properties.name || f.properties.id));
+        }
+        for (const [page, names] of byPage) if (names.length > 1)
+          W(CFG, '$.plan.sights', `${names.length} places cite one page (${page}): ${names.slice(0, 4).join(', ')}${names.length > 4 ? ' …' : ''}. A page about a whole city or a list of places says which are worth it; it is not their source`,
+            `cite each place's own page (its own site, else its Wikipedia article): uw cite <that page> --grep "<its name>", then uw set ${args._[0]} <layer>:<id> --props-file - with {"source_url":"<that page>","source":"<site>"}, then uw plan … --force`);
+      }
       const bareDays = Array.isArray(sightLayers) && sightLayers.length ? gaps.bare : [];
       if (bareDays.length)
         E(CFG, '$.plan.days', `${bareDays.length} of ${gaps.full} full days have nothing to see (no sourced place): ${bareDays.slice(0, 4).join(', ')}${bareDays.length > 4 ? ' …' : ''}`,
           `pin 2-3 places a page you read names for each of those days (reference/itinerary.md Phase B step 1: uw add-point ${args._[0]} --layer ${sightLayers[0]} … with {"stop":…,"source_url":…}), then uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --force; a place the lookup cannot pin goes on its day as {"text": "<name>", "url": "<its page>", "source": "<site>"}`);
       else if (gaps.full >= 2 && gaps.empty * 2 > gaps.full)
-        W(CFG, '$.plan.days', `${gaps.empty} of ${gaps.full} full days are still empty ("Day in …"): a traveller gets nothing to do on them`, 'add 2-3 sourced sights per stop (reference/itinerary.md Phase B step 1), then uw plan … --sights sights --force and one short sourced text per day');
+        W(CFG, '$.plan.days', `${gaps.empty} of ${gaps.full} full days are still empty ("Day in …", or only the arrival): a traveller gets nothing to do on them`, 'add 2-3 sourced sights per stop (reference/itinerary.md Phase B step 1), then uw plan … --sights sights --force and one short sourced text per day');
       else if (gaps.full >= 2 && gaps.thin * 2 > gaps.full)
         W(CFG, '$.plan.days', `${gaps.thin} of ${gaps.full} full days have fewer than 2 sourced items: one sight per stop is not a day worth following`, 'add sights until each stop has 2-3 with a source page (reference/itinerary.md Phase B step 1), then uw plan … --sights sights --force');
     }
