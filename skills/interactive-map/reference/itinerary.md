@@ -105,7 +105,7 @@ A plan whose full days say only "Day in …" is not finished. When the ask is wh
 days: "3 days in Lisbon", "what to see each day"), build the plan with `--sights`: then `uw validate` fails while a
 full day has no sourced place, as it fails for a stop asked for that is not on the map. Without `--sights` it warns
 when most full days are empty, and the turn clock prints how many are empty or thin. While any is and time is left,
-add sights rather than reply. Step 1 comes first.
+add sights rather than reply. Sights come from `uw cite` in this turn, never from a browser card. Step 1 comes first.
 
 1. **Sights with sources, 2-3 per city.** A city's page (its Wikivoyage See/Do, the official tourism site) only
    says which places are worth it; it is never a place's source. Each place's source is its own page, the one you

@@ -25,7 +25,7 @@ export const helps = {
   fit: `fit <dir> [--layers hotels,day1] [--pad 0.12] [--max-zoom 16] [--json]
   Sets view.center, view.zoom and view.bounds in map.config.json to frame the data. A find-place question frames its
   lettered top N (ranked like the engine) plus the hand-picked layers. Default: the hand-picked layers
-  (made by add-point, route and legs; walk areas from isochrone too when there is only one subject point); else
+  (made by add-point, station, stay, route and legs; walk areas from isochrone too when there is only one subject point); else
   unclustered points, routes, legs and areas. Context layers (places, lines, feel, wiki) never decide the frame.
   view.bounds = the data's box (+ --pad), view.zoom = the zoom a phone needs to show it. Every screen fits view.bounds;
   phones never zoom in past view.zoom + 0.6, wide screens past view.zoom + 1. Run it after adding data instead of typing coordinates.`,
@@ -165,11 +165,11 @@ export async function fitView(site, { layers = null, pad: padArg, maxZoom, out =
   let ids = args.layers ? args.layers.split(',').map((x) => x.trim()).filter(Boolean) : null;
   if (ids) { for (const id of ids) if (!all.some((l) => l.id === id)) throw new UsageError(`--layers: "${id}" is not a layer in map.config.json (layers: ${all.map((l) => l.id).join(', ')})`); }
   else {
-    // the things people asked about: hand-picked points (add-point), routes, legs and walk areas; context layers
-    // (places, lines, feel, wiki) only frame the map when nothing hand-picked exists
+    // the things people asked about: hand-picked points (add-point), a trip's stations and places to stay, routes,
+    // legs and walk areas; context layers (places, lines, feel, wiki) only frame the map when nothing hand-picked exists
     const cmdOf = (id) => { try { return loadLayer(site, id, { required: false })?.uw?.cmd || null; } catch { return null; } };
     const fileIds = listLayerIds(site).filter((id) => all.find((l) => l.id === id)?.visible !== false);
-    ids = fileIds.filter((id) => ['add-point', 'route', 'legs'].includes(cmdOf(id)));
+    ids = fileIds.filter((id) => ['add-point', 'station', 'stay', 'route', 'legs'].includes(cmdOf(id)));
     // one subject point (a park, a station): its walk / ride areas are what the map is about
     const nPts = ids.reduce((n, id) => n + (loadLayer(site, id, { required: false })?.features || []).filter((f) => f?.geometry?.type === 'Point').length, 0);
     const hasLines = ids.some((id) => ['route', 'legs'].includes(cmdOf(id)));

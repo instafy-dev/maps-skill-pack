@@ -164,6 +164,26 @@ test('add-point --strict-name never puts a researched hotel on another hotel; --
   assert.equal(nowhere.code, 2);
 });
 
+// A researched place the lookup cannot pin: one sight was tried four times while the trip's other days stayed bare.
+// Every --strict-name refusal ends with the trip guide's rule (retry once, then list it as unverified and move on);
+// a plain lookup's refusal keeps inviting another try.
+test('add-point --strict-name: every refusal ends with the rule to move on to the next sight after one retry', async () => {
+  const RULE = 'Retried once? List it as unverified and add the next sight from the city page.';
+  await uw(['new', 'tt2', '--title', 'Taitung', '--center', TAITUNG.join(','), '--zoom', '13']);
+  const lastLine = (r) => r.err.trim().split('\n').pop();
+  const mismatch = await uw(['add-point', 'tt2', '--layer', 'sights', '--query', 'Kindness Hotel Taitung', '--near', TAITUNG.join(','), '--strict-name']);
+  assert.equal(mismatch.code, 2, mismatch.err);
+  assert.equal(lastLine(mismatch), RULE, mismatch.err);
+  const none = await uw(['add-point', 'tt2', '--layer', 'sights', '--query', 'Nowhere Cathedral', '--near', TAITUNG.join(','), '--strict-name', '--json']);
+  assert.equal(none.code, 2, none.err);
+  assert.equal(lastLine(none), RULE, none.err);
+  assert.equal(none.json?.next, RULE, 'the JSON says it too');
+  const loose = await uw(['add-point', 'tt2', '--layer', 'sights', '--query', 'Kindness Hotel Taitung', '--near', TAITUNG.join(','), '--json']);
+  assert.equal(loose.code, 2);
+  assert.doesNotMatch(loose.err, /Retried once/);
+  assert.equal(loose.json?.next, undefined);
+});
+
 test('stay names a coordinate anchor in words, keeps the station picks, and --prefer any drops the B&B penalty', async () => {
   const r = await uw(['stay', 'jp', '--near', near(JP_STATION, 2400).join(','), '--near-label', 'the centre of Tokyo', '--stop', 'tokyo', '--kinds', 'hotel', '--json']);
   assert.equal(r.code, 0, r.out + r.err);

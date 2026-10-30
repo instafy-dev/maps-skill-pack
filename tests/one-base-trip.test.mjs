@@ -378,3 +378,43 @@ test('validate: a day with nothing to see says re-planning spreads the places al
   const again = await run(['validate', 'lx-old']);
   assert.equal(again.code, 0, again.out + again.err);
 });
+
+// A map made on the city's centre (`uw new`) kept that frame: nothing framed the trip's places after it, so a phone
+// opened on the centre with the base and the day's sight at its edge. `uw plan` frames the trip: its stop, its stays
+// (the base) and every day place.
+test('plan (CLI): the first view frames the stop, the stays and every place on a day', async () => {
+  const { dir, cfgPath } = await makeSite('lxview');
+  const cfg0 = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+  // the frame `uw new` gave a centre west of the places, at street zoom: none of them in it
+  const [x, y] = [LISBON.centre[0] - 0.04, LISBON.centre[1]];
+  cfg0.view = { center: [x, y], zoom: 15, bounds: [[x - 0.005, y - 0.004], [x + 0.005, y + 0.004]] };
+  fs.writeFileSync(cfgPath, JSON.stringify(cfg0, null, 2));
+  const r = await run(['plan', 'lxview', '--stops', 'stops', '--ids', 'lisbon', '--nights', '3', '--start', '2026-10-30', '--stays', 'stays', '--sights', 'sights', '--json']);
+  assert.equal(r.code, 0, r.err + r.out);
+  const { view, plan } = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+  assert.ok(plan.days.length, 'the plan is written too');
+  assert.deepEqual(r.json.view, view, 'the result says the view it set');
+  const [[w, s], [e, n]] = view.bounds;
+  const inside = ([lng, lat]) => lng >= w && lng <= e && lat >= s && lat <= n;
+  for (const layer of ['stops', 'stays', 'sights']) {
+    for (const f of JSON.parse(fs.readFileSync(path.join(dir, 'data', `${layer}.geojson`), 'utf8')).features) {
+      assert.ok(inside(f.geometry.coordinates), `${layer}:${f.properties.id} ${f.geometry.coordinates} in the first view ${JSON.stringify(view.bounds)}`);
+    }
+  }
+  const old = ([lng, lat]) => lng >= x - 0.005 && lng <= x + 0.005 && lat >= y - 0.004 && lat <= y + 0.004;
+  assert.ok(!old(LISBON.base.coord) && !LISBON.places.some((p) => old(p.coord)), 'the old frame had none of them');
+});
+
+test('fit: a trip\'s stations and places to stay are part of what it frames', async () => {
+  const { dir, cfgPath } = await makeSite('lxfit');
+  // as `uw stay` and `uw station` write them
+  const tag = (layer, cmd) => {
+    const p = path.join(dir, 'data', `${layer}.geojson`), fc = JSON.parse(fs.readFileSync(p, 'utf8'));
+    fs.writeFileSync(p, JSON.stringify({ ...fc, uw: { cmd } }));
+  };
+  tag('stays', 'stay'); tag('stops', 'station'); tag('sights', 'add-point');
+  const r = await run(['fit', 'lxfit', '--json']);
+  assert.equal(r.code, 0, r.err + r.out);
+  assert.deepEqual([...r.json.layers].sort(), ['sights', 'stays', 'stops']);
+  assert.ok(JSON.parse(fs.readFileSync(cfgPath, 'utf8')).view.bounds, 'framed');
+});
