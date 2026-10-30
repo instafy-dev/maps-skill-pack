@@ -3,6 +3,20 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.16 (2026-10-30)
+
+Fixes to 0.1.15, found in its review.
+
+- **Planning the days never narrows the first view.** `uw plan` framed only the trip's own layers, so a hand-picked
+  place it was not given (a day trip, a marked airport) fell out of the first view, and `uw validate` then called it a
+  wrong match. The trip's frame now also keeps every layer `uw fit` frames.
+- **The next-sight rule is for sights.** A place to stay (`--kind hotel`, a stays layer) that cannot be pinned no
+  longer ends with "add the next sight from the city page"; `uw handoff` lists its researched hotels itself.
+- **A site's own road-number colour stays.** At night a sign whose number colour an override set keeps the sprite's
+  image and that colour, as the day/night look never overwrites an override.
+- **Tests:** the refusal test reads Taiwan's lodging registers from the fixtures' cache instead of downloading them,
+  and the first-view browser test waits for a drag's inertia to end before it resizes the frame.
+
 ## 0.1.15 (2026-10-30)
 
 Fixes from a "3 days in Porto for a first visit … what to see each day, on a map" run, whose map had one sight in

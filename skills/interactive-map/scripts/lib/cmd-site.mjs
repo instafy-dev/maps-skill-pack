@@ -157,6 +157,15 @@ export async function fit(argv) {
   ]);
 }
 
+const HAND_PICKED = ['add-point', 'station', 'stay', 'route', 'legs'];
+/** The hand-picked layers `uw fit` frames by default: shown layers made by add-point, station, stay, route or legs
+ *  (the things people asked about; context layers such as places, lines, feel and wiki are not). */
+export function handPickedLayers(site) {
+  const all = (site.config.layers || []).filter((l) => l && l.id);
+  const cmdOf = (id) => { try { return loadLayer(site, id, { required: false })?.uw?.cmd || null; } catch { return null; } };
+  return listLayerIds(site).filter((id) => all.find((l) => l.id === id)?.visible !== false && HAND_PICKED.includes(cmdOf(id)));
+}
+
 // The fit itself (also used by add-point to keep the options on screen). Writes map.config.json; returns the view.
 export async function fitView(site, { layers = null, pad: padArg, maxZoom, out = { log() {}, warn() {} } } = {}) {
   const cfg = site.config;
@@ -169,7 +178,7 @@ export async function fitView(site, { layers = null, pad: padArg, maxZoom, out =
     // legs and walk areas; context layers (places, lines, feel, wiki) only frame the map when nothing hand-picked exists
     const cmdOf = (id) => { try { return loadLayer(site, id, { required: false })?.uw?.cmd || null; } catch { return null; } };
     const fileIds = listLayerIds(site).filter((id) => all.find((l) => l.id === id)?.visible !== false);
-    ids = fileIds.filter((id) => ['add-point', 'station', 'stay', 'route', 'legs'].includes(cmdOf(id)));
+    ids = handPickedLayers(site);
     // one subject point (a park, a station): its walk / ride areas are what the map is about
     const nPts = ids.reduce((n, id) => n + (loadLayer(site, id, { required: false })?.features || []).filter((f) => f?.geometry?.type === 'Point').length, 0);
     const hasLines = ids.some((id) => ['route', 'legs'].includes(cmdOf(id)));

@@ -206,6 +206,9 @@ export class Look {
     for (const l of map.getStyle().layers) {
       if (l.id.startsWith('uw-')) continue;
       if (isSign(l)) {
+        // a sign whose number colour an override set stays as the site styled it (the look never overwrites an
+        // override): its night version would put that colour on a box it did not choose
+        if (this.owned.has(l.id + '|text-color')) continue;
         const icon = map.getLayoutProperty(l.id, 'icon-image'), night = nightIcon(icon);
         if (night) this.signs.push({ id: l.id, icon, night, text: map.getPaintProperty(l.id, 'text-color') });
         continue;

@@ -12,7 +12,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { NO_WIKIPEDIA } from './fixtures.mjs';
+import { NO_WIKIPEDIA, writeRegistryCache } from './fixtures.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SKILL = path.join(HERE, '..', 'skills', 'interactive-map');
@@ -54,6 +54,8 @@ function photonAnswer(q, lang, tags) {
   if (!tags.length && /^Senso-ji/.test(q)) return [jp('浅草寺', 'Sensō-ji', near(JP_STATION, 900, 400), { key: 'amenity', value: 'place_of_worship', id: 32 })];
   // the Taitung case: the only hotel hit shares nothing with the query but the city
   if (/^Kindness Hotel Taitung/.test(q)) return [feat('Sheraton Taitung Hotel', near(TAITUNG, 200), { key: 'tourism', value: 'hotel', id: 41, country: en ? 'Taiwan' : '臺灣', countrycode: 'TW', city: 'Taitung City' })];
+  // a researched sight whose only hit is another place
+  if (/^Old Harbour Lighthouse/.test(q)) return [feat('Taitung Forest Park', near(TAITUNG, 900), { key: 'leisure', value: 'park', id: 42, country: en ? 'Taiwan' : '臺灣', countrycode: 'TW', city: 'Taitung City' })];
   if (q === 'Retry Town') return [feat('Retry Town', [10, 50], { id: 51, country: 'Germany', countrycode: 'DE' })];
   return [];
 }
@@ -119,7 +121,8 @@ const uw = (args, extra = {}, cwd = tmp) => new Promise((resolve) => {
 });
 const readFC = (site, layer) => JSON.parse(fs.readFileSync(path.join(tmp, site, 'data', `${layer}.geojson`), 'utf8'));
 
-before(async () => { mock = await startMock(); });
+// Taiwan's lodging registers from the fixtures' cache: a hotel lookup near Taitung asks them, and never downloads here
+before(async () => { await writeRegistryCache(cache); mock = await startMock(); });
 after(() => { mock?.server.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
 
 // ---------------------------------------------------------------------------
@@ -165,20 +168,28 @@ test('add-point --strict-name never puts a researched hotel on another hotel; --
 });
 
 // A researched place the lookup cannot pin: one sight was tried four times while the trip's other days stayed bare.
-// Every --strict-name refusal ends with the trip guide's rule (retry once, then list it as unverified and move on);
-// a plain lookup's refusal keeps inviting another try.
-test('add-point --strict-name: every refusal ends with the rule to move on to the next sight after one retry', async () => {
+// A sight's --strict-name refusal ends with the trip guide's rule (retry once, then list it as unverified and move on);
+// a place to stay (a researched hotel, as `uw handoff` adds them) is not a sight, and a plain lookup's refusal keeps
+// inviting another try.
+test('add-point --strict-name: a sight\'s refusal ends with the rule to move on to the next sight after one retry', async () => {
   const RULE = 'Retried once? List it as unverified and add the next sight from the city page.';
+  const LISTED = /^Listed on the map as "not found yet"/;
   await uw(['new', 'tt2', '--title', 'Taitung', '--center', TAITUNG.join(','), '--zoom', '13']);
-  const lastLine = (r) => r.err.trim().split('\n').pop();
-  const mismatch = await uw(['add-point', 'tt2', '--layer', 'sights', '--query', 'Kindness Hotel Taitung', '--near', TAITUNG.join(','), '--strict-name']);
+  // the rule comes right after the line that says the place is listed as not found yet
+  const afterListed = (r) => { const lines = r.err.trim().split('\n'); const i = lines.findIndex((l) => LISTED.test(l)); return i < 0 ? null : lines[i + 1] ?? null; };
+  const mismatch = await uw(['add-point', 'tt2', '--layer', 'sights', '--query', 'Old Harbour Lighthouse', '--near', TAITUNG.join(','), '--strict-name']);
   assert.equal(mismatch.code, 2, mismatch.err);
-  assert.equal(lastLine(mismatch), RULE, mismatch.err);
+  assert.equal(afterListed(mismatch), RULE, mismatch.err);
   const none = await uw(['add-point', 'tt2', '--layer', 'sights', '--query', 'Nowhere Cathedral', '--near', TAITUNG.join(','), '--strict-name', '--json']);
   assert.equal(none.code, 2, none.err);
-  assert.equal(lastLine(none), RULE, none.err);
+  assert.equal(afterListed(none), RULE, none.err);
   assert.equal(none.json?.next, RULE, 'the JSON says it too');
-  const loose = await uw(['add-point', 'tt2', '--layer', 'sights', '--query', 'Kindness Hotel Taitung', '--near', TAITUNG.join(','), '--json']);
+  const hotel = await uw(['add-point', 'tt2', '--layer', 'stays', '--query', 'Kindness Hotel Taitung', '--near', TAITUNG.join(','), '--kind', 'hotel', '--strict-name', '--no-fit', '--json']);
+  assert.equal(hotel.code, 2, hotel.err);
+  assert.match(hotel.err, /^Listed on the map as "not found yet"/m);
+  assert.doesNotMatch(hotel.err, /Retried once|next sight/, 'a place to stay is not a sight');
+  assert.equal(hotel.json?.next, undefined);
+  const loose = await uw(['add-point', 'tt2', '--layer', 'sights', '--query', 'Old Harbour Lighthouse', '--near', TAITUNG.join(','), '--json']);
   assert.equal(loose.code, 2);
   assert.doesNotMatch(loose.err, /Retried once/);
   assert.equal(loose.json?.next, undefined);

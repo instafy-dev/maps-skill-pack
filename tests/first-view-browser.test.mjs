@@ -123,7 +123,14 @@ test('a map opened wide shows every place when its frame turns phone-sized; once
   await page.mouse.move(190, 300); await page.mouse.down();
   for (let i = 1; i <= 8; i++) await page.mouse.move(190 - i * 10, 300 + i * 4);
   await page.mouse.up();
-  await page.waitForTimeout(600);
+  // the drag's inertia runs on after the release (0.2 to 0.5 s here, longer after a fast flick): the camera is the
+  // person's once it has come to rest, sampled twice in a row
+  await page.waitForFunction(() => {
+    const m = window.uw.map, k = JSON.stringify([m.getCenter(), m.getZoom()]);
+    const still = !m.isMoving() && window.__restCam === k;
+    window.__restCam = k;
+    return still;
+  }, null, { polling: 200, timeout: 15000 });
   const moved = await placesIn(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(800);
