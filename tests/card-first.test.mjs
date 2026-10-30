@@ -55,6 +55,14 @@ test('itinerary.md: a trip posts its card right after `uw new` too, before the s
   assert.match(md, /## Later changes to a trip [^#]*?then `uw validate`, SKILL\.md step 9, the reply\./);
 });
 
+// A trip turn replied after three minutes with one sight in three days and "I'm sending the browser to gather two more
+// sights", and no browser step followed. Phase B's sights are this turn's own: read with `uw cite`, never handed on.
+test('itinerary.md Phase B: sights come from `uw cite` in this turn, never from a browser card', () => {
+  const md = flat('reference/itinerary.md');
+  const phaseB = md.slice(md.indexOf('## Phase B'), md.indexOf('1. **Sights with sources'));
+  assert.match(phaseB, /add sights rather than reply\. Sights come from `uw cite` in this turn, never from a browser card\./);
+});
+
 test('uw new names the card command as the next step, from the site folder, before the trip or option steps', () => {
   const r = spawnSync(process.execPath, [UW, 'new', 'lx', '--title', 'Lisbon in 3 days', '--center', '-9.1393,38.7107', '--zoom', '13', '--expect', 'Lisbon:3'],
     { cwd: tmp, encoding: 'utf8' });

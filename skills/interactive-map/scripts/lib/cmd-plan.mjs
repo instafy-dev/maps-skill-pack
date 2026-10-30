@@ -26,7 +26,8 @@ export const help = `plan <dir> --stops <layer> --start YYYY-MM-DD [--ids taipei
   more places than full days, so every day before the departure gets a place before any gets a second. A full day that gets sourced
   places gets a text from them instead of "Day in …": their names, the first with its "why" (the reason its page
   gives), ≤ 140 characters. The day after the last night is the departure ("depart": true, "Leave <stop>."): nothing
-  is planned on it. Prints a warning for a place that is far from its day's other places or closer to another day's
+  is planned on it. The map's first view then frames the trip (its stops, --stays, --legs and --sights layers, as
+  \`uw fit --layers\`). Prints a warning for a place that is far from its day's other places or closer to another day's
   (plan-checks.json). Refuses to replace an existing plan without --force. Days with no sourced place keep "Day in …":
   add places. --sights also says the trip is about what to see each day: the plan keeps those layers ("sights"), and
   \`uw validate\` fails while a full day (the arrival day of the trip too) has no sourced place.`;
@@ -473,6 +474,17 @@ export async function run(argv) {
     for (const f of sfc.features) if (total.has(String(f.properties.id))) f.properties.nights = total.get(String(f.properties.id));
     writeGeoJSON(layerPath(site, stopLayer), sfc);
   }
+  site.config = cfg;
+  // the first view frames the trip: its stops, the stays (the base) and the day places. `uw new` framed the city's
+  // centre, and nothing framed the places after it, so a phone opened on the centre with the base at its edge
+  const registered = new Set((cfg.layers || []).map((l) => l?.id));
+  const frame = [...new Set([stopLayer, args.stays, args.legs, ...sightLayers])]
+    .filter((id) => id && registered.has(id) && loadLayer(site, id, { required: false })?.features?.length);
+  let view = null;
+  if (frame.length) {
+    const { fitView } = await import('./cmd-site.mjs');
+    try { view = (await fitView(site, { layers: frame.join(',') })).view; } catch (e) { out.warn(`could not frame the trip's places (${e.message}); run: uw fit ${args._[0]}`); }
+  }
   const totalN = nights.reduce((a, b) => a + b, 0);
   const sightsOf = (s) => sights.filter((f) => f.properties.stop === s.id).length;
   const missingSights = stops.filter((s, i) => nights[i] >= 2 && sightsOf(s) < 2).map((s) => `${cityOf(s.props)} (${sightsOf(s)})`);
@@ -484,7 +496,7 @@ export async function run(argv) {
   // places that fit no day (more than --per-day of a layer on every day of their stop): say so, never drop them quietly
   const onPlan = new Set(plan.days.flatMap((d) => d.items.map((it) => it.ref && `${it.ref.layer}:${it.ref.id}`)).filter(Boolean));
   const left = [...poolSights(stops, sights).values()].flat().filter((f) => !onPlan.has(`${f._layer}:${f.properties?.id}`));
-  out.result({ ok: true, days: plan.days.length, nights: totalN, route, plan, ...(misplaced.length ? { day_places: misplaced } : {}), ...(left.length ? { not_on_plan: left.map((f) => `${f._layer}:${f.properties.id}`) } : {}) }, [
+  out.result({ ok: true, days: plan.days.length, nights: totalN, route, plan, ...(view ? { view } : {}), ...(misplaced.length ? { day_places: misplaced } : {}), ...(left.length ? { not_on_plan: left.map((f) => `${f._layer}:${f.properties.id}`) } : {}) }, [
     `map.config.json: plan with ${plan.days.length} days (${totalN} nights) from ${args.start}: ` + plan.days.map((d) => d.title).slice(0, 4).join(' | ') + (plan.days.length > 4 ? ' | …' : ''),
     `${stops.length === 1 ? 'Stay' : 'Route'} for the reply (say the night split; it is an assumption unless the user fixed it): ${route}`,
     stays.length ? null : `No --stays: days focus on the ${stops.length === 1 ? 'stop' : 'stations'}. Run uw stay per stop, then re-run plan --force.`,

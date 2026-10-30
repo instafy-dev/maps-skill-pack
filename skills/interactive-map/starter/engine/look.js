@@ -140,9 +140,9 @@ function targetFor(l, prop) {
   return null;
 }
 /**
- * A sign: text drawn centred on its own icon, as a road-number shield is (the sprite's box with the number on it). It
- * keeps the colours its sprite draws it in at every hour: the night look turned the number light and dimmed the light
- * box, so shields read as blank grey boxes. Pure; exported for the tests.
+ * A sign: text drawn centred on its own icon, as a road-number shield is (the sprite's box with the number on it). The
+ * night look never tints or dims it (a light number on a dimmed light box read as a blank grey box); at night it is
+ * drawn as its night version instead (nightIcon). Pure; exported for the tests.
  */
 export function isSign(l) {
   const lay = l?.layout || {};
@@ -152,6 +152,34 @@ export function isSign(l) {
   const centred = anchor == null || anchor === 'center';
   const noOffset = off == null || (Array.isArray(off) && off.length === 2 && off.every((x) => x === 0));
   return centred && noOffset;
+}
+/** A sign's icon at night: the same image id behind this prefix. layers.js (handleMissing) draws it from the sprite's
+ *  own image the first time a tile asks for it, with nightSignImage. */
+export const NIGHT_SIGN = 'uw:night:';
+/** The night icon-image of a sign layer, or null for a value it cannot prefix (a legacy function). A "{token}" string
+ *  keeps its tokens. Pure; exported for the tests. */
+export function nightIcon(icon) {
+  if (typeof icon === 'string') return icon.startsWith(NIGHT_SIGN) ? icon : NIGHT_SIGN + icon;
+  if (Array.isArray(icon)) return ['concat', NIGHT_SIGN, icon];
+  return null;
+}
+// a night sign's lightness range: the sprite's white box becomes a dark one, its dark edge a light one
+const SIGN_DARK = 0.17, SIGN_LIGHT = 0.86;
+/**
+ * A sign's night version: its image with light and dark swapped inside [SIGN_DARK, SIGN_LIGHT], each pixel's hue and
+ * alpha kept (a white box with a dark edge becomes a dark box with a light edge, a blue shield a lighter blue one), so
+ * a shield reads on a dark map instead of a glaring light box. `data`: RGBA bytes, not premultiplied. Pure.
+ */
+export function nightSignImage({ width, height, data }) {
+  const out = new Uint8Array(data.length);
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i], g = data[i + 1], b = data[i + 2];
+    const l = (Math.max(r, g, b) + Math.min(r, g, b)) / 510;
+    const shift = (SIGN_DARK + (1 - l) * (SIGN_LIGHT - SIGN_DARK) - l) * 255;
+    out[i] = clamp(Math.round(r + shift), 0, 255); out[i + 1] = clamp(Math.round(g + shift), 0, 255);
+    out[i + 2] = clamp(Math.round(b + shift), 0, 255); out[i + 3] = data[i + 3];
+  }
+  return { width, height, data: out };
 }
 const COLOR_PROPS = { background: ['background-color'], fill: ['fill-color', 'fill-outline-color'], line: ['line-color'],
   'fill-extrusion': ['fill-extrusion-color'], symbol: ['text-color', 'text-halo-color'] };
@@ -174,8 +202,14 @@ export function lightAt(h) {
 export class Look {
   constructor(map, owned) {
     this.map = map; this.owned = owned || new Set(); this.entries = []; this.last = new Map(); this.state = { dark: -1, warm: -1 };
+    this.signs = []; this.signNight = false;
     for (const l of map.getStyle().layers) {
-      if (l.id.startsWith('uw-') || isSign(l)) continue;
+      if (l.id.startsWith('uw-')) continue;
+      if (isSign(l)) {
+        const icon = map.getLayoutProperty(l.id, 'icon-image'), night = nightIcon(icon);
+        if (night) this.signs.push({ id: l.id, icon, night, text: map.getPaintProperty(l.id, 'text-color') });
+        continue;
+      }
       for (const prop of COLOR_PROPS[l.type] || []) {
         if (this.owned.has(l.id + '|' + prop)) continue;
         const t = targetFor(l, prop); if (!t) continue;
@@ -193,6 +227,17 @@ export class Look {
     if (Math.abs(dark - this.state.dark) < 0.004 && Math.abs(warm - this.state.warm) < 0.004) return false;
     this.state = { dark, warm };
     const map = this.map;
+    // signs switch whole at mid-dusk, as labels flip: their night version and a light number, or the sprite's own
+    const night = dark >= 0.5;
+    if (night !== this.signNight) {
+      this.signNight = night;
+      for (const s of this.signs) {
+        try {
+          map.setLayoutProperty(s.id, 'icon-image', night ? s.night : s.icon, { validate: false });
+          map.setPaintProperty(s.id, 'text-color', night ? NIGHT.text : s.text, { validate: false });
+        } catch { /* layer may be gone */ }
+      }
+    }
     for (const e of this.entries) {
       let v;
       if (e.numeric) {

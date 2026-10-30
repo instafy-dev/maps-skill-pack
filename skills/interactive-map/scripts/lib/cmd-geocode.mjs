@@ -55,6 +55,8 @@ add-point <dir> --layer <id> --at lng,lat --name "Label" [...]     (only for coo
   that could not be added is listed under "missing" (shown as "Not found yet" on the map) until it is.`,
 };
 
+/** The last line of every --strict-name refusal: the trip guide's rule (reference/itinerary.md Phase B step 1). */
+export const STRICT_NEXT = 'Retried once? List it as unverified and add the next sight from the city page.';
 
 // Does a candidate's name plausibly match the query? Generic words (hotel, taipei, 飯店 …) do not count.
 const GENERIC = new Set(('the a an of de la le el du des and at in by on hotel hotels inn hostel hostal motel resort suites suite residence ' +
@@ -513,8 +515,11 @@ async function addPointRun(argv, ctx) {
   // a place that could not be added is listed on the map as "not found yet" (map.config.json "missing") until it is
   const refuse = (code, lines, json) => {
     noteMissing(site, { layer, id: args.id, name: args.name || queryLabel(args.query || ''), query: args.query, tried });
-    if (out.json) process.stdout.write(JSON.stringify(json, null, 2) + '\n');
-    console.error([...lines, `Listed on the map as "not found yet" (map.config.json "missing"); it goes away once this place is added.`].join('\n'));
+    // a researched place (--strict-name) ends on the trip guide's own rule, not only on another try: one sight tried
+    // four times left the trip's other days without a sight
+    const next = args['strict-name'] ? STRICT_NEXT : null;
+    if (out.json) process.stdout.write(JSON.stringify(next ? { ...json, next } : json, null, 2) + '\n');
+    console.error([...lines, `Listed on the map as "not found yet" (map.config.json "missing"); it goes away once this place is added.`, ...(next ? [next] : [])].join('\n'));
     return code;
   };
   const maxKm = args['max-km'] ?? 8;

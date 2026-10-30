@@ -281,9 +281,11 @@ export class UI {
       this.setSnap(best);
     };
     for (const el of [this.grab, this.tabsEl, this.progressEl]) el.addEventListener('pointerdown', onDown);
-    this.sheet.addEventListener('pointermove', onMove);
-    this.sheet.addEventListener('pointerup', onUp);
-    this.sheet.addEventListener('pointercancel', onUp);
+    // the moves and the release are followed wherever they go: a mouse is not captured by the element it pressed, so
+    // a drag up from the handle left the sheet at once and its moves went to the map (the sheet never rose)
+    window.addEventListener('pointermove', onMove, true);
+    window.addEventListener('pointerup', onUp, true);
+    window.addEventListener('pointercancel', onUp, true);
     this.sheet.addEventListener('click', (e) => { if (this.suppressClick && performance.now() - this.suppressClick < 350) { e.stopPropagation(); e.preventDefault(); } }, true);
     this.handle.addEventListener('click', (e) => { e.stopPropagation(); this.toggleSheet(); });
     // pull the list down from its top to collapse the sheet (like native sheets)

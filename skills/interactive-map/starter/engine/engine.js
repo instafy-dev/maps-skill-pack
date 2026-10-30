@@ -67,6 +67,7 @@ const hostLink = new HostLink({
       layoutNotes();
       // the host's composer / chat sheet grew: keep the selected place in the part of the map that is still visible
       if (L.insets.bottom !== prevBottom && E.sel) { const S = E.layers?.byId.get(E.sel.layer), f = S?.byFid.get(E.sel.id), c = f && E.layers.featureCenter(S, f); if (c) reveal(c); }
+      else refitFirstView();
     }
   },
   // answers to "Show my location" from a host that locates for us (caps.location "host", locate.js)
@@ -390,6 +391,23 @@ function flyTo(target, o = {}) {
   if (t.padding) { console.warn('[map] uw.flyTo: "padding" is ignored (the engine keeps the camera clear of the panel itself)'); delete t.padding; }
   if (reducedMotion()) t.duration = 0;
   return map.flyTo({ offset: visOffset(), duration: dur, essential: false, ...t });
+}
+/** The camera as a comparable key (centre, zoom, bearing, pitch). */
+function camKey() {
+  const m = E.map, c = m.getCenter();
+  return [c.lng.toFixed(7), c.lat.toFixed(7), m.getZoom().toFixed(4), m.getBearing().toFixed(2), m.getPitch().toFixed(2)].join();
+}
+/**
+ * The first view fits the places again when the frame changes under it (a desktop frame turned phone, the host's bars
+ * over it): the camera kept the centre fitted for the old frame, which put a side panel's offset on a phone and the
+ * places at its edge. Only while nobody has moved, selected or followed anything since (the camera is still the one
+ * the first view set); a link's own view (#at=) is never redone.
+ */
+function refitFirstView() {
+  if (!E.booted || !E.firstView || E.viewTouched || E.sel || E.ui.card || E.camOnMe) return;
+  if (camKey() !== E.firstView) { E.firstView = null; return; }
+  home(false);
+  E.firstView = camKey();
 }
 /** Ease so a point is visible in the uncovered part of the map. */
 function reveal(lnglat) {
@@ -803,7 +821,7 @@ const applyLook = rafThrottle(() => {
   const b = E.config.basemap || {};
   const { dark, warm } = lookFor(b.theme || 'auto', E.hour, !!E.config.time?.enabled);
   E.look.apply(dark, warm);
-  E.layers.applyTheme(dark);
+  E.layers?.applyTheme(dark);
   E.map.setSky(skyFor(dark, E.look));
   const look = dark > 0.6 ? 'night' : warm > 0.35 ? 'dusk' : 'day';
   if (E.ui.root.dataset.look !== look) { E.ui.root.dataset.look = look; E.emit('look', { look }); }
@@ -1463,6 +1481,28 @@ function applyVotesState() {
   }
 }
 
+// ---------------- basemap look ----------------
+/** Labels, the config's overrides and the day / night look on the basemap's own layers, applied at once. Runs when the
+ *  style is in, before the first frame and long before the tiles ('load'). */
+function basemapLook(map, config) {
+  const b = config.basemap || {};
+  applyLabels(map, b.labels || 'en');
+  // named areas say what a neighbourhood is like: the basemap's neighbourhood / quarter labels (often automatic
+  // romanisations such as "Tsiancheng") then only compete with them. basemap.placeLabels: "all" keeps them.
+  if (b.placeLabels !== 'all' && (config.layers || []).some((l) => l?.type === 'areas' && l.role === 'verdict')) {
+    for (const l of map.getStyle().layers) {
+      if (l.type !== 'symbol' || l['source-layer'] !== 'place' || l.id.startsWith('uw')) continue;
+      const f = map.getFilter(l.id);
+      const drop = ['!', ['match', ['get', 'class'], ['village', 'suburb', 'neighbourhood', 'quarter', 'hamlet', 'isolated_dwelling'], true, false]];
+      try { map.setFilter(l.id, f ? ['all', f, drop] : drop); } catch (e) { console.warn('[map] place labels', l.id, e.message); }
+    }
+  }
+  const owned = applyOverrides(map, b.overrides);
+  E.look = new Look(map, owned);
+  const { dark, warm } = lookFor(b.theme || 'auto', E.hour, !!config.time?.enabled);
+  E.look.apply(dark, warm);
+}
+
 // ---------------- boot ----------------
 function hasWebGL() { try { const c = document.createElement('canvas'); return !!(c.getContext('webgl2') || c.getContext('webgl')); } catch { return false; } }
 
@@ -1549,6 +1589,12 @@ async function boot() {
   else if (v.bounds && !v.center) { opts.bounds = v.bounds; opts.fitBoundsOptions = { padding: ui.padding(), maxZoom: maxZoomFor(v) }; }
   let map;
   try { map = E.map = new maplibregl.Map(opts); } catch (e) { E.error('map init failed: ' + e.message, e); ui.fatal('The map could not start', e.message); return; }
+  // the basemap's look (labels, overrides, day / night) as soon as the style is in, before its first frame: 'load'
+  // waits for every tile, and until then a dark page drew the style's light colours (a white map for seconds)
+  map.once('style.load', () => { try { basemapLook(map, config); } catch (e) { E.error('basemap look: ' + e.message, e); } });
+  // a gesture on the map ends the first view (refitFirstView); a new frame size may refit it, once the sheet is laid out
+  map.on('movestart', (e) => { if (e.originalEvent) E.viewTouched = true; });
+  map.on('resize', () => requestAnimationFrame(refitFirstView));
   // the container's size, always (syncMapSize): our own observer, which keeps every callback, plus the window's resizes
   if (typeof ResizeObserver === 'function') new ResizeObserver(() => syncMapSize()).observe(ui.mapEl);
   window.addEventListener('resize', syncMapSize);
@@ -1578,19 +1624,7 @@ async function boot() {
     // globe only for world / continent maps (zoom < 5): below ~z12 MapLibre's globe can't ease gestures around the
     // finger ("Easing around a point is not supported under globe projection"); a style.json "projection" wins
     if (!map.getStyle().projection && (config.view?.zoom ?? 1.6) < 5) { try { map.setProjection({ type: 'globe' }); } catch { /* older style spec */ } }
-    applyLabels(map, b.labels || 'en');
-    // named areas say what a neighbourhood is like: the basemap's neighbourhood / quarter labels (often automatic
-    // romanisations such as "Tsiancheng") then only compete with them. basemap.placeLabels: "all" keeps them.
-    if (b.placeLabels !== 'all' && (config.layers || []).some((l) => l?.type === 'areas' && l.role === 'verdict')) {
-      for (const l of map.getStyle().layers) {
-        if (l.type !== 'symbol' || l['source-layer'] !== 'place' || l.id.startsWith('uw')) continue;
-        const f = map.getFilter(l.id);
-        const drop = ['!', ['match', ['get', 'class'], ['village', 'suburb', 'neighbourhood', 'quarter', 'hamlet', 'isolated_dwelling'], true, false]];
-        try { map.setFilter(l.id, f ? ['all', f, drop] : drop); } catch (e) { console.warn('[map] place labels', l.id, e.message); }
-      }
-    }
-    const owned = applyOverrides(map, b.overrides);
-    E.look = new Look(map, owned);
+    if (!E.look) basemapLook(map, config); // the style came in before its listener (never with a style URL)
     E.layers = new Layers(E);
     if (b.terrain || b.relief) {
       // hillshade goes under the water fills: the DEM also shades the sea floor, which reads as smudges on the ocean
@@ -1688,7 +1722,10 @@ async function boot() {
       placeAttribution(ui.side);
     }
     E.booted = true;
-    if (E.Q) { renderLensRow(); renderVerdict(); if (!hash.at && !hash.s) home(false); }
+    if (E.Q) { renderLensRow(); renderVerdict(); }
+    // the first view, fitted to the frame as it is now (a host's bars or a phone-sized frame may have come in while the
+    // tiles loaded); refitFirstView keeps it fitted until someone moves the map
+    if (!hash.at && !hash.s && !E.viewTouched) { home(false); E.firstView = camKey(); }
     // record ages ("4 min", "expired") stay true while the page is open: re-render every 30 s when there is something
     // timed on screen (identical cards are not redrawn)
     setInterval(() => {

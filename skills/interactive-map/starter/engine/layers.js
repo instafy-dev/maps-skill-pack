@@ -1,6 +1,6 @@
 // map-pack engine: turning config layers into MapLibre sources/layers.
 // Kit-owned file: sites should not edit it.
-import { nightInk } from './look.js';
+import { nightInk, NIGHT_SIGN, nightSignImage } from './look.js';
 import { PALETTE, THEME_COLORS, MODE_EMOJI, arc, center, bbox, lineCoords, timeFilterExpr, inWindow, parseColor, mix, rgba, ringCentroid } from './util.js';
 
 export const SIZES = { s: 26, m: 32, l: 40 };
@@ -117,6 +117,7 @@ export function handleMissing(map, id) {
   if (map.hasImage(id)) return;
   // basemap sprite gaps (Liberty references a few icons its sprite lacks): draw nothing instead of warning
   if (!id.startsWith('uw:')) { map.addImage(id, { width: 1, height: 1, data: new Uint8Array(4) }); return; }
+  if (id.startsWith(NIGHT_SIGN)) { addNightSign(map, id); return; }
   const parts = id.split(':');
   if (parts[1] === 'L') {
     const [, , letter, color, d, emoji] = parts;
@@ -129,6 +130,17 @@ export function handleMissing(map, id) {
     const [, emoji, color, d, r] = parts;
     ensureIcon(map, emoji === '•' ? null : emoji, color, +d || 32, r === 'r');
   }
+}
+
+/** A sign's night version (look.js nightIcon) from the sprite's own image: light and dark swapped, its shape, stretch
+ *  and text box kept. A sprite without that image gets nothing drawn, as a sprite gap does. */
+function addNightSign(map, id) {
+  const base = map.getImage?.(id.slice(NIGHT_SIGN.length)), img = base?.data;
+  if (!img?.data || !img.width || !img.height) { map.addImage(id, { width: 1, height: 1, data: new Uint8Array(4) }); return; }
+  const opts = { pixelRatio: base.pixelRatio || 1, sdf: !!base.sdf };
+  for (const k of ['stretchX', 'stretchY', 'content', 'textFitWidth', 'textFitHeight']) if (base[k] != null) opts[k] = base[k];
+  // an SDF image takes its colour from the layer: it keeps its own pixels
+  map.addImage(id, base.sdf ? { width: img.width, height: img.height, data: img.data } : nightSignImage(img), opts);
 }
 
 export function iconKey(emoji, color, d, ring) { return `uw:${emoji || '•'}:${color}:${d}${ring ? ':r' : ''}`; }

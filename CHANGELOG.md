@@ -3,6 +3,33 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.15 (2026-10-30)
+
+Fixes from a "3 days in Porto for a first visit … what to see each day, on a map" run, whose map had one sight in
+three days, and from looking at that map dark and on a phone.
+
+- **A sight that cannot be pinned is listed, and the next one is added.** The run tried one sight four times with
+  `--strict-name`, and the refusal only invited another try. Every `--strict-name` refusal now ends with the trip
+  guide's own rule: "Retried once? List it as unverified and add the next sight from the city page." (also as `next`
+  in `--json`).
+- **Sights come from this turn.** The run replied after three minutes, with two days still empty, saying a browser
+  would gather more sights; none did. Phase B of the trip guide now says: "Sights come from `uw cite` in this turn,
+  never from a browser card."
+- **A trip's first view frames its places.** The view stayed on the city centre `uw new` was given, west of the old
+  town, so a phone opened with the base and the sight at its right edge. `uw plan` now frames the trip (its stops,
+  stays, legs and day places, as `uw fit --layers`), and `uw fit` counts a trip's stations and places to stay among
+  what it frames. The engine also fits the first view again when the frame changes size under it (a wide frame
+  turned phone-sized, the host's bars over it), until someone moves the map.
+- **A dark page draws a dark map from its first frame.** The day/night look waited for every tile, so a dark page
+  showed the style's light land until they came (a white map for seconds on a reload). The look is now applied as
+  soon as the style is in, before its first frame.
+- **Road shields read on a dark map.** Kept as the sprite draws them, they were glaring light boxes on the dark map.
+  At night a sign is drawn as its night version: the sprite's own image with light and dark swapped (a dark box with
+  a light edge, a coloured shield a lighter one) and a light number. By day it is the sprite as it is.
+- **The phone sheet follows a drag from its handle.** A mouse (and a browser that sends mouse events for a phone) is
+  not held by the handle it pressed, so the drag's moves went to the map and the sheet never rose. The sheet now
+  follows the drag wherever the pointer goes.
+
 ## 0.1.14 (2026-10-30)
 
 Fixes to 0.1.13, found in its review.
