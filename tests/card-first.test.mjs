@@ -33,10 +33,12 @@ test('SKILL.md: the card right after `uw new`, before any lookup; step 9 only re
     assert.ok(md.indexOf(cmd) > open, `${cmd} after the card`);
   }
   assert.match(md.slice(step3, step4), /before any lookup \(a slow one costs content, never the card\)/);
-  // step 9: open viewers update, then the check refreshes the card's picture
-  const step9 = md.indexOf('9. `uw reload <site>` (open viewers update), then `instafy preview check --port <port> --phone`');
+  // step 9: open viewers update, then the check refreshes the card's picture. The check pictures only its desktop
+  // size, so a phone-only check (--phone) leaves the card on the empty map step 3 posted
+  const step9 = md.indexOf('9. `uw reload <site>` (open viewers update), then `instafy preview check --port <port>` (the JSON');
   assert.ok(step9 > step4, 'step 9 reloads the viewers and checks the page');
-  assert.match(md.slice(step9, step9 + 260), /refreshes the card's picture\): fix every error it lists/);
+  assert.match(md.slice(step9, step9 + 260), /refreshes the card's picture\): fix every error it lists; open the PNGs it names/);
+  assert.doesNotMatch(md, /instafy preview check[^.]*--phone/);
   assert.doesNotMatch(md, /Open it from the card|open it from the card/);
 });
 
@@ -49,6 +51,8 @@ test('itinerary.md: a trip posts its card right after `uw new` too, before the s
   // step 6 and the team job refresh it, they never post it
   assert.match(md, /Then SKILL\.md step 9 \(open viewers update, the card's picture is refreshed\), before Phase B/);
   assert.doesNotMatch(md, /Then preview \(SKILL\.md step 9\)|Open the preview while it runs/);
+  // a later change to a trip refreshes the card too
+  assert.match(md, /## Later changes to a trip [^#]*?then `uw validate`, SKILL\.md step 9, the reply\./);
 });
 
 test('uw new names the card command as the next step, from the site folder, before the trip or option steps', () => {

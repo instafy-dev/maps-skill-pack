@@ -97,7 +97,7 @@ test('SKILL.md: one `instafy preview open --start` serves the map and shows its 
   const md = fs.readFileSync(path.join(HERE, '..', 'skills', 'interactive-map', 'SKILL.md'), 'utf8');
   const flat = md.replace(/\s+/g, ' ');
   const open = flat.indexOf('instafy preview open --title "<title>" --serve-cmd "uw host . --port {port}" --start --json');
-  const check = flat.indexOf('instafy preview check --port <port> --phone');
+  const check = flat.indexOf('instafy preview check --port <port>');
   assert.ok(open > 0 && check > open, 'the check follows the card');
   assert.match(flat.slice(check, check + 200), /fix every error it lists; open the PNG/);
   // The CLI picks the port, so none is named; and no sentence points at a card the turn may not have posted.

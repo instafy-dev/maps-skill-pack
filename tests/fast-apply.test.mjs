@@ -259,6 +259,9 @@ test('every step of --apply is timed: in the result, as one line, and in the ste
   const plain = await uw(['handoff', path.join(tmp, 'handoff', 'japan'), '--site', 'tm', '--apply', ...ROUTE], extra);
   assert.equal(plain.code, 0, plain.out.slice(-2000));
   assert.match(plain.out, /\nTimings: [\d.]+ s in all, 3 stop\(s\) at a time; stations [\d.]+ s \(3\), rail [\d.]+ s \(2\)[^\n]*\. Slowest: [^\n]+\n/);
+  // the card is out since `uw new`: the next step refreshes it, never posts another
+  assert.match(plain.out, /then uw validate --signal and SKILL\.md step 9 \(refreshes the card\):\n/);
+  assert.doesNotMatch(plain.out, /the preview card/);
 });
 
 test('a background job runs outside the turn clock when a continuation turn can pick it up, and hands its timings to the turn that sees it finish', async () => {

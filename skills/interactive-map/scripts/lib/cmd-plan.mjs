@@ -12,8 +12,8 @@ export const help = `plan <dir> --stops <layer> --start YYYY-MM-DD [--ids taipei
   --ids: the stops in travel order (a loop names its first stop again at the end); default: the layer's order. One
   stop is a stay in one place ("3 days in Lisbon": --ids lisbon --nights 3): its days are loops from the same base,
   no travel day. A stop named twice in a row is one stay (its nights add up), never a travel day to itself.
-  --nights: one number per --ids entry (the last stop of a loop may be 0 = fly out the day you arrive; one stop with
-  0 nights is a single day there); default: each stop feature's "nights". With --nights the stop features' "nights"
+  --nights: one number per --ids entry (the last stop of a loop may be 0 = fly out the day you arrive; a first stop
+  with 0 nights is left the day you arrive; one stop with 0 nights is a single day there); default: each stop feature's "nights". With --nights the stop features' "nights"
   become the total per stop (dots under the name).
   Each day: title "Tue 20 Oct · Hualien" (travel days "Fri 23 Oct · Taipei → Hualien"), a lighting hour
   ("time" with "time_hint": true, never shown as a clock time), focus (the stop's
@@ -331,10 +331,12 @@ export function buildPlan({ stops: stopsIn, nights: nightsIn, start, legs = [], 
       visits.push(visit);
       continue;
     }
-    if (i === 0) {
+    // a first stop passed through (0 nights: an airport) has no day of its own: the trip starts with the travel day
+    // that leaves it, so the next stop gets every night from the arrival date
+    if (i === 0 && n > 0) {
       visit.arrive = { title: `${fmtDay(next())} · ${city}`, time: 15, time_hint: true, focus: focusOf(s), text: `Arrive in ${city}; night 1 of ${n}.`, items: [baseItem(s)].filter(Boolean) };
       days.push(visit.arrive);
-    } else visit.arrive = days[days.length - 1];
+    } else if (i > 0) visit.arrive = days[days.length - 1];
     for (let k = 2; k <= n; k++) {
       const d = { title: `${fmtDay(next())} · ${city}`, time: 10, time_hint: true, focus: focusOf(s), text: `Day in ${city}; night ${k} of ${n}.`, items: [] };
       days.push(d); visit.full.push(d);
@@ -493,7 +495,7 @@ export async function run(argv) {
     gaps.empty ? `${gaps.empty} of ${gaps.full} full days still have no places ("Day in …", or only the arrival): add 2-3 sourced places for those stops (reference/itinerary.md Phase B step 1), then this command again with --force.` : null,
     ...misplaced.slice(0, 4).map((w) => `Day places: ${dayPlaceLine(w, plan.days)}.`),
     left.length ? `Not on any day (each day already has --per-day ${perDay} of their kind): ${left.slice(0, 6).map((f) => f.properties.name_en || f.properties.name || f.properties.id).join(', ')}${left.length > 6 ? ` and ${left.length - 6} more` : ''}. Add nights, raise --per-day, or leave them out of the reply.` : null,
-    'Next: uw validate, then the preview card. Never in the reply: file or folder names, commands or layer ids.',
+    'Next: uw validate, then SKILL.md step 9 (refreshes the card). Never in the reply: file or folder names, commands or layer ids.',
   ]);
   return 0;
 }
