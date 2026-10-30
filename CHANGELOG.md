@@ -3,6 +3,24 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.14 (2026-10-30)
+
+Fixes to 0.1.13, found in its review.
+
+- **The last check refreshes the card's picture.** Step 9 ran `instafy preview check --phone`, which loads the phone
+  size only, and the check pictures only its desktop load, so the card kept the empty map step 3 posted it with and
+  the bare "Map" line. Step 9 now runs the check at both sizes (`instafy preview check --port <port>`): its desktop
+  load refreshes the card's picture and its facts line. A later change to a trip ends with step 9 too.
+- **After a plan or a team job, the next step is step 9.** `uw plan` and `uw handoff --apply` still said "then the
+  preview card", a step the turn no longer has (the card is out since `uw new`); they now name step 9.
+- **A trip that starts at a stop with no night has every night it was given.** A first stop passed through (an airport,
+  `--nights 0,…`) got a day of its own, "Arrive in …; night 1 of 0.", so the stay after it started a day late, and
+  since 0.1.13 counts the arrival day `uw validate` asked for places on a day no place can go on. The trip now starts
+  with the travel day that leaves that stop, on the arrival date.
+- **A day with nothing to see says when re-planning is enough.** A plan made before 0.1.13 has its arrival day bare
+  and fails `uw validate` now. The error says `uw plan … --force` spreads the places already pinned over every day,
+  the arrival day too, so a stop with as many places as days needs no new ones.
+
 ## 0.1.13 (2026-10-29)
 
 Fixes from a "Plan 3 days in Lisbon for a first visit: where to stay, what to see each day, on a map" run, where the

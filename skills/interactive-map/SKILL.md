@@ -66,8 +66,8 @@ Long commands: `--detach`, then `uw wait` (exit 75: again).
    criteria/lenses are "pending" and join on re-run. Letters follow the rank (A = best); the verdict is generated.
    "NOTHING MEASURED YET SEPARATES": say "too close to call so far"; run the step it names.
 8. `uw fit <site>`, then `uw validate <site> --signal`; fix every error.
-9. `uw reload <site>` (open viewers update), then `instafy preview check --port <port> --phone` (the JSON's `port`;
-   refreshes the card's picture): fix every error it lists; open the PNG it names. Public link only on request
+9. `uw reload <site>` (open viewers update), then `instafy preview check --port <port>` (the JSON's `port`;
+   refreshes the card's picture): fix every error it lists; open the PNGs it names. Public link only on request
    (`instafy-frontend-previews`).
 
 **Phase B: refine (in order, one at a time, while the time printed by question/validate allows)**

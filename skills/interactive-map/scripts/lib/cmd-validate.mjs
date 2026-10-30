@@ -505,7 +505,7 @@ export async function run(argv) {
       const bareDays = Array.isArray(sightLayers) && sightLayers.length ? gaps.bare : [];
       if (bareDays.length)
         E(CFG, '$.plan.days', `${bareDays.length} of ${gaps.full} full days have nothing to see (no sourced place): ${bareDays.slice(0, 4).join(', ')}${bareDays.length > 4 ? ' …' : ''}`,
-          `pin 2-3 places a page you read names for each of those days (reference/itinerary.md Phase B step 1: uw add-point ${args._[0]} --layer ${sightLayers[0]} … with {"stop":…,"source_url":…}), then uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --force; a place the lookup cannot pin goes on its day as {"text": "<name>", "url": "<its page>", "source": "<site>"}`);
+          `uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --force spreads the places already pinned over every day, the arrival day too: run it first when a stop has as many places as days. Else pin 2-3 places a page you read names for each of those days (reference/itinerary.md Phase B step 1: uw add-point ${args._[0]} --layer ${sightLayers[0]} … with {"stop":…,"source_url":…}), then run it; a place the lookup cannot pin goes on its day as {"text": "<name>", "url": "<its page>", "source": "<site>"}`);
       else if (gaps.full >= 2 && gaps.empty * 2 > gaps.full)
         W(CFG, '$.plan.days', `${gaps.empty} of ${gaps.full} full days are still empty ("Day in …", or only the arrival): a traveller gets nothing to do on them`, 'add 2-3 sourced sights per stop (reference/itinerary.md Phase B step 1), then uw plan … --sights sights --force and one short sourced text per day');
       else if (gaps.full >= 2 && gaps.thin * 2 > gaps.full)

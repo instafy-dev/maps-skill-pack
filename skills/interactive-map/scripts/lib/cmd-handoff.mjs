@@ -789,7 +789,7 @@ async function applyHandoff({ args, out, items, problems, sourcesCheck }) {
     problems.length ? `Problems in the handoff files:\n${problems.map((p) => `  ${p}`).join('\n')}` : null,
     facts.length ? 'Facts per stop and leg (reference/itinerary.md says what to do with them):' : null,
     ...facts.map((f) => `  ${f}`),
-    'Next: the plan\'s day texts name each full day\'s sourced places; reword them with these facts where they fit (≤ 140 characters, keep the items), fill days still "Day in …" with sourced places, then uw validate --signal and the preview card:',
+    'Next: the plan\'s day texts name each full day\'s sourced places; reword them with these facts where they fit (≤ 140 characters, keep the items), fill days still "Day in …" with sourced places, then uw validate --signal and SKILL.md step 9 (refreshes the card):',
     ...plan.dayFacts.map((f) => `  ${f.item}: ${f.text} [${f.source_url}]`),
     'In the reply and your summary: no file or folder names (the handoff or site folders), commands or layer ids.',
     retryRail ? 'Rail track not loaded, so the legs are straight arcs. Run these now if the turn clock allows, else as the next turn\'s first step (then uw plan … --force and re-add the day texts):' : null,

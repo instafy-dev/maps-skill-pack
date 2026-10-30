@@ -206,7 +206,7 @@ with "no": conventional train, never mention HSR. Reword day texts with the prin
 ## Later changes to a trip
 
 A follow-up ("make it calmer", "dig deeper for every city", "a day trip from each base", "food spots") edits the
-open site in place; then `uw validate`, `uw reload`, the reply.
+open site in place; then `uw validate`, SKILL.md step 9, the reply.
 - A day's `text` sums up its items; it is never copied into an item. When you rewrite a day, rewrite or remove its
   items in the same edit, so no item contradicts the new text (`uw validate` warns about an item that repeats a
   day's text).

@@ -94,6 +94,9 @@ test('validate: a plan made with --sights fails while a full day has nothing to 
   assert.equal(plan.code, 0, plan.err + plan.out);
   assert.match(plan.out, /--sights sights,food,daytrips: no place in them yet, so every full day is empty and uw validate fails/);
   assert.doesNotMatch(plan.out, /No --sights/, 'the plan was given --sights');
+  // the card is out since `uw new`: the next step refreshes it, never posts another
+  assert.match(plan.out, /^Next: uw validate, then SKILL\.md step 9 \(refreshes the card\)\./m);
+  assert.doesNotMatch(plan.out, /the preview card/);
   assert.deepEqual(JSON.parse(fs.readFileSync(cfgPath, 'utf8')).plan.sights, ['sights', 'food', 'daytrips']);
   assert.equal((await run(['fit', 'lx-bare'])).code, 0);
   const bare = await run(['validate', 'lx-bare']);
@@ -324,4 +327,54 @@ test('validate: places that cite one page are named; each with its own page pass
   const own = await run(['validate', 'lx-src']);
   assert.equal(own.code, 0, own.out + own.err);
   assert.doesNotMatch(own.out + own.err, /cite one page/);
+});
+
+// A trip that starts by passing through a stop with no night there (an airport, a high-speed station: "0 nights =
+// pass through") gave that stop a day of its own, "Arrive in …; night 1 of 0.", a night short of the stay, and
+// `uw validate` asked for places on that day, which no place can fill: a stop with no night gets no places.
+const airport = { id: 'airport', layer: 'stops', coord: [-9.1359, 38.7756], props: { id: 'airport', name: 'Lisbon Airport', kind: 'airport' } };
+test('plan: a first stop with no night shares the day it is left, so the stay has every night it was given', () => {
+  const plan = buildPlan({ stops: [airport, lisbonStop], nights: [0, 3], start: '2026-10-30', stays: [baseStay], sights: sightFeats() });
+  assert.deepEqual(plan.days.map((d) => `${d.title} | ${d.text.replace(/ Then: .*| · .*/, '')}`).slice(0, 2),
+    ['Fri 30 Oct · Lisbon Airport → Lisbon | Travel day; night 1 of 3 in Lisbon.', plan.days[1].title + ' | ' + plan.days[1].text.replace(/ · .*/, '')]);
+  assert.equal(plan.days[1].title, 'Sat 31 Oct · Lisbon');
+  assert.deepEqual(plan.days.map((d) => d.title).slice(-1), ['Mon 2 Nov · Lisbon: depart'], 'three nights from the arrival date');
+  assert.ok(!plan.days.some((d) => /night \d+ of 0/.test(d.text)), plan.days.map((d) => d.text).join(' | '));
+});
+
+test('validate: a trip that starts at a stop with no night passes once each day with a night has places', async () => {
+  const { dir } = await makeSite('lx-air');
+  fs.writeFileSync(path.join(dir, 'data', 'stops.geojson'), JSON.stringify({ type: 'FeatureCollection', features: [
+    point('airport', airport.coord, { name: 'Lisbon Airport', kind: 'airport' }), point('lisbon', LISBON.centre, { name: 'Lisbon', kind: 'city' })] }));
+  const plan = await run(['plan', 'lx-air', '--stops', 'stops', '--ids', 'airport,lisbon', '--nights', '0,3', '--start', '2026-10-30', '--stays', 'stays', '--sights', 'sights']);
+  assert.equal(plan.code, 0, plan.out + plan.err);
+  assert.equal((await run(['fit', 'lx-air'])).code, 0);
+  const v = await run(['validate', 'lx-air']);
+  assert.equal(v.code, 0, v.out + v.err);
+  assert.doesNotMatch(v.out + v.err, /nothing to see|night 1 of 0/);
+});
+
+// A plan written before the arrival day counted (castle, tower and monastery on the two full days, nothing on the
+// arrival day) fails validate now: the places already pinned are enough, so re-planning alone fills every day.
+test('validate: a day with nothing to see says re-planning spreads the places already pinned, and it does', async () => {
+  const { dir, cfgPath } = await makeSite('lx-old');
+  fs.writeFileSync(path.join(dir, 'data', 'sights.geojson'), JSON.stringify({ type: 'FeatureCollection',
+    features: LISBON.places.filter((p) => ['castelo', 'torre', 'jeronimos'].includes(p.id)).map((p) => point(p.id, p.coord, { name: p.name, stop: 'lisbon', ...src(p) })) }));
+  const plan = ['plan', 'lx-old', '--stops', 'stops', '--ids', 'lisbon', '--nights', '3', '--start', '2026-10-30', '--stays', 'stays', '--sights', 'sights', '--force'];
+  assert.equal((await run(plan)).code, 0);
+  // as the older plan had it: the arrival day bare, its place moved onto a full day
+  const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+  const [arrive, d2] = cfg.plan.days;
+  d2.items.push(...arrive.items.filter((it) => it.ref?.layer === 'sights'));
+  arrive.items = arrive.items.filter((it) => it.ref?.layer !== 'sights');
+  arrive.text = 'Arrive in Lisbon; night 1 of 3.';
+  fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+  assert.equal((await run(['fit', 'lx-old'])).code, 0);
+  const v = await run(['validate', 'lx-old']);
+  assert.notEqual(v.code, 0, v.out + v.err);
+  assert.match(v.out + v.err, /1 of 3 full days have nothing to see \(no sourced place\): Fri 30 Oct · Lisbon/);
+  assert.match(v.out + v.err, /uw plan lx-old … --sights sights --force spreads the places already pinned over every day, the arrival day too: run it first/);
+  assert.equal((await run(plan)).code, 0);
+  const again = await run(['validate', 'lx-old']);
+  assert.equal(again.code, 0, again.out + again.err);
 });
