@@ -418,3 +418,31 @@ test('fit: a trip\'s stations and places to stay are part of what it frames', as
   assert.deepEqual([...r.json.layers].sort(), ['sights', 'stays', 'stops']);
   assert.ok(JSON.parse(fs.readFileSync(cfgPath, 'utf8')).view.bounds, 'framed');
 });
+
+// Framing the trip never narrows what `uw fit` framed: a hand-picked place the plan was not given (a day trip, a
+// marked airport) stayed in the first view before, and `uw validate` calls a hand-picked place far outside the view
+// a wrong match.
+test('plan (CLI): the trip\'s frame keeps every hand-picked layer `uw fit` frames, so validate stays clean', async () => {
+  const { dir, cfgPath } = await makeSite('lxkeep');
+  const tag = (layer, cmd) => {
+    const p = path.join(dir, 'data', `${layer}.geojson`), fc = JSON.parse(fs.readFileSync(p, 'utf8'));
+    fs.writeFileSync(p, JSON.stringify({ ...fc, uw: { cmd } }));
+  };
+  tag('stays', 'stay'); tag('stops', 'station'); tag('sights', 'add-point');
+  const d = LISBON.daytrip;
+  fs.writeFileSync(path.join(dir, 'data', 'daytrips.geojson'), JSON.stringify({ type: 'FeatureCollection', uw: { cmd: 'add-point' },
+    features: [point(d.id, d.coord, { name: d.name, stop: 'lisbon', ...src(d) })] }));
+  const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+  cfg.layers.push({ id: 'daytrips', type: 'points', title: 'Day trips', data: 'data/daytrips.geojson', tier: 'support' });
+  fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+  const fit = await run(['fit', 'lxkeep', '--json']);
+  assert.equal(fit.code, 0, fit.err + fit.out);
+  assert.ok(fit.json.layers.includes('daytrips'), 'uw fit frames the day trip');
+  const r = await run(['plan', 'lxkeep', '--stops', 'stops', '--ids', 'lisbon', '--nights', '3', '--start', '2026-10-30', '--stays', 'stays', '--sights', 'sights', '--json']);
+  assert.equal(r.code, 0, r.err + r.out);
+  const [[w, s], [e, n]] = JSON.parse(fs.readFileSync(cfgPath, 'utf8')).view.bounds;
+  assert.ok(d.coord[0] >= w && d.coord[0] <= e && d.coord[1] >= s && d.coord[1] <= n, `the day trip stays in the first view: ${JSON.stringify([[w, s], [e, n]])}`);
+  for (const p of [LISBON.base, ...LISBON.places]) assert.ok(p.coord[0] >= w && p.coord[0] <= e && p.coord[1] >= s && p.coord[1] <= n, `${p.id} in the first view`);
+  const v = await run(['validate', 'lxkeep']);
+  assert.doesNotMatch(v.out + v.err, /daytrips[^\n]*far outside view\.bounds|far outside view\.bounds[^\n]*sintra/, v.out + v.err);
+});

@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const STARTER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'skills', 'interactive-map', 'starter');
-const { Look, isSign, nightIcon, nightSignImage, NIGHT_SIGN } = await import(pathToFileURL(path.join(STARTER, 'engine', 'look.js')).href);
+const { Look, applyOverrides, isSign, nightIcon, nightSignImage, NIGHT_SIGN } = await import(pathToFileURL(path.join(STARTER, 'engine', 'look.js')).href);
 const { handleMissing } = await import(pathToFileURL(path.join(STARTER, 'engine', 'layers.js')).href);
 const style = JSON.parse(fs.readFileSync(path.join(STARTER, 'style.json'), 'utf8'));
 
@@ -65,6 +65,22 @@ test('at night a road shield is its night version with a light number; never dim
     const l = style.layers.find((x) => x.id === id);
     assert.deepEqual(byLayer(id), { 'icon-image': l.layout['icon-image'], 'text-color': undefined }, id);
   }
+});
+
+// The day / night look never overwrites a property an override set (reference/config.md): a sign whose number colour
+// the site chose keeps the sprite's own image and that colour at night, as it did before signs had a night version.
+test('a sign whose number colour an override set is left as the site styled it at night; other signs still switch', () => {
+  const map = fakeMap(style.layers);
+  const owned = applyOverrides(map, [{ layers: 'highway-shield-non-us', color: '#222222' }]);
+  assert.ok(owned.has('highway-shield-non-us|text-color'), [...owned].join(', '));
+  map.set.length = 0;
+  const look = new Look(map, owned);
+  look.apply(1, 0);
+  assert.deepEqual(map.set.filter((x) => x.id === 'highway-shield-non-us'), [], 'neither its icon nor its number colour changes');
+  assert.ok(map.set.some((x) => x.id === 'road_shield_us' && x.prop === 'icon-image'), 'a sign the site left alone still gets its night version');
+  map.set.length = 0;
+  look.apply(0, 0);
+  assert.deepEqual(map.set.filter((x) => x.id === 'highway-shield-non-us'), [], 'nor by day');
 });
 
 test('nightIcon: the same image under the night prefix, tokens kept', () => {

@@ -26,8 +26,8 @@ export const help = `plan <dir> --stops <layer> --start YYYY-MM-DD [--ids taipei
   more places than full days, so every day before the departure gets a place before any gets a second. A full day that gets sourced
   places gets a text from them instead of "Day in …": their names, the first with its "why" (the reason its page
   gives), ≤ 140 characters. The day after the last night is the departure ("depart": true, "Leave <stop>."): nothing
-  is planned on it. The map's first view then frames the trip (its stops, --stays, --legs and --sights layers, as
-  \`uw fit --layers\`). Prints a warning for a place that is far from its day's other places or closer to another day's
+  is planned on it. The map's first view then frames the trip (its stops, --stays, --legs and --sights layers) and
+  every layer \`uw fit\` frames. Prints a warning for a place that is far from its day's other places or closer to another day's
   (plan-checks.json). Refuses to replace an existing plan without --force. Days with no sourced place keep "Day in …":
   add places. --sights also says the trip is about what to see each day: the plan keeps those layers ("sights"), and
   \`uw validate\` fails while a full day (the arrival day of the trip too) has no sourced place.`;
@@ -476,13 +476,15 @@ export async function run(argv) {
   }
   site.config = cfg;
   // the first view frames the trip: its stops, the stays (the base) and the day places. `uw new` framed the city's
-  // centre, and nothing framed the places after it, so a phone opened on the centre with the base at its edge
+  // centre, and nothing framed the places after it, so a phone opened on the centre with the base at its edge. It
+  // keeps every hand-picked layer `uw fit` frames too (a day trip, a marked airport the plan was not given): never
+  // narrower than `uw fit`, or validate calls those places wrong matches
   const registered = new Set((cfg.layers || []).map((l) => l?.id));
-  const frame = [...new Set([stopLayer, args.stays, args.legs, ...sightLayers])]
+  const { fitView, handPickedLayers } = await import('./cmd-site.mjs');
+  const frame = [...new Set([stopLayer, args.stays, args.legs, ...sightLayers, ...handPickedLayers(site)])]
     .filter((id) => id && registered.has(id) && loadLayer(site, id, { required: false })?.features?.length);
   let view = null;
   if (frame.length) {
-    const { fitView } = await import('./cmd-site.mjs');
     try { view = (await fitView(site, { layers: frame.join(',') })).view; } catch (e) { out.warn(`could not frame the trip's places (${e.message}); run: uw fit ${args._[0]}`); }
   }
   const totalN = nights.reduce((a, b) => a + b, 0);
