@@ -213,6 +213,22 @@ test('validate fails while a stop asked for is not on the map, from the config o
   assert.match(fs.readFileSync(path.join(SKILL, 'starter', 'engine', 'engine.js'), 'utf8'), /'missing', 'expect'\]/);
 });
 
+test('validate counts the stops on the map, also when one of them is in no day of the plan', async () => {
+  const site = 'count-site';
+  assert.equal((await uw(['new', site, '--title', 'Trip', '--center', '11,50.5', '--zoom', '7', '--expect', 'Alpha:2,Beta:2,Gamma:2'])).code, 0);
+  for (const [id, c] of [['beta', '11.003,50.503'], ['gamma', '12.002,51.001']]) {
+    assert.equal((await uw(['add-point', site, '--layer', 'stations', '--at', c, '--name', `${id[0].toUpperCase()}${id.slice(1)} Station`, '--id', id])).code, 0);
+  }
+  // a plan that names only Gamma
+  const cfg = cfgOf(site);
+  cfg.plan = { title: 'Plan', days: [{ title: 'Mon 2 Nov · Gamma', focus: { layer: 'stations', id: 'gamma' }, items: [] }] };
+  fs.writeFileSync(path.join(tmp, site, 'map.config.json'), JSON.stringify(cfg, null, 2));
+  const v = await uw(['validate', site, '--json']);
+  assert.equal(v.code, 1);
+  assert.deepEqual(v.json.errors.filter((e) => e.path === '$.expect').map((e) => e.message), ['asked for but not on the map: Alpha (2 nights) (2 of 3 stops on the map)']);
+  assert.ok(v.json.errors.some((e) => e.path === '$.plan.days' && /on the map but in no day of the plan: Beta \(2 nights\)/.test(e.message)), JSON.stringify(v.json.errors));
+});
+
 test('a city whose plain Wikipedia title is ambiguous is found as "<Name> City" near the map, never a namesake far away', async () => {
   mock.state.wikiOn = true;
   try {

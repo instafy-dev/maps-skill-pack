@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import { parseArgs, makeOut, parseList, readJSON, writeJSON, writeGeoJSON, haversine, representativePoint, clipWords, UsageError, UserError } from './util.mjs';
 import { openSite, loadLayer, layerPath, checkLayerId } from './site.mjs';
+import { expectOf, featureNames } from './expect.mjs';
 
 export const help = `plan <dir> --stops <layer> --start YYYY-MM-DD [--ids taipei,hualien,…,taipei] [--nights 3,2,2,3,2,2]
      [--legs trip] [--stays stays] [--sights sights[,food,daytrips]] [--per-day 3] [--title "Plan"] [--force] [--json]
@@ -14,7 +15,9 @@ export const help = `plan <dir> --stops <layer> --start YYYY-MM-DD [--ids taipei
   no travel day, and no departure day (3 nights are 3 dated days; the traveller leaves the day after). A stop named
   twice in a row is one stay (its nights add up), never a travel day to itself. Two stays in a row (nights at both)
   closer than about 15 km are places in one city, not a trip: refused (plan one stop, the city; its sights are
-  grouped into days by area).
+  grouped into days by area). A place of its own (a city, town, village or island, a station or an airport, by the
+  stop's "kind") is not in one city with another: two of them are a trip (not two stations of one city), and so is
+  one beside another stop when the map's "expect" names both (uw new --expect "Zermatt:2,Hörnli Hut:1").
   --nights: one number per --ids entry (the last stop of a loop may be 0 = fly out the day you arrive; a first stop
   with 0 nights is left the day you arrive; one stop with 0 nights is a single day there); default: each stop feature's "nights". With --nights the stop features' "nights"
   become the total per stop (dots under the name).
@@ -133,17 +136,40 @@ export function poolSights(stops, sights) {
 const pointOf = (f) => (f?.geometry ? representativePoint(f.geometry) : null);
 const km = (a, b) => (a && b ? haversine(a, b) / 1000 : Infinity);
 
+/** A stop that is a place of its own, as its "kind" says: a settlement or a bigger area (OpenStreetMap's place kinds),
+ *  or where a traveller arrives (a station: `uw station` writes "station_of"; an airport, a port). Any other pin (a
+ *  sight, a square, a neighbourhood, a pin with no kind) is a place inside a town. */
+const OWN_PLACE = new Set(['city', 'town', 'village', 'hamlet', 'isolated_dwelling', 'island', 'islet', 'archipelago', 'municipality', 'county',
+  'province', 'region', 'state', 'country', 'train_station', 'station', 'halt', 'aerodrome', 'airport', 'terminal', 'ferry_terminal', 'bus_station']);
+const ownPlace = (p) => !!p?.station_of || OWN_PLACE.has(String(p?.kind ?? '').toLowerCase());
+const sameName = (a, b) => String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
+
 /** Two stays in a row (nights at both, different stops) closer than trip_out_km are places in one city, not a trip:
  *  a turn made each day's pin a stop, and its plan had "Travel day … about 10 min by train" between neighbourhoods 2 km
- *  apart. A stop passed through (0 nights: an airport, a high-speed station out of town) is not a stay. `stops` and
- *  `nights` as collapseStops gives them. → { a, b, km } (the first such pair) or null. Pure; exported for the tests. */
-export function sameCityStays(stops, nights, maxKm = planChecks().trip_out_km) {
-  let prev = null;
-  for (let i = 0; i < stops.length; i++) {
-    if (!(nights[i] > 0)) continue;
-    const s = stops[i];
-    if (prev && prev.id !== s.id && km(prev.coord, s.coord) < maxKm) return { a: prev, b: s, km: km(prev.coord, s.coord) };
-    prev = s;
+ *  apart. A trip: two places of their own with different names (two towns on one coast, a night at the airport before
+ *  the city), and a place of its own beside a stop that is not one when the map's "expect" names both as the trip's
+ *  stops (a night at a hut above the town: uw validate asks for each in the plan). Two pins that are neither (sights,
+ *  neighbourhoods) stay one city whatever "expect" says. A stop passed through (0 nights: an airport, a high-speed
+ *  station out of town) is not a stay. `stops` and `nights` as collapseStops gives them; `expect` the map's (expectOf).
+ *  → { a, b, km, nights, others } (the first such pair; nights: those of the run of close stays it starts, the one
+ *  stop they become; others: the trip has stops besides them, a stop passed through too) or null. Pure; exported for
+ *  the tests. */
+export function sameCityStays(stops, nights, { maxKm = planChecks().trip_out_km, expect = [] } = {}) {
+  const stays = stops.map((s, i) => ({ s, n: nights[i] })).filter((x) => x.n > 0);
+  const named = (s) => expect.flatMap((e, i) => (featureNames(s.props, e.name) ? [i] : []));
+  const namedApart = (a, b) => { const na = named(a), nb = named(b); return na.some((i) => nb.some((j) => j !== i)); };
+  const oneCity = (a, b) => {
+    if (a.id === b.id || !(km(a.coord, b.coord) < maxKm)) return false;
+    const ownA = ownPlace(a.props), ownB = ownPlace(b.props);
+    if (ownA && ownB) return sameName(cityOf(a.props), cityOf(b.props)) && !namedApart(a, b);
+    return !((ownA || ownB) && namedApart(a, b));
+  };
+  for (let i = 0; i + 1 < stays.length; i++) {
+    if (!oneCity(stays[i].s, stays[i + 1].s)) continue;
+    let j = i + 1;
+    while (j + 1 < stays.length && oneCity(stays[j].s, stays[j + 1].s)) j++;
+    const run = stays.slice(i, j + 1), ids = new Set(run.map((x) => x.s.id));
+    return { a: stays[i].s, b: stays[i + 1].s, km: km(stays[i].s.coord, stays[i + 1].s.coord), nights: run.reduce((t, x) => t + x.n, 0), others: stops.some((s) => !ids.has(s.id)) };
   }
   return null;
 }
@@ -481,11 +507,13 @@ export async function run(argv) {
   }
   if (nightsIn.length !== stopsIn.length) throw new UsageError(`--nights has ${nightsIn.length} values for ${stopsIn.length} stops`);
   const { stops, nights } = collapseStops(stopsIn, nightsIn);
-  // a wrong plan never reaches the map: stays a short ride apart are one city, whose days are its places by area
-  const near = sameCityStays(stops, nights);
+  // a wrong plan never reaches the map: stays a short ride apart in one city are one stop, whose days are its places
+  // by area (a stop the map's "expect" names beside a town is the trip's, whatever its kind)
+  const near = sameCityStays(stops, nights, { expect: expectOf(site.config) });
   if (near) {
     throw new UserError(`These are places in one city (${cityOf(near.a.props)} and ${cityOf(near.b.props)} are ${fmtKm(near.km)} km apart). `
-      + `Plan one stop (--ids <city> --nights ${nights.reduce((a, b) => a + b, 0)}: the city, as reference/itinerary.md "One base" pins it); its sights are grouped into days by area.`);
+      + `Plan one stop${near.others ? ' for them' : ''} (--ids <city> --nights ${near.nights}: the city, as reference/itinerary.md "One base" pins it)`
+      + `${near.others ? ', with the trip\'s other stops as they are' : ''}; its sights are grouped into days by area.`);
   }
   const perDay = args['per-day'] ?? 3;
   const withLayer = (id) => { if (!id) return []; const fc = loadLayer(site, checkLayerId(id), { required: false }); return (fc?.features || []).map((f) => Object.assign(f, { _layer: id })); };

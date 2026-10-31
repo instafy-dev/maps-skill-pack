@@ -519,7 +519,7 @@ export async function run(argv) {
   if (expected.length) {
     const gaps = uncovered(cfg, featuresByLayer, expected);
     const off = gaps.filter((g) => !g.on_map), unplanned = gaps.filter((g) => g.on_map && g.in_plan === false);
-    if (off.length) E(CFG, '$.expect', `asked for but not on the map: ${describeItems(off)} (${expected.length - gaps.length} of ${expected.length} stops on the map)`,
+    if (off.length) E(CFG, '$.expect', `asked for but not on the map: ${describeItems(off)} (${expected.length - off.length} of ${expected.length} stops on the map)`,
       `place each one (uw station … --city "<name>" --country "<country>" --nights N; days in one place: reference/itinerary.md "One base"; a lookup that timed out: run its retry command), then uw plan … --force; if none can be placed this turn, the reply says plainly which are missing and why`);
     if (unplanned.length) E(CFG, '$.plan.days', `on the map but in no day of the plan: ${describeItems(unplanned)}`, 'rebuild the plan with every stop: uw plan … --ids <all stop ids in travel order> --nights … --force');
     // nights asked for are a trip: its days are the plan (the map's Plan tab), never a day's text inside a place's note
