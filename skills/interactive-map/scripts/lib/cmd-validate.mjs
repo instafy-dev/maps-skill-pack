@@ -513,6 +513,20 @@ export async function run(argv) {
           W(CFG, '$.plan.sights', `${names.length} places cite one page (${page}): ${names.slice(0, 4).join(', ')}${names.length > 4 ? ' …' : ''}. A page about a whole city or a list of places says which are worth it; it is not their source`,
             `cite each place's own page (its own site, else its Wikipedia article): uw cite <that page> --grep "<its name>", then uw set ${args._[0]} <layer>:<id> --props-file - with {"source_url":"<that page>","source":"<site>"}, then uw plan … --force`);
       }
+      // a place of those layers in no day, and not one the plan left out itself ("unplaced": no room, or far from every
+      // stop), was pinned after the days were planned: a lookup still running then finished later (uw plan named it)
+      if (Array.isArray(sightLayers) && sightLayers.length) {
+        const key = (r) => (r && typeof r === 'object' && r.layer != null && r.id != null ? `${r.layer}:${r.id}` : null);
+        const inDays = new Set(days.flatMap((d) => [key(d?.focus), ...(Array.isArray(d?.items) ? d.items : []).map((it) => key(it?.ref))]).filter(Boolean));
+        const unplaced = new Set(Array.isArray(cfg.plan.unplaced) ? cfg.plan.unplaced.map(String) : []);
+        const late = sightLayers.flatMap((id) => (featuresByLayer.get(id) || []).filter((f) => f?.properties?.id != null)
+          .filter((f) => !inDays.has(`${id}:${f.properties.id}`) && !unplaced.has(`${id}:${f.properties.id}`)));
+        if (late.length) {
+          const names = late.map((f) => String(f.properties.name_en || f.properties.name || f.properties.id));
+          E(CFG, '$.plan.days', `on the map but in no day of the plan: ${names.slice(0, 4).join(', ')}${names.length > 4 ? ' …' : ''} (pinned after the days were planned)`,
+            `uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --force: the days take every place pinned (it names one that fits no day)`);
+        }
+      }
       const bareDays = Array.isArray(sightLayers) && sightLayers.length ? gaps.bare : [];
       if (bareDays.length)
         E(CFG, '$.plan.days', `${bareDays.length} of ${gaps.full} full days have nothing to see (no sourced place): ${bareDays.slice(0, 4).join(', ')}${bareDays.length > 4 ? ' …' : ''}`,

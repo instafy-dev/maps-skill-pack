@@ -136,7 +136,9 @@ test('add-point: the Taipei hotel request builds a 3-pin map (Photon + registry)
   assert.equal(L.type, 'points');
   assert.equal(L.tier, 'option');
   assert.equal(L.data, 'data/hotels.geojson');
-  assert.equal(L.style.emoji, '🏨');
+  // no sign for the whole layer: each place draws its own (the first place's sign drew every later one)
+  assert.equal(L.style?.emoji, undefined);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(tmp, 'trip', 'data', 'hotels.geojson'), 'utf8')).features[0].properties.emoji, '🏨');
   assert.ok(Math.abs(cfg.view.center[0] - VIA[0]) < 0.001 && Math.abs(cfg.view.center[1] - VIA[1]) < 0.001, 'view moved to the hotel');
 
   const ev = await uw('add-point', 'trip', '--layer', 'hotels', '--query', 'Everstar Hotel, Taipei', '--near', NEAR, '--id', 'everstar', '--json');

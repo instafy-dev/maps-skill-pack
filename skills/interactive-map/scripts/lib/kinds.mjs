@@ -23,7 +23,8 @@ export const KINDS = {
   supermarket:  { emoji: '🛒', label: 'Supermarket', tags: ['shop:supermarket'], sel: ['["shop"="supermarket"]'] },
   convenience:  { emoji: '🏪', label: 'Convenience store', tags: ['shop:convenience'], sel: ['["shop"="convenience"]'] },
   museum:       { emoji: '🏛️', label: 'Museum', sel: ['["tourism"~"^(museum|gallery)$"]'] },
-  temple:       { emoji: '⛩️', label: 'Temple', sel: ['["amenity"="place_of_worship"]["religion"~"^(buddhist|taoist|shinto|hindu|chinese_folk|confucian|jain|tenrikyo)$"]', '["historic"="temple"]'] },
+  // a temple of any of these faiths: the neutral sign of a place of worship (a shrine, Shinto, has its gate)
+  temple:       { emoji: '🛐', label: 'Temple', sel: ['["amenity"="place_of_worship"]["religion"~"^(buddhist|taoist|shinto|hindu|chinese_folk|confucian|jain|tenrikyo)$"]', '["historic"="temple"]'] },
   viewpoint:    { emoji: '🔭', label: 'Viewpoint', sel: ['["tourism"="viewpoint"]'] },
   night_market: { emoji: '🏮', label: 'Night market', dedupe: true, dedupeAnyName: 90,
                   sel: [`["amenity"="marketplace"]["name"~"${NM}"]`, `["place"]["name"~"${NM}"]`,
@@ -80,7 +81,8 @@ export function resolveKind(k) {
 }
 
 // Emoji for an OSM-ish key/value or free kind. A place of worship is any faith's (the place search names none): the
-// neutral sign, never one faith's (a cathedral showed a shrine gate).
+// neutral sign, never one faith's (a cathedral showed a shrine gate). A castle is any country's: the plain castle, not
+// the Japanese one (the Alcázar of Seville showed it).
 const VALUE_EMOJI = {
   hotel: '🏨', motel: '🏨', hostel: '🛏️', guest_house: '🛏️', apartment: '🏢', cafe: '☕', restaurant: '🍜', fast_food: '🍔',
   bar: '🍸', pub: '🍺', nightclub: '🪩', museum: '🏛️', gallery: '🖼️', attraction: '🎡', viewpoint: '🔭', park: '🌳',
@@ -88,7 +90,7 @@ const VALUE_EMOJI = {
   marketplace: '🏮', supermarket: '🛒', convenience: '🏪', mall: '🛍️', department_store: '🛍️', bakery: '🥐', books: '📚',
   zoo: '🦁', aquarium: '🐠', theme_park: '🎢', university: '🎓', school: '🏫', hospital: '🏥', beach: '🏖️', peak: '⛰️',
   hot_spring: '♨️', city: '🏙️', town: '🏘️', village: '🏡', suburb: '🏘️', neighbourhood: '🏘️', ferry_terminal: '⛴️',
-  bus_station: '🚌', transportation: '🚉', train_station: '🚉', subway_entrance: '🚇', stadium: '🏟️', cinema: '🎬', theatre: '🎭', library: '📖', fitness_centre: '🏋️', castle: '🏯',
+  bus_station: '🚌', transportation: '🚉', train_station: '🚉', subway_entrance: '🚇', stadium: '🏟️', cinema: '🎬', theatre: '🎭', library: '📖', fitness_centre: '🏋️', castle: '🏰',
   monument: '🗿', memorial: '🗿', island: '🏝️', lake: '🏞️', waterfall: '💧', information: 'ℹ️',
 };
 export function emojiFor(kindOrValue, fallback = '📍') {
