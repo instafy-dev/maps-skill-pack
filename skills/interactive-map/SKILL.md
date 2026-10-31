@@ -35,7 +35,7 @@ Every command has `--help` and `--json`. Exit 0 ok, 1 error, 2 not found / needs
 
 ## Procedure: fast first
 
-Hosted turns stop at 10 min: card + map + verdict early, reply with time to spare.
+Hosted turns stop at 10 min: card + map + verdict early.
 `uw question` and `uw validate` print the time used and left; under ~3 min left: start nothing slow, reply.
 Long commands: `--detach`, then `uw wait` (exit 75: again).
 
@@ -89,8 +89,7 @@ sources by publisher (OpenStreetMap, Wikipedia) in one line; say what is unverif
 verdict as `uw question` printed it (the pick and why, by name, no map letter; then the persona line),
 the `Assumed:` line, what is estimated or partial (PARTIAL: "may be incomplete"), every `Tell the user` line
 (a register match: name the listing, never ask to confirm), anything "Not found yet" (what was searched; they can
-send its address). End with a ```suggestions block, a chip per line: skipped or
-unavailable steps ("Try the café search again", "Add the calm/lively layer").
+send its address).
 
 ## Config and later changes
 

@@ -6,13 +6,15 @@ import fs from 'node:fs';
 import { parseArgs, makeOut, parseList, readJSON, writeJSON, writeGeoJSON, haversine, representativePoint, clipWords, UsageError, UserError } from './util.mjs';
 import { openSite, loadLayer, layerPath, checkLayerId } from './site.mjs';
 import { expectOf, featureNames } from './expect.mjs';
+import { stillRunning, runningList } from './running.mjs';
 
 export const help = `plan <dir> --stops <layer> --start YYYY-MM-DD [--ids taipei,hualien,…,taipei] [--nights 3,2,2,3,2,2]
      [--legs trip] [--stays stays] [--sights sights[,food,daytrips]] [--per-day 3] [--title "Plan"] [--force] [--json]
   Writes map.config.json "plan": one day per date from --start, nights per stop in travel order, a travel day per leg.
   --ids: the stops in travel order (a loop names its first stop again at the end); default: the layer's order. One
   stop is a stay in one place ("3 days in Lisbon": --ids lisbon --nights 3): its days are loops from the same base,
-  no travel day, and no departure day (3 nights are 3 dated days; the traveller leaves the day after). A stop named
+  no travel day, and no departure day (3 nights are 3 dated days; the traveller leaves the day after); the stop is not
+  listed among the map's places (its layer gets "list": false; the Plan tab names it). A stop named
   twice in a row is one stay (its nights add up), never a travel day to itself. Two stays in a row (nights at both)
   closer than about 15 km are places in one city, not a trip: refused (plan one stop, the city; its sights are
   grouped into days by area). A place of its own (a city, town, village or island, a station or an airport, by the
@@ -36,7 +38,9 @@ export const help = `plan <dir> --stops <layer> --start YYYY-MM-DD [--ids taipei
   --legs and --sights layers) and every layer \`uw fit\` frames. Prints a warning for a place that is far from its day's other places or closer to another day's
   (plan-checks.json). Refuses to replace an existing plan without --force. Days with no sourced place keep "Day in …":
   add places. --sights also says the trip is about what to see each day: the plan keeps those layers ("sights"), and
-  \`uw validate\` fails while a full day (the arrival day of the trip too) has no sourced place.`;
+  \`uw validate\` fails while a full day (the arrival day of the trip too) has no sourced place. uw commands still
+  running on the site (a place lookup whose command has not finished) are named, in the JSON too ("still_running"):
+  what they find is not in the plan yet; wait until each has finished, then plan again with --force.`;
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -526,6 +530,11 @@ export async function run(argv) {
   const sightLayers = parseList(args.sights || '');
   const plan = sightLayers.length ? { title: built.title, sights: sightLayers, days: built.days } : built;
   cfg.plan = plan;
+  // days in one place: the stop is the city the whole map shows, so the places list has no group for it (the Plan tab
+  // names it); a trip of several stops lists them again
+  const stopDef = (Array.isArray(cfg.layers) ? cfg.layers : []).find((l) => l?.id === stopLayer);
+  if (stopDef && stops.length === 1) stopDef.list = false;
+  else if (stopDef?.list === false) delete stopDef.list;
   writeJSON(site.cfgPath, cfg, { pretty: true });
   // nights per stop feature (summed over visits): the numbered stops show one dot per night
   if (args.nights) {
@@ -558,7 +567,14 @@ export async function run(argv) {
   // places that fit no day (more than --per-day of a layer on every day of their stop): say so, never drop them quietly
   const onPlan = new Set(plan.days.flatMap((d) => d.items.map((it) => it.ref && `${it.ref.layer}:${it.ref.id}`)).filter(Boolean));
   const left = [...poolSights(stops, sights).values()].flat().filter((f) => !onPlan.has(`${f._layer}:${f.properties?.id}`));
-  out.result({ ok: true, days: plan.days.length, nights: totalN, route, plan, ...(view ? { view } : {}), ...(misplaced.length ? { day_places: misplaced } : {}), ...(left.length ? { not_on_plan: left.map((f) => `${f._layer}:${f.properties.id}`) } : {}) }, [
+  // commands still running on this site (lib/running.mjs): what they find is not in this plan yet
+  const running = stillRunning(site.dir);
+  const many = running.length > 1;
+  const runningNext = running.length ? `Still running on this site: ${runningList(running)}. What ${many ? 'they find is' : 'it finds is'} not in this plan yet: `
+    + `wait until ${many ? 'each has' : 'it has'} finished (an exit code; never start ${many ? 'one' : 'it'} again), then run this command again with --force.` : null;
+  out.result({ ok: true, days: plan.days.length, nights: totalN, route, plan, ...(view ? { view } : {}), ...(misplaced.length ? { day_places: misplaced } : {}), ...(left.length ? { not_on_plan: left.map((f) => `${f._layer}:${f.properties.id}`) } : {}),
+    ...(running.length ? { still_running: running.map((r) => r.label), next: runningNext } : {}) }, [
+    runningNext,
     `map.config.json: plan with ${plan.days.length} days (${totalN} nights) from ${args.start}: ` + plan.days.map((d) => d.title).slice(0, 4).join(' | ') + (plan.days.length > 4 ? ' | …' : ''),
     `${stops.length === 1 ? 'Stay' : 'Route'} for the reply (say the night split; it is an assumption unless the user fixed it): ${route}`,
     stays.length ? null : `No --stays: days focus on the ${stops.length === 1 ? 'stop' : 'stations'}. Run uw stay per stop, then re-run plan --force.`,
