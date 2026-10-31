@@ -21,6 +21,9 @@ Fixes to 0.1.19, found in its review.
 - **`uw validate` counts the stops on the map.** "asked for but not on the map: … (N of M stops on the map)" counted
   only the stops that were also in the plan, so a stop on the map but in no day made the number too low; it counts
   every stop on the map.
+- **`uw new --json` keeps its next steps.** The JSON result had only the site's facts, so a turn that made a trip's
+  site with `--json` never saw "Then: a trip (…): follow reference/itinerary.md ("One base" for days in one place)".
+  The result now carries the same lines as `next`.
 - **Corrected note (0.1.19, "dark from its first frame"):** the host's theme before the first frame comes from the
   last layout at the same address in this tab, which is a reload of the same frame (Studio's Reload button). Studio
   opens a site at a new address each time, so a card press or a reload of Studio still waits for the host's layout
@@ -28,7 +31,7 @@ Fixes to 0.1.19, found in its review.
 - **Tests:** unit and command tests for two towns (with the stops in "expect" and with no "expect"), a city and a
   city-state, a station and a village, a night at the airport, two stations of one city, a hut above a village (a trip
   only when "expect" names both), sights listed in "expect" with a night each (still one city), the refusal's nights
-  on a trip with another city, and the stop count. Each fails without its change.
+  on a trip with another city, the stop count, and `uw new --json`'s next steps. Each fails without its change.
 
 ## 0.1.19 (2026-10-31)
 

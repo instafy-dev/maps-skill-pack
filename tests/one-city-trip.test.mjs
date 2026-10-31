@@ -200,6 +200,10 @@ test('case 1 ("3 days in Seville … where to stay, what to see each day"): one 
   const made = await uw(['new', 'sv', '--title', '3 days in Seville', '--ask', 'Where to stay and what to see each day', '--center', CITY.join(','), '--zoom', '13', '--expect', 'Seville:3']);
   assert.equal(made.code, 0, made.err);
   assert.match(made.out, /Then: a trip \(Seville \(3 nights\)\): follow reference\/itinerary\.md \("One base" for days in one place\)/);
+  // the same next steps with --json (the run's turn made its site with --json, and lost the pointer to the guide)
+  const asJson = await uw(['new', 'sv-json', '--title', '3 days in Seville', '--center', CITY.join(','), '--zoom', '13', '--expect', 'Seville:3', '--json']);
+  assert.equal(asJson.code, 0, asJson.err);
+  assert.match(asJson.json.next.join('\n'), /^Next, at once: its card, from sv-json: .+\nThen: a trip \(Seville \(3 nights\)\): follow reference\/itinerary\.md \("One base" for days in one place\)/);
   assert.deepEqual(cfgOf('sv').expect, [{ name: 'Seville', nights: 3 }]);
   const stop = await uw(['add-point', 'sv', '--layer', 'stops', '--query', 'Seville', '--country', 'Spain', '--kind', 'city', '--id', 'seville', '--name', 'Seville', '--props', '{"nights":3}', '--json']);
   assert.equal(stop.code, 0, stop.out + stop.err);
