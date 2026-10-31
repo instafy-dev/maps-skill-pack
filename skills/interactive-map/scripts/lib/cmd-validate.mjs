@@ -9,6 +9,7 @@ import { parseArgs, makeOut, exists, fmtBytes } from './util.mjs';
 import { checkV2, V2_TOP_KEYS, V2_LAYER_KEYS } from './validate-v2.mjs';
 import { STARTER_DIR } from './site.mjs';
 import { parseStops, expectOf, mergeExpect, uncovered, describeItems, featureNames } from './expect.mjs';
+import { stillRunning, runningList } from './running.mjs';
 
 export const help = `validate <dir> [--signal] [--strict] [--expect "<stop>:<nights>,…"] [--json]
   Checks map.config.json (schema, enums, refs), every layer file (exists, valid GeoJSON, geometry fits the layer type,
@@ -24,6 +25,8 @@ export const help = `validate <dir> [--signal] [--strict] [--expect "<stop>:<nig
   --expect) and in --expect must be on the map and, when there is a plan, named by a day. One the request named and
   the map leaves out is an error, whatever the reason (a lookup that timed out included): place it, or say plainly in
   the reply that it is missing.
+  A uw command still running on the site (a place lookup whose command has not finished) is an error, named: what it
+  finds is not on the map yet. Wait until it has finished; never start it again.
   Exit 1 on errors, 0 when only warnings remain (--strict: warnings also fail).`;
 
 const LAYER_TYPES = ['points', 'lines', 'areas', 'grid', 'route', 'legs', 'heat'];
@@ -129,6 +132,13 @@ export async function run(argv) {
     return finish();
   }
   if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) { E(CFG, '$', 'must be a JSON object', 'start from starter/map.config.json'); return finish(); }
+  // commands still running on this site (lib/running.mjs): what they find is not on the map yet
+  const running = stillRunning(dir);
+  if (running.length) {
+    const many = running.length > 1;
+    E('data/', '', `still running on this site: ${runningList(running)}; what ${many ? 'they find is' : 'it finds is'} not on the map yet`,
+      `wait until ${many ? 'each has' : 'it has'} finished (an exit code; never start ${many ? 'one' : 'it'} again), then ${cfg.plan ? 'uw plan … --force (its days take what was found) and ' : ''}validate again`);
+  }
 
   const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
   const isLngLat = (c) => Array.isArray(c) && c.length >= 2 && isNum(c[0]) && isNum(c[1]) && Math.abs(c[0]) <= 180 && Math.abs(c[1]) <= 90;

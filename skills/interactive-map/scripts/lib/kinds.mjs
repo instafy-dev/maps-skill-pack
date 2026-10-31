@@ -79,11 +79,12 @@ export function resolveKind(k) {
   return null;
 }
 
-// Emoji for an OSM-ish key/value or free kind.
+// Emoji for an OSM-ish key/value or free kind. A place of worship is any faith's (the place search names none): the
+// neutral sign, never one faith's (a cathedral showed a shrine gate).
 const VALUE_EMOJI = {
   hotel: '🏨', motel: '🏨', hostel: '🛏️', guest_house: '🛏️', apartment: '🏢', cafe: '☕', restaurant: '🍜', fast_food: '🍔',
   bar: '🍸', pub: '🍺', nightclub: '🪩', museum: '🏛️', gallery: '🖼️', attraction: '🎡', viewpoint: '🔭', park: '🌳',
-  garden: '🌷', station: '🚉', subway: '🚇', halt: '🚉', aerodrome: '✈️', airport: '✈️', place_of_worship: '⛩️',
+  garden: '🌷', station: '🚉', subway: '🚇', halt: '🚉', aerodrome: '✈️', airport: '✈️', place_of_worship: '🛐',
   marketplace: '🏮', supermarket: '🛒', convenience: '🏪', mall: '🛍️', department_store: '🛍️', bakery: '🥐', books: '📚',
   zoo: '🦁', aquarium: '🐠', theme_park: '🎢', university: '🎓', school: '🏫', hospital: '🏥', beach: '🏖️', peak: '⛰️',
   hot_spring: '♨️', city: '🏙️', town: '🏘️', village: '🏡', suburb: '🏘️', neighbourhood: '🏘️', ferry_terminal: '⛴️',

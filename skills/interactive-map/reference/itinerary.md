@@ -122,12 +122,12 @@ add sights rather than reply. Sights come from `uw cite` in this turn, never fro
    (props with words in them always go on stdin like this: an apostrophe in single-quoted JSON breaks the command;
    exit 2 = no hit carries the name: retry once with the local name, else list it as unverified; food spots go on
    `--layer food`, day trips on `--layer daytrips --max-km 80`).
-   Once each has finished (an exit code, not still running: wait on one that is, never start it again),
-   `uw plan … --sights sights,food,daytrips --force` with the sights that landed (the layers that exist; one not
-   found stays out, in the reply's unverified line): places land on the stop's full days with their source links, and
-   each such day's text says what it is for ("Livraria Lello (the 1906 bookshop) · Eat: Mercado do Bolhão"). Reword a
-   text in the traveller's words if you like (≤ 140 characters, nothing its pages do not say; no opening hours or
-   prices from memory); a day still "Day in …" needs places.
+   Once each has finished (an exit code, not still running: wait on one that is, never start it again; `uw plan`
+   and `uw validate` name any still running), `uw plan … --sights sights,food,daytrips --force` with the sights that
+   landed (the layers that exist; one not found stays out, in the reply's unverified line): places land on the
+   stop's full days with their source links, and each such day's text says what it is for ("Livraria Lello (the
+   1906 bookshop) · Eat: Mercado do Bolhão"). Reword a text in the traveller's words if you like (≤ 140 characters,
+   nothing its pages do not say; no opening hours or prices from memory); a day still "Day in …" needs places.
 2. **Train times**, if a timetable page answers it this turn: re-run `uw legs` with `--durations`/`--source`/
    `--source-url`, then `uw plan … --force` (re-add the day texts). Copy the page's own number; a page that gives a
    range ("2 to 3 h") stays a range (`--durations "2h–3h"`), never a midpoint. The operator's timetable or journey
@@ -229,14 +229,13 @@ open site in place; then `uw validate`, SKILL.md step 9, the reply.
 - Rail track still missing (the legs are arcs): run the lines/legs retry first (Phase A step 4).
 - Changing a place's note or reason: keep its sourced facts (the walk, the register line) and add to them; never
   replace them with an "unverified" paragraph (that goes in the reply's unverified line).
-- Swapping a stop when a lookup exits 4: keep the current stop, say "place lookup is busy" and offer "Do the swap"
-  as a one-tap follow-up; never half-swap.
+- Swapping a stop when a lookup exits 4: keep the current stop, say the place lookup is busy and that they can ask
+  for the swap again; never half-swap.
 - Quiet nights, light sleepers, "which hotel is quietest": answer on the open site in the same turn from what can be
   measured, per base: `uw feel <site> --around stays`, then `uw enrich <site> --layer stays --feel` (each stay's
   `calm_night` and `noise_night_db`, estimates at its door). Pick the calmest by that measure and say why in place terms (side street or main road, distance from the tracks), suggest asking for a high,
-  street-away room, and reply with "Assumed: quiet from street and rail surroundings, not guest reviews" plus one-tap
-  follow-ups. Review and booking sites refuse automated reads: never fan out to retry them; never a bare "can't
-  confirm".
+  street-away room, and reply with "Assumed: quiet from street and rail surroundings, not guest reviews". Review and
+  booking sites refuse automated reads: never fan out to retry them; never a bare "can't confirm".
 
 ## Reply (Phase C for trips)
 
@@ -261,6 +260,3 @@ Never in the reply: file or folder names (not the handoff or site folder either:
 nobody), command names, lookup services (Overpass, Photon, OSRM) or exit codes, layer ids (`stays:…`),
 "validates"/"valid", internal scores. A lookup that was busy is said in plain words ("the place search was busy"). A builder's final summary
 follows the same rule: the lead copies it.
-End with 2-3 one-tap follow-ups that change what you assumed or add a next step ("We're 4, with kids", "Slower
-pace", "Add a day trip"); never a question the user must answer before the plan exists. In Instafy they go in
-`suggestions`: a plain-text reply ends with a fenced block tagged `suggestions`, one per line.

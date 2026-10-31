@@ -101,6 +101,14 @@ export function nameMatches(query, names, area = []) {
     bigrams.some((b) => hay.includes(b));
 }
 
+/** nameMatches, but a candidate whose own name (or English name) is the query's name, accents, case and punctuation
+ *  aside (the part before a comma, as in nameCloseness), is a match even when each word of it is generic or also names
+ *  the area: "Plaza de España, Seville" is the square of that name ("plaza" a generic word, "España" the country) and
+ *  "Triana, Seville" the district the other hits lie in. Pure; exported for the tests. */
+export function nameMatchFor(query, names, area = []) {
+  return nameCloseness(query, names, area) === 3 ? true : nameMatches(query, names, area);
+}
+
 /** How closely a candidate's own name (or its English name) is the place the query names, not only a name that
  *  contains it: 3 the same name; 2 every distinctive word of the query and no word the query does not have; 1 the
  *  query's words and more ("Miradouro do Padrão dos Descobrimentos", the viewpoint named after "Padrão dos
@@ -610,11 +618,14 @@ async function addPointRun(argv, ctx) {
       cands = inCountry;
     }
     const qType = queryType(args.query);
-    const area = areaWordsOf(cands);
+    // the area is where the place can be: the hits in range. A far-off hit's town never turns the query's own words
+    // into area words ("Real Alcázar de Sevilla" also found streets in Alcázar de San Juan, Ciudad Real)
+    const inRange = cands.filter((c) => !tooFar(c));
+    const area = areaWordsOf(inRange.length ? inRange : cands);
     // --kind city|town|village|place: a place object, never a shop or a station that carries the city's name
     // ("Tokyo Shoes Retailing Center" for Tokyo)
     const placeKind = /^(city|town|village|place)$/i.test(String(args.kind || '')) ? /^place[=:]/ : null;
-    const annotate = (list, q) => { for (const c of list) { c.name_match ??= nameMatches(q, [c.name, c.name_en], area); c.type_ok = qType ? qType.ok.test(c.type || '') : placeKind ? placeKind.test(c.type || '') : null; } };
+    const annotate = (list, q) => { for (const c of list) { c.name_match ??= nameMatchFor(q, [c.name, c.name_en], area); c.type_ok = qType ? qType.ok.test(c.type || '') : placeKind ? placeKind.test(c.type || '') : null; } };
     annotate(cands, args.query);
     // --allow-far: distance never decides (a stop far from the map's first view is still that stop)
     const good = (c) => (args['allow-far'] || !tooFar(c)) && c.name_match !== false && c.type_ok !== false;

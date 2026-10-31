@@ -72,7 +72,7 @@ test('itinerary.md Phase B: one `uw add-point` per command, then the plan once e
   const md = flat('reference/itinerary.md');
   const step1 = md.slice(md.indexOf('1. **Sights with sources'), md.indexOf('2. **Train times**'));
   assert.match(step1, /Then each sight in a command of its own, one `uw add-point` per command \(chained, one slow lookup held back the sights after it and the plan\):/);
-  assert.match(step1, /Once each has finished \(an exit code, not still running: wait on one that is, never start it again\), `uw plan … --sights sights,food,daytrips --force` with the sights that landed \(the layers that exist; one not found stays out, in the reply's unverified line\)/);
+  assert.match(step1, /Once each has finished \(an exit code, not still running: wait on one that is, never start it again; `uw plan` and `uw validate` name any still running\), `uw plan … --sights sights,food,daytrips --force` with the sights that landed \(the layers that exist; one not found stays out, in the reply's unverified line\)/);
   assert.doesNotMatch(step1, /has answered/);
   // the example is one lookup: no second one and no plan in its block
   const open = step1.indexOf('```'), block = step1.slice(open, step1.indexOf('```', open + 3));
