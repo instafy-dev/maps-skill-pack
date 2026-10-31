@@ -38,9 +38,11 @@ export const help = `plan <dir> --stops <layer> --start YYYY-MM-DD [--ids taipei
   --legs and --sights layers) and every layer \`uw fit\` frames. Prints a warning for a place that is far from its day's other places or closer to another day's
   (plan-checks.json). Refuses to replace an existing plan without --force. Days with no sourced place keep "Day in …":
   add places. --sights also says the trip is about what to see each day: the plan keeps those layers ("sights"), and
-  \`uw validate\` fails while a full day (the arrival day of the trip too) has no sourced place. uw commands still
-  running on the site (a place lookup whose command has not finished) are named, in the JSON too ("still_running"):
-  what they find is not in the plan yet; wait until each has finished, then plan again with --force.`;
+  \`uw validate\` fails while a full day (the arrival day of the trip too) has no sourced place, and while a place of
+  those layers is in no day and not one the plan lists as left out ("unplaced": no room, or far from every stop): it
+  was pinned after the days were planned. uw commands still running on the site (a place lookup whose command has not
+  finished) are named, in the JSON too ("still_running"): what they find is not in the plan yet; wait until each has
+  finished, then plan again with --force.`;
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -528,7 +530,11 @@ export async function run(argv) {
   const built = buildPlan({ stops: stopsIn, nights: nightsIn, start: args.start, legs, stays, sights, perDay, title: args.title || 'Plan' });
   // --sights: the ask is what to see each day, so validate fails while a full day has no sourced place
   const sightLayers = parseList(args.sights || '');
-  const plan = sightLayers.length ? { title: built.title, sights: sightLayers, days: built.days } : built;
+  // the places of those layers on no day (no room on their stop's days, or far from every stop) are listed, so validate
+  // tells them from a place pinned after the days were planned (a lookup still running then), which is on no day either
+  const onPlan = new Set(built.days.flatMap((d) => d.items.map((it) => it.ref && `${it.ref.layer}:${it.ref.id}`)).filter(Boolean));
+  const unplaced = sights.map((f) => `${f._layer}:${f.properties?.id}`).filter((r) => !onPlan.has(r));
+  const plan = sightLayers.length ? { title: built.title, sights: sightLayers, ...(unplaced.length ? { unplaced } : {}), days: built.days } : built;
   cfg.plan = plan;
   // days in one place: the stop is the city the whole map shows, so the places list has no group for it (the Plan tab
   // names it); a trip of several stops lists them again
@@ -565,7 +571,6 @@ export async function run(argv) {
   const feats = new Map([...[...legs, ...stays, ...sights].map((f) => [`${f._layer}:${f.properties?.id}`, f]), ...sfc.features.map((f) => [`${stopLayer}:${f.properties?.id}`, f])]);
   const misplaced = dayPlaceWarnings(plan, (r) => feats.get(`${r.layer}:${r.id}`) || null);
   // places that fit no day (more than --per-day of a layer on every day of their stop): say so, never drop them quietly
-  const onPlan = new Set(plan.days.flatMap((d) => d.items.map((it) => it.ref && `${it.ref.layer}:${it.ref.id}`)).filter(Boolean));
   const left = [...poolSights(stops, sights).values()].flat().filter((f) => !onPlan.has(`${f._layer}:${f.properties?.id}`));
   // commands still running on this site (lib/running.mjs): what they find is not in this plan yet
   const running = stillRunning(site.dir);

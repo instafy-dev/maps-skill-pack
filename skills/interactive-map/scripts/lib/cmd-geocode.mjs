@@ -890,7 +890,9 @@ async function addPointRun(argv, ctx) {
     let def = configLayer(site, layer);
     if (!def) {
       const tier = args.tier || (OPTION_LAYER.test(layer) ? 'option' : 'support');
-      def = { id: layer, title: titleCase(layer), type: 'points', data: layerRelPath(site, layer), tier, style: { emoji: props.emoji }, list: true };
+      // no sign for the whole layer: each place draws its own (a layer's style.emoji is drawn on every place in it, and
+      // the first place's sign was: a cathedral showed the castle of the palace pinned before it)
+      def = { id: layer, title: titleCase(layer), type: 'points', data: layerRelPath(site, layer), tier, style: {}, list: true };
       if (tier !== 'option') { const col = colorFor(kind || layer); if (col) def.style.color = col; }
       cfg.layers = [...(Array.isArray(cfg.layers) ? cfg.layers : []), def];
       cfgChanges.push(`registered layer "${layer}" (tier ${tier})`);

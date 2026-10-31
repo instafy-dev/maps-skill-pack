@@ -210,7 +210,14 @@ test('the run\'s own sights, one lookup per command and one slow: plan and valid
   for (const f of held.pending.splice(0)) f();
   const done = await slow;
   assert.equal(done.code, 0, done.out + done.err);
-  // finished: nothing is named any more, and the days take it
+  // finished, but the days were planned while it ran: its place is on the map and in no day, and validate fails until
+  // the days are planned again (every day already had two sights, so no day was empty)
+  assert.equal((await uw(['fit', 'sv'])).code, 0);
+  const stale = await uw(['validate', 'sv', '--signal', '--json']);
+  assert.equal(stale.code, 1, stale.out);
+  assert.deepEqual(stale.json.errors.map((e) => e.message), ['on the map but in no day of the plan: Casa de Pilatos (pinned after the days were planned)']);
+  assert.match(stale.json.errors[0].fix, /^uw plan sv … --sights sights --force: /);
+  // planned again: nothing is named any more, and the days take it
   const again = await uw(['plan', 'sv', ...PLAN, '--force', '--json']);
   assert.equal(again.code, 0, again.out + again.err);
   assert.equal(again.json.still_running, undefined);
@@ -229,12 +236,25 @@ test('the run\'s own sights, one lookup per command and one slow: plan and valid
   // days in one place: the stop is the city the map shows, not a group in the places list
   assert.equal(cfg.layers.find((l) => l.id === 'stops').list, false);
   assert.notEqual(cfg.layers.find((l) => l.id === 'sights').list, false);
-  // the cathedral has the neutral sign of a place of worship, not a shrine gate
-  assert.equal(layerOf('sv', 'sights').find((f) => f.properties.id === 'cathedral').properties.emoji, '🛐');
+  // each place draws its own sign (the map draws a layer's style.emoji, when it has one, on every place of the layer):
+  // the cathedral the neutral sign of a place of worship, not a shrine gate or the palace's castle, which was the
+  // first sight pinned
+  const sightsDef = cfg.layers.find((l) => l.id === 'sights');
+  const drawn = Object.fromEntries(layerOf('sv', 'sights').map((f) => [f.properties.id, sightsDef.style?.emoji || f.properties.emoji]));
+  assert.equal(drawn.cathedral, '🛐');
+  assert.equal(drawn.alcazar, '🏰', 'a castle, any country\'s');
+  assert.equal(new Set(Object.values(drawn)).size > 3, true, JSON.stringify(drawn));
   assert.equal((await uw(['fit', 'sv'])).code, 0);
   const v2 = await uw(['validate', 'sv', '--signal', '--json']);
   assert.equal(v2.code, 0, JSON.stringify(v2.json?.errors ?? v2.out, null, 1));
   assert.deepEqual(v2.json.errors, []);
+  // a place the days have no room for (two a day) is said by uw plan, and is not one pinned after them
+  const tight = await uw(['plan', 'sv', ...PLAN, '--per-day', '2', '--force', '--json']);
+  assert.equal(tight.code, 0, tight.out + tight.err);
+  assert.equal(tight.json.not_on_plan.length, 1, JSON.stringify(tight.json.not_on_plan));
+  const v3 = await uw(['validate', 'sv', '--signal', '--json']);
+  assert.equal(v3.code, 0, JSON.stringify(v3.json?.errors ?? v3.out, null, 1));
+  assert.deepEqual(v3.json.errors, []);
 });
 
 test('a trip of several stops lists its stops again', async () => {
@@ -316,5 +336,9 @@ test('SKILL.md: the turn clock decides when to reply, not "time to spare"', () =
 
 test('a place of worship has the neutral sign: any faith\'s, never one faith\'s', () => {
   assert.equal(emojiFor('place_of_worship'), '🛐');
-  assert.equal(emojiFor('temple'), '⛩️', 'a temple the places search found by its religion keeps its own');
+  // a temple is a Buddhist, Taoist, Hindu, Jain … one as much as a Shinto one; only a shrine (Shinto) has the gate
+  assert.equal(emojiFor('temple'), '🛐');
+  assert.equal(emojiFor('shrine'), '⛩️');
+  // a castle, any country's (the Alcázar of Seville showed a Japanese castle)
+  assert.equal(emojiFor('castle'), '🏰');
 });

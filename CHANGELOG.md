@@ -3,6 +3,30 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.22 (2026-10-31)
+
+Fixes to 0.1.21.
+
+- **Each place on the map draws its own sign.** `add-point` registered a new layer with the first place's sign as the
+  layer's `style.emoji`, which the map draws on every place in the layer: with a palace pinned first, the cathedral
+  showed the palace's castle, and with a cathedral pinned first, every palace and square showed the sign of a place
+  of worship. A layer `add-point` registers has no sign of its own now: each place draws its own, and the Map key
+  shows the first place's. A `style.emoji` set on a layer by hand still wins.
+- **A place pinned after the days were planned fails `uw validate`.** `uw plan` named a lookup still running, but once
+  it had finished, a map validated without planning again passed with that place on the map and in no day. `uw plan`
+  now lists in the plan the places of its `--sights` layers that it put on no day (`"unplaced"`: no room on their
+  stop's days, or far from every stop), and `uw validate` fails while a place of those layers is in no day and not
+  listed there ("on the map but in no day of the plan: … (pinned after the days were planned)") until
+  `uw plan … --force` places it.
+- **A temple has the neutral sign of a place of worship.** The `temple` kind, which finds Buddhist, Taoist, Hindu,
+  Jain and other temples as well as Shinto ones, showed a Shinto shrine gate (⛩️); it shows 🛐 now. A `shrine`
+  (Shinto) keeps the gate.
+- **A castle has the plain castle sign** (🏰), not the Japanese castle (🏯): the Alcázar of Seville showed it.
+- **Tests:** the Seville fixture run checks the sign each sight is drawn with, that `uw validate` fails after the slow
+  lookup has finished until the days are planned again, and that a place the days have no room for (two a day) is
+  not called late; the registry test checks that a layer `add-point` registers has no sign of its own. Each fails
+  without its change.
+
 ## 0.1.21 (2026-10-31)
 
 Fixes from a "Plan 3 days in Seville for a first visit: where to stay, what to see each day, on a map" run whose map

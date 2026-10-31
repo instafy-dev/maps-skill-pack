@@ -422,7 +422,9 @@ the host name) under the item. An item's `check` (≤ 80 characters) is what is 
 pages: "Not checked · which trails are open · where to check ↗" (`check_url`, https). A trip's plan is written by
 `uw plan` (dates, nights, legs, stays, sights; see itinerary.md); add one short `text` per day by hand.
 `"sights": ["sights", "food"]` (written by `uw plan --sights`) says the trip is about what to see each day: `uw validate`
-fails while a full day has no item with a `url`.
+fails while a full day has no item with a `url`, and while a place of those layers is in no day and not in `"unplaced"`
+(`uw plan` lists there the ones it put on no day: no room, or far from every stop); such a place was pinned after the
+days were planned, and `uw plan … --force` places it.
 `"depart": true` marks the day after the last night of a trip of several stops (`uw plan` writes it; days in one
 place have none): nothing is planned on it, its row says "Departure", and the page's "N days" does not count it. A day's places should lie together: `uw validate` warns when
 one is far from the day's other places or nearer another day's (thresholds: `scripts/plan-checks.json`).
