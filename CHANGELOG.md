@@ -3,6 +3,36 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.20 (2026-10-31)
+
+Fixes to 0.1.19, found in its review.
+
+- **Two towns a short ride apart are a trip again.** 0.1.19's `uw plan` refused any two stays closer than about 15 km
+  as "places in one city", with no way past it: "2 nights in Positano, then 2 in Amalfi" (10 km), Nice and Monaco
+  (13 km) or a night at the airport before the city could not be planned, and with both stops in the map's "expect"
+  `uw validate` asked for the plan that `uw plan` refused, so the map could never pass. The refusal now holds only for
+  places in one city: a sight, a square, a neighbourhood or a pin with no kind, and two stations of one city. Two
+  places of their own (a city, town, village or island, a station or an airport, by the stop's `kind`) are planned as
+  before, and so is a stop beside one of them when the map's "expect" names both (a night at a hut above the town:
+  `uw validate` asks for each in the plan). Two pins that are neither stay one city, whatever "expect" lists.
+- **The refusal gives the nights of the places it refuses.** On a trip with other stops it said to plan one stop with
+  the whole trip's nights (`--nights 5` for two Seville pins and Córdoba); it now gives those places' own nights
+  (`--nights 3`), "with the trip's other stops as they are".
+- **`uw validate` counts the stops on the map.** "asked for but not on the map: … (N of M stops on the map)" counted
+  only the stops that were also in the plan, so a stop on the map but in no day made the number too low; it counts
+  every stop on the map.
+- **`uw new --json` keeps its next steps.** The JSON result had only the site's facts, so a turn that made a trip's
+  site with `--json` never saw "Then: a trip (…): follow reference/itinerary.md ("One base" for days in one place)".
+  The result now carries the same lines as `next`.
+- **Corrected note (0.1.19, "dark from its first frame"):** the host's theme before the first frame comes from the
+  last layout at the same address in this tab, which is a reload of the same frame (Studio's Reload button). Studio
+  opens a site at a new address each time, so a card press or a reload of Studio still waits for the host's layout
+  message. Only `engine/host-theme.js`'s comment changes.
+- **Tests:** unit and command tests for two towns (with the stops in "expect" and with no "expect"), a city and a
+  city-state, a station and a village, a night at the airport, two stations of one city, a hut above a village (a trip
+  only when "expect" names both), sights listed in "expect" with a night each (still one city), the refusal's nights
+  on a trip with another city, the stop count, and `uw new --json`'s next steps. Each fails without its change.
+
 ## 0.1.19 (2026-10-31)
 
 Fixes from a "Plan 3 days in Seville for a first visit: where to stay, what to see each day, on a map" run, whose plan

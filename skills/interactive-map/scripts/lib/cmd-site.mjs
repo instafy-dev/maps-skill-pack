@@ -133,14 +133,18 @@ export async function newSite(argv) {
   // working screenshots stay out of git; the three a gallery shows stay in
   ensureGitignore(dir, ['.uwcache/', 'snapshots/*', '!snapshots/mobile.png', '!snapshots/desktop.png', '!snapshots/thumb.png']);
   const rel = path.relative(process.cwd(), dir) || '.';
-  out.result({ ok: true, dir, files: n, title: cfg.title, view: cfg.view }, [
-    `Created ${rel} (${n} files) — "${cfg.title}"${center ? ` centred on ${center.join(',')} @ z${cfg.view.zoom}` : ''}.`,
-    center ? null : 'No --center given: set view.center/zoom/bounds in map.config.json (validate will remind you).',
+  const next = [
     // the card before any lookup (SKILL.md step 3): a slow lookup can then cost the map content, never its card
     `Next, at once: its card, from ${rel}: ${cardCommand(cfg.title)}`,
     trip.length
       ? `Then: a trip (${describeItems(trip)}): follow reference/itinerary.md ("One base" for days in one place), not SKILL.md steps 4-8; uw validate fails until the plan has its days.`
       : `Then (SKILL.md procedure step 4): uw add-point ${rel} --layer <options> --query "<name, city>" --near <lng,lat from geocode> --id <slug>, once per option. A trip (days or nights somewhere): reference/itinerary.md instead.`,
+  ];
+  // --json keeps the next steps: a turn that made its trip's site with --json never saw the pointer to the trip guide
+  out.result({ ok: true, dir, files: n, title: cfg.title, view: cfg.view, next }, [
+    `Created ${rel} (${n} files) — "${cfg.title}"${center ? ` centred on ${center.join(',')} @ z${cfg.view.zoom}` : ''}.`,
+    center ? null : 'No --center given: set view.center/zoom/bounds in map.config.json (validate will remind you).',
+    ...next,
   ]);
 }
 
