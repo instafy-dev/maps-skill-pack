@@ -7,8 +7,10 @@
 //   captured by the handle it pressed: the drag left the sheet at once, its moves went to the map, and the sheet
 //   never rose;
 // - in a host's frame (Studio), what the host says while the tiles load counts at once. Its dark theme came after the
-//   style was in, and the map stayed light under the dark page until every tile was in; the frame's size changed
-//   while the tiles loaded, and the map stayed zoomed out, fitted to the old size, until then.
+//   style was in, and the map stayed light under the dark page until every tile was in; the frame's size changed, or
+//   the host's chrome came over its bottom, while the tiles loaded, and the map stayed fitted to the frame as it was
+//   until then;
+// - a map that cannot draw says why, and says `ready` to its host at once, never with its ready mark.
 // Offline: every request off this machine is held, then refused (no tiles, no sprite, no fonts).
 // Needs Playwright (UW_PLAYWRIGHT=/path/to/playwright, optionally UW_BROWSER_CHANNEL=chrome); skipped without it.
 // Run: UW_PLAYWRIGHT=… node --test tests/first-view-browser.test.mjs
@@ -101,7 +103,7 @@ async function openHosted(dir, ctxOpts, { w, h }) {
   page.on('pageerror', (e) => errors.push(String(e)));
   await page.goto(`http://127.0.0.1:${hport}/`);
   const frame = await (await page.waitForSelector('#f')).contentFrame();
-  const layout = (theme) => page.evaluate(([t, o]) => document.getElementById('f').contentWindow.postMessage({ source: 'instafy-host', v: 1, type: 'layout', caps: { location: 'host' }, theme: t }, o), [theme, origin]);
+  const layout = (theme, extra = {}) => page.evaluate(([t, o, x]) => document.getElementById('f').contentWindow.postMessage({ source: 'instafy-host', v: 1, type: 'layout', caps: { location: 'host' }, theme: t, ...x }, o), [theme, origin, extra]);
   const size = (fw, fh) => page.evaluate(([a, b]) => { const f = document.getElementById('f'); f.style.width = `${a}px`; f.style.height = `${b}px`; }, [fw, fh]);
   const styleIn = () => frame.waitForFunction(() => { try { return window.uw.map.getStyle().layers.length > 0; } catch { return false; } }, null, { timeout: 30000 });
   // what the site said to its host (a host only reads its own frame's messages)
@@ -255,7 +257,7 @@ test('in a host\'s frame resized while the tiles load, the first view fits the p
 // After a press on a map's card the pane said "Opening <title>…" only until the frame loaded, then showed a dark, empty
 // pane for 2 to 5 s while the map drew itself. A host keeps its line for a page that lists "ready" in its layout-ack,
 // until that page says `ready`.
-test('in a host\'s frame, the map says it draws itself after it loads and says `ready` once drawn; a map that cannot draw says so at once', { skip, timeout: 120000 }, async () => {
+test('in a host\'s frame, the map says it draws itself after it loads and says `ready` once drawn', { skip, timeout: 120000 }, async () => {
   const dir = makeSite('host-ready');
   const { frame, errors, release, layout, styleIn, said } = await openHosted(dir, { viewport: { width: 640, height: 700 }, colorScheme: 'dark' }, { w: 600, h: 650 });
   await styleIn();
@@ -271,14 +273,63 @@ test('in a host\'s frame, the map says it draws itself after it loads and says `
   assert.equal((await said()).filter((m) => m.type === 'ready').length, 1, 'says ready once, when its first view is drawn');
   assert.deepEqual(errors, []);
 
-  // a map whose settings cannot load shows why, and says so at once (never 15 s of "Opening …" over its message)
-  const broken = makeSite('host-broken');
-  fs.writeFileSync(path.join(broken, 'map.config.json'), '{ "title": ');
-  const b = await openHosted(broken, { viewport: { width: 640, height: 700 }, colorScheme: 'dark' }, { w: 600, h: 650 });
-  await b.frame.waitForSelector('.uw-fatal', { timeout: 30000 });
-  await b.layout('dark');
-  await b.frame.waitForTimeout(500);
-  assert.equal((await b.said()).filter((m) => m.type === 'ready').length, 1, JSON.stringify(await b.said()));
-  assert.equal(await b.frame.evaluate(() => document.documentElement.getAttribute('data-instafy-ready')), 'true');
-  b.release();
+});
+
+// A map that cannot draw shows why, and says `ready` at once, so a host never holds "Opening …" over its message for
+// 15 s. Its ready mark stays "false": the card keeps its picture instead of taking one of the message, and a page check
+// still says the page never drew. A style that does not load (one that does not parse) and settings that break the
+// start (not an object, a list that is not one) left the map empty with no reason and no `ready`.
+test('in a host\'s frame, a map that cannot draw (settings or style that do not load, a start that breaks) shows why and says `ready` at once; its ready mark stays "false"', { skip, timeout: 180000 }, async () => {
+  const cases = {
+    'host-broken-settings': (dir) => fs.writeFileSync(path.join(dir, 'map.config.json'), '{ "title": '),
+    'host-broken-style': (dir) => fs.writeFileSync(path.join(dir, 'style.json'), '{ "version": 8, '),
+    'host-null-settings': (dir) => fs.writeFileSync(path.join(dir, 'map.config.json'), 'null'),
+    'host-broken-start': (dir) => {
+      const cfg = JSON.parse(fs.readFileSync(path.join(dir, 'map.config.json'), 'utf8'));
+      fs.writeFileSync(path.join(dir, 'map.config.json'), JSON.stringify({ ...cfg, layers: 5 }));
+    },
+  };
+  for (const [name, breakIt] of Object.entries(cases)) {
+    const dir = makeSite(name);
+    breakIt(dir);
+    const b = await openHosted(dir, { viewport: { width: 640, height: 700 }, colorScheme: 'dark' }, { w: 600, h: 650 });
+    await b.frame.waitForSelector('.uw-fatal', { timeout: 30000 }).catch(() => assert.fail(`${name}: no message says why the map cannot draw`));
+    await b.layout('dark');
+    await b.frame.waitForTimeout(500);
+    const said = await b.said();
+    assert.ok(said.find((m) => m.type === 'layout-ack')?.supports?.includes('ready'), `${name}: ${JSON.stringify(said)}`);
+    assert.equal(said.filter((m) => m.type === 'ready').length, 1, `${name}: says ready once, at once: ${JSON.stringify(said)}`);
+    assert.equal(await b.frame.evaluate(() => document.querySelectorAll('.uw-fatal').length), 1, `${name}: one message`);
+    assert.equal(await b.frame.evaluate(() => document.documentElement.getAttribute('data-instafy-ready')), 'false', `${name}: never pictured as drawn`);
+    assert.equal(await b.frame.evaluate(() => window.__uwReady), false, name);
+    b.release();
+  }
+});
+
+// A host whose chrome covers part of the frame (its composer, a chat sheet over the pane) says so in a layout that can
+// come while the tiles load. The first view stayed fitted to the whole frame, with places under the host's chrome,
+// until every tile was in.
+test('in a host\'s frame, a layout whose chrome covers the bottom of the frame while the tiles load fits the places above it at once', { skip, timeout: 120000 }, async () => {
+  const dir = makeSite('host-insets');
+  const H = 650, COVER = 380;
+  const { page, frame, errors, release, layout, styleIn } = await openHosted(dir, { viewport: { width: 960, height: 700 }, colorScheme: 'dark' }, { w: 900, h: H });
+  await styleIn();
+  await page.waitForTimeout(500);
+  const first = await placesIn(frame);
+  assert.ok(Object.values(first.pts).some(([, y]) => y > H - COVER), `a place sits where the host's chrome will be: ${JSON.stringify(first)}`);
+  await layout('dark', { insets: { top: 0, bottom: COVER, left: 0, right: 0 } });
+  await page.waitForTimeout(800);
+  assert.equal(await frame.evaluate(() => window.__uwReady), false, 'still waiting for its tiles');
+  const loading = await placesIn(frame);
+  assert.equal(loading.H, H, 'the frame kept its size: only the host\'s chrome changed');
+  for (const [k, [x, y]] of Object.entries(loading.pts)) {
+    assert.ok(x >= 8 && x <= loading.W - 8 && y >= 8 && y <= H - COVER - 8, `${k} above the host's chrome while the tiles load: ${JSON.stringify(loading)}`);
+  }
+  release();
+  await frame.waitForFunction(() => window.__uwReady === true, null, { timeout: 60000 });
+  await page.waitForTimeout(300);
+  const ready = await placesIn(frame);
+  assert.ok(Math.abs(ready.zoom - loading.zoom) < 0.01 && Math.abs(ready.center[0] - loading.center[0]) < 1e-5 && Math.abs(ready.center[1] - loading.center[1]) < 1e-5,
+    `the first view does not move when the tiles come in: ${JSON.stringify({ loading, ready })}`);
+  assert.deepEqual(errors, []);
 });

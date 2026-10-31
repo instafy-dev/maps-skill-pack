@@ -1514,8 +1514,10 @@ async function boot() {
     dayWalkLabel: (d) => walkLabel(dayRouteFeature(d)?.properties.mode) });
   E.onLayout = (side) => { syncMapSize(); placeAttribution(side); layoutNotes(); };
   E.onSnap = () => { setTimeout(layoutNotes, 460); follow.changed(); };
-  // a map that can't draw shows why at once: a host waiting for its first view ("ready", host.js) stops waiting
-  E.onFatal = () => { document.documentElement.setAttribute('data-instafy-ready', 'true'); E.emit('ready', { title: document.title }); };
+  // a map that can't draw shows why at once: a host waiting for its first view ("ready", host.js) stops waiting. Its
+  // ready mark stays "false": the card keeps its picture rather than one of the message, and a page check says the
+  // page never drew
+  E.onFatal = () => E.emit('ready', { title: document.title });
   E.onView = () => follow.changed();
   // opening the Plan tab shows its day on the map (before, nothing happened until "next", and a 1-day plan never applied)
   E.onTab = (id) => { if (id === 'plan' && E.day == null && E.config?.plan?.days?.length && E.map) setDay(0); navChanged(); };
@@ -1539,6 +1541,7 @@ async function boot() {
     hostBound = hostHint && r.headers.get('x-uw-bound') === '1';
     const text = await r.text();
     try { config = JSON.parse(text); } catch (e) { throw new Error('invalid JSON: ' + e.message); }
+    if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('not a JSON object');
   }
   catch (e) { E.error("couldn't load map.config.json: " + e.message); ui.fatal("This map couldn't load its settings", `map.config.json: ${e.message}`); return; }
   E.config = config;
@@ -1592,7 +1595,8 @@ async function boot() {
   try { map = E.map = new maplibregl.Map(opts); } catch (e) { E.error('map init failed: ' + e.message, e); ui.fatal('The map could not start', e.message); return; }
   // the basemap's look (labels, overrides, day / night) as soon as the style is in, before its first frame: 'load'
   // waits for every tile, and until then a dark page drew the style's light colours (a white map for seconds)
-  map.once('style.load', () => { try { basemapLook(map, config); } catch (e) { E.error('basemap look: ' + e.message, e); } });
+  let styleIn = false;
+  map.once('style.load', () => { styleIn = true; try { basemapLook(map, config); } catch (e) { E.error('basemap look: ' + e.message, e); } });
   // the device's or the host's theme (engine/host.js writes Studio's on <html>) sets the basemap from then on, also
   // while the tiles load: a host's theme that came after the style left a light map under a dark page until 'load'
   window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', () => { if (E.look) E.look.state.dark = -1; applyLook(); });
@@ -1613,6 +1617,8 @@ async function boot() {
   placeAttribution(ui.side);
   map.on('error', (e) => {
     const msg = e?.error?.message || String(e?.error || 'map error');
+    // the style itself did not load (missing, not JSON, not a valid style): the map never draws, so say why at once
+    if (!styleIn && !e?.sourceId && !e?.tile) { E.error('map style: ' + msg, e?.error); ui.fatal("This map couldn't load its look", `${typeof opts.style === 'string' ? opts.style : 'style'}: ${msg}`); return; }
     if (e?.sourceId || e?.tile || /tile|Failed to fetch|NetworkError|AJAXError|404|403/i.test(msg)) { console.warn('[map] tile/source issue (non-fatal):', msg); (window.__uwWarnings ||= []).push(msg); return; }
     E.error('map: ' + msg, e?.error);
   });
@@ -2921,4 +2927,5 @@ const uw = {
 window.uw = uw;
 export default uw;
 
-boot().catch((e) => { E.error('boot failed: ' + e.message, e); });
+// a start that breaks before the map is drawn (settings it cannot use) shows why, as any map that cannot draw does
+boot().catch((e) => { E.error('boot failed: ' + (e?.message ?? e), e); if (!window.__uwReady) E.ui?.fatal('The map could not start', String(e?.message ?? e)); });

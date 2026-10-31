@@ -3,6 +3,34 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.18 (2026-10-31)
+
+Fixes to 0.1.17, found in its review.
+
+- **The plan waits for each lookup to finish.** A command tool answers a lookup that outlasts its wait with a session
+  and no exit code, and the trip guide ran `uw plan` once each lookup had "answered". It now runs `uw plan` once each
+  has finished (an exit code), and waits on one still running instead of starting it again. The team handoff's report
+  says the same where the model acts on it: the sights the place lookup could not place come with "run each in a
+  command of its own, and once each has finished … uw plan … --force" (it said "run these", and pasted into one
+  command, one slow lookup held back the rest and the plan).
+- **`uw wait` ends within a command's wait.** A command tool waits at most 30 s for a command, then answers with
+  the output so far. `uw wait` waited 50 s, so a turn waiting on a long job (a team's `uw handoff … --apply --detach`)
+  got that output with no word that the job ran on. It now waits 25 s, then says "still running … run `uw wait <id>`
+  again" itself.
+- **A map that cannot draw keeps its card's picture.** Its error screen set the page's ready mark, so the card's
+  picture became the error message and a page check counted the page as drawn. It now only tells its host `ready`;
+  the mark stays "false", as `__uwReady` does.
+- **Every map that cannot draw says why, at once.** A style that does not load (one that does not parse), settings
+  that are not an object and a start that breaks on its settings (a layer list that is not a list) left the map empty
+  with no reason, and, with 0.1.17's `ready` in the layout-ack, held a host's "Opening <title>…" for 15 s. They now
+  show why and say `ready` at once. One message shows, however many errors the style reports.
+- **Tests:** a host-frame browser test for four maps that cannot draw (each says `ready` once, keeps its ready mark
+  "false" and shows one message), one for `uw wait` (it ends within 30 s on a job still running, and says so), and
+  the trip guide's test now also reads the team report's line; each fails on 0.1.17. A host-frame test for a layout
+  whose chrome covers the frame's bottom while the tiles load (the places fit above it at once) covers 0.1.17's refit
+  on a host layout, which no test did: it fails without that refit. Two `uw handoff --apply` suites no longer reach
+  the live tile server: the rail track's fallback reads their mock's tiles.
+
 ## 0.1.17 (2026-10-31)
 
 Fixes from a "Plan 3 days in Seville for a first visit … what to see each day, on a map" run, whose map had one sight

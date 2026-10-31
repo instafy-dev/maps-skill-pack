@@ -183,6 +183,12 @@ export function railRetryCommands(site, legArgs) {
   return [`uw lines ${q(site)} --layer rail --kinds rail,hsr --simplify 80 --timeout 120`, `uw ${legs.map(q).join(' ')}`];
 }
 
+/** The report's line above the commands of sights the place lookup could not place: each in a command of its own,
+ *  then the plan once each has finished. Pasted into one command, one slow lookup held back the rest and the plan. */
+export function unplacedSightsAdvice(n) {
+  return `${n} sourced sight(s) are not on the map because the place lookup was unavailable. Wait a minute, then run each in a command of its own, and once each has finished (an exit code, not still running) uw plan … --force, before replying when the turn clock allows; a sight still not placed goes into its day's text with its source link, so no full day ships empty:`;
+}
+
 /** A cited page as the source check last read it (shared cache, PAGE_CACHE_MS): a continuation turn or a second build
  *  re-reads nothing it read within hours. Only answers are kept (a page, or a gone page), never a refusal or an error. */
 const PAGE_CACHE_MS = 6 * 3600e3;
@@ -794,7 +800,7 @@ async function applyHandoff({ args, out, items, problems, sourcesCheck }) {
     'In the reply and your summary: no file or folder names (the handoff or site folders), commands or layer ids.',
     retryRail ? 'Rail track not loaded, so the legs are straight arcs. Run these now if the turn clock allows, else as the next turn\'s first step (then uw plan … --force and re-add the day texts):' : null,
     ...(retryRail || []).map((c) => `  ${c}`),
-    retrySights.length ? `${retrySights.length} sourced sight(s) are not on the map because the place lookup was unavailable. Wait a minute and run these, then uw plan … --force (before replying when the turn clock allows); a sight still not placed goes into its day's text with its source link, so no full day ships empty:` : null,
+    retrySights.length ? unplacedSightsAdvice(retrySights.length) : null,
     ...retrySights.map((c) => `  ${c}`),
     unverified.length ? 'Unverified (say so in the reply):' : null,
     ...unverified.map((u) => `  ${u}`),

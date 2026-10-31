@@ -15,6 +15,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SKILL = path.join(HERE, '..', 'skills', 'interactive-map');
 const UW = path.join(SKILL, 'scripts', 'uw.mjs');
 const { cardCommand } = await import(pathToFileURL(path.join(SKILL, 'scripts', 'lib', 'cmd-site.mjs')).href);
+const { unplacedSightsAdvice } = await import(pathToFileURL(path.join(SKILL, 'scripts', 'lib', 'cmd-handoff.mjs')).href);
 const flat = (f) => fs.readFileSync(path.join(SKILL, f), 'utf8').replace(/\s+/g, ' ');
 const OPEN = 'instafy preview open --title "<title>" --serve-cmd "uw host . --port {port}" --start --json';
 
@@ -64,18 +65,24 @@ test('itinerary.md Phase B: sights come from `uw cite` in this turn, never from 
 });
 
 // A "3 days in Seville" turn put three sight lookups and `uw plan` in one command, twice. A slow lookup outlasted the
-// command, so the sights after it and the plan never ran: one sight, no Plan tab, and a reply with minutes left.
-test('itinerary.md Phase B: one `uw add-point` per command, then the plan with the sights that landed', () => {
+// command, so the sights after it and the plan never ran: one sight, no Plan tab, and a reply with minutes left. Its
+// command tool answered a lookup still running with a session and no exit code, which is an answer but not the end:
+// the plan waits for each lookup's exit code, and a lookup still running is waited on, never started again.
+test('itinerary.md Phase B: one `uw add-point` per command, then the plan once each has finished, with the sights that landed', () => {
   const md = flat('reference/itinerary.md');
   const step1 = md.slice(md.indexOf('1. **Sights with sources'), md.indexOf('2. **Train times**'));
   assert.match(step1, /Then each sight in a command of its own, one `uw add-point` per command \(chained, one slow lookup held back the sights after it and the plan\):/);
-  assert.match(step1, /Once each has answered, `uw plan … --sights sights,food,daytrips --force` with the sights that landed \(the layers that exist; one not found stays out, in the reply's unverified line\)/);
+  assert.match(step1, /Once each has finished \(an exit code, not still running: wait on one that is, never start it again\), `uw plan … --sights sights,food,daytrips --force` with the sights that landed \(the layers that exist; one not found stays out, in the reply's unverified line\)/);
+  assert.doesNotMatch(step1, /has answered/);
   // the example is one lookup: no second one and no plan in its block
   const open = step1.indexOf('```'), block = step1.slice(open, step1.indexOf('```', open + 3));
   assert.equal((block.match(/uw add-point/g) || []).length, 1, block);
   assert.doesNotMatch(block, /uw plan|&&|;\s*uw /);
-  // a team's unplaced sights are run the same way
-  assert.match(md, /come with their exact commands: run them, one per command \(then `uw plan … --force`\), before the reply/);
+  // a team's unplaced sights are run the same way, in the guide and in the report the model acts on
+  assert.match(md, /come with their exact commands: run them, one per command \(then, once each has finished, `uw plan … --force`\), before the reply/);
+  const advice = unplacedSightsAdvice(2);
+  assert.match(advice, /^2 sourced sight\(s\) are not on the map because the place lookup was unavailable\. Wait a minute, then run each in a command of its own, and once each has finished \(an exit code, not still running\) uw plan … --force, before replying when the turn clock allows/);
+  assert.doesNotMatch(advice, /run these/);
 });
 
 test('uw new names the card command as the next step, from the site folder, before the trip or option steps', () => {

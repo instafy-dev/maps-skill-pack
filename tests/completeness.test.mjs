@@ -129,7 +129,9 @@ function startMock() {
 const env = (extra = {}) => {
   const e = { ...process.env, UW_CACHE: path.join(tmp, `cache-${Math.random().toString(36).slice(2)}`), UW_PHOTON: mock.url, UW_WIKIPEDIA: mock.url, UW_OVERPASS: mock.url + '/api/interpreter',
     UW_OSRM: mock.url, UW_VALHALLA: mock.url, UW_TURN_BUDGET: '0', INSTAFY_LOOKUP_STATE: path.join(tmp, `health-${Math.random().toString(36).slice(2)}.json`), TMPDIR: path.join(tmp, 'os-tmp'),
-    UW_RETRY_PAUSE_MS: '0', UW_APPLY_RAIL_TIMEOUT: '5', UW_APPLY_RAIL_RETRY_WITHIN_S: '0', UW_APPLY_STOP_RETRY_S: '20', ...extra };
+    UW_RETRY_PAUSE_MS: '0', UW_APPLY_RAIL_TIMEOUT: '5', UW_APPLY_RAIL_RETRY_WITHIN_S: '0', UW_APPLY_STOP_RETRY_S: '20',
+    // the rail track's fallback reads the basemap's tiles: the mock's, never the live tile server
+    UW_BASEMAP_TILES: mock.url + '/no-tiles.json', ...extra };
   for (const k of ['INSTAFY_TURN_STARTED_AT', 'INSTAFY_TURN_DEADLINE', 'INSTAFY_TURN_CONTINUE_FILE', 'INSTAFY_STEP_TIMINGS_FILE', 'UW_NO_CACHE', 'UW_JOB_TIMINGS', 'INSTAFY_LOOKUP_PROVIDERS']) if (!(k in extra)) delete e[k];
   return e;
 };
