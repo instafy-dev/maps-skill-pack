@@ -129,7 +129,7 @@ test('HostLink: only the parent frame, one origin, an allowlist when the site ha
   assert.equal(type, 'layout-ack');
   assert.equal(ack.v, 1);
   assert.deepEqual(ack.insets, LAYOUT.insets);
-  for (const s of ['insets', 'title', 'caps.geolocation', 'reload', 'hotkey', 'select', 'lens', 'ask', 'done']) assert.ok(ack.supports.includes(s), s);
+  for (const s of ['insets', 'title', 'caps.geolocation', 'reload', 'hotkey', 'select', 'lens', 'ask', 'done', 'ready']) assert.ok(ack.supports.includes(s), s);
   assert.equal(seen.length, 1); assert.deepEqual(link.insets, LAYOUT.insets);
   win.post({ ...LAYOUT, insets: { bottom: 300 } }, { origin: 'https://evil.example' });
   assert.equal(sent.length, 1, 'the first host to speak keeps the frame');

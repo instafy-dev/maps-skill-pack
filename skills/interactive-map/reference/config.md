@@ -537,7 +537,8 @@ the first touch on the map.
 `parent.postMessage({ source: 'instafy-map', v: 1, type, payload, title }, '*')` (without `feature`).
 
 `window.__uwReady` turns `true` once the map is idle with all layers, and `<html data-instafy-ready>` turns from
-`"false"` to `"true"` with it (Instafy's preview card takes its picture then); `window.__uwErrors` lists problems.
+`"false"` to `"true"` with it (Instafy's preview card takes its picture then; a host frame that was told "ready" in
+the map's layout-ack keeps saying it is opening the map until the `ready` event); `window.__uwErrors` lists problems.
 
 ## Layout rules (for custom.js)
 

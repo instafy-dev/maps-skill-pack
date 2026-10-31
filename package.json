@@ -1,6 +1,6 @@
 {
   "name": "maps-skill-pack",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "private": true,
   "description": "Interactive maps, trips and place lookups as an Instafy skill pack",
   "license": "AGPL-3.0-only",

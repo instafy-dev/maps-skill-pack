@@ -5,7 +5,10 @@
 //   turned phone-sized, so the places sat at the right edge or off it;
 // - the phone sheet follows a drag from its handle. A mouse (and a browser that sends mouse events for a phone) is not
 //   captured by the handle it pressed: the drag left the sheet at once, its moves went to the map, and the sheet
-//   never rose.
+//   never rose;
+// - in a host's frame (Studio), what the host says while the tiles load counts at once. Its dark theme came after the
+//   style was in, and the map stayed light under the dark page until every tile was in; the frame's size changed
+//   while the tiles loaded, and the map stayed zoomed out, fitted to the old size, until then.
 // Offline: every request off this machine is held, then refused (no tiles, no sprite, no fonts).
 // Needs Playwright (UW_PLAYWRIGHT=/path/to/playwright, optionally UW_BROWSER_CHANNEL=chrome); skipped without it.
 // Run: UW_PLAYWRIGHT=… node --test tests/first-view-browser.test.mjs
@@ -14,6 +17,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import http from 'node:http';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -69,6 +73,42 @@ async function open(dir, ctxOpts, { hold = false } = {}) {
   return { page, errors, release };
 }
 
+/** The site in a host's frame, as Studio shows it: from another origin, with `?instafy_host=studio`, `w`×`h` px. The host
+ *  says nothing until the test posts its layout (`layout(theme)`); `size(w, h)` resizes the frame; `said()` lists what
+ *  the site told its host. Every request off this machine is held until `release()`. */
+async function openHosted(dir, ctxOpts, { w, h }) {
+  const site = createStaticServer(dir);
+  const port = await listen(site, 0, '127.0.0.1');
+  closers.push(() => new Promise((res) => site.close(res)));
+  const origin = `http://127.0.0.1:${port}`;
+  const host = http.createServer((req, res) => {
+    res.setHeader('content-type', 'text/html');
+    res.end(`<!doctype html><style>html,body{margin:0;background:#202020}iframe{border:0;display:block}</style>
+<iframe id="f" style="width:${w}px;height:${h}px" src="${origin}/?instafy_host=studio"></iframe>
+<script>window.__msgs = []; addEventListener('message', (e) => { if (e.source === document.getElementById('f').contentWindow) window.__msgs.push(e.data); });</script>`);
+  });
+  const hport = await listen(host, 0, '127.0.0.1');
+  closers.push(() => new Promise((res) => host.close(res)));
+  const browser = await launchChromium(pw);
+  closers.push(() => browser.close());
+  const ctx = await browser.newContext(ctxOpts);
+  let release = () => {};
+  const held = new Promise((res) => { release = res; });
+  closers.push(async () => release());
+  await ctx.route(/^https?:\/\/(?!127\.0\.0\.1|localhost)/, async (route) => { await held; route.abort().catch(() => {}); });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  await page.goto(`http://127.0.0.1:${hport}/`);
+  const frame = await (await page.waitForSelector('#f')).contentFrame();
+  const layout = (theme) => page.evaluate(([t, o]) => document.getElementById('f').contentWindow.postMessage({ source: 'instafy-host', v: 1, type: 'layout', caps: { location: 'host' }, theme: t }, o), [theme, origin]);
+  const size = (fw, fh) => page.evaluate(([a, b]) => { const f = document.getElementById('f'); f.style.width = `${a}px`; f.style.height = `${b}px`; }, [fw, fh]);
+  const styleIn = () => frame.waitForFunction(() => { try { return window.uw.map.getStyle().layers.length > 0; } catch { return false; } }, null, { timeout: 30000 });
+  // what the site said to its host (a host only reads its own frame's messages)
+  const said = () => page.evaluate(() => window.__msgs.filter((m) => m && m.source === 'instafy-map' && m.v === 1).map((m) => ({ type: m.type, supports: m.payload?.supports })));
+  return { page, frame, errors, release, layout, size, styleIn, said };
+}
+
 /** The colour the page shows at (x, y) of the viewport, from a screenshot decoded in the page itself. */
 async function pixel(page, x, y) {
   const png = (await page.screenshot({ clip: { x, y, width: 2, height: 2 } })).toString('base64');
@@ -103,7 +143,7 @@ test('a dark page draws a dark map from its first frame, while the tiles are sti
 const placesIn = (page) => page.evaluate((places) => {
   const m = window.uw.map, sheet = document.querySelector('.uw-sheet');
   const pts = Object.fromEntries(Object.entries(places).map(([k, c]) => { const p = m.project(c); return [k, [Math.round(p.x), Math.round(p.y)]]; }));
-  return { W: innerWidth, top: Math.round(sheet.getBoundingClientRect().top), pts, center: m.getCenter().toArray(), zoom: m.getZoom() };
+  return { W: innerWidth, H: innerHeight, top: Math.round(sheet.getBoundingClientRect().top), pts, center: m.getCenter().toArray(), zoom: m.getZoom() };
 }, PLACES);
 
 test('a map opened wide shows every place when its frame turns phone-sized; once someone moves it, a new size leaves it alone', { skip, timeout: 120000 }, async () => {
@@ -165,4 +205,80 @@ test('phone: dragging the sheet by its handle raises it, and dragging it back do
   await page.waitForTimeout(600);
   assert.equal(await snap(), 'half');
   assert.deepEqual(errors, []);
+});
+
+// Studio on a light device in its dark theme: the frame knows the theme only from the host's message, which can come
+// after the style is in. The map then stayed light under the dark page for as long as the tiles took (2 to 3 s on a
+// reload).
+test('in a host\'s frame, the host\'s dark theme turns the map dark as soon as it comes, while the tiles are still on their way', { skip, timeout: 120000 }, async () => {
+  const dir = makeSite('host-theme');
+  const { page, frame, errors, release, layout, styleIn } = await openHosted(dir, { viewport: { width: 640, height: 700 }, colorScheme: 'light' }, { w: 600, h: 650 });
+  await styleIn();
+  await page.waitForTimeout(300);
+  const before = await pixel(page, 300, 120);
+  assert.ok(lum(before) > 200, `light before the host says anything (a light device): rgb(${before})`);
+  await layout('dark');
+  await frame.waitForFunction(() => document.documentElement.dataset.uwHostTheme === 'dark', null, { timeout: 5000 });
+  await page.waitForTimeout(500);
+  assert.equal(await frame.evaluate(() => window.__uwReady), false, 'still waiting for its tiles');
+  assert.equal(await frame.evaluate(() => window.uw.map.loaded()), false);
+  const after = await pixel(page, 300, 120);
+  release();
+  assert.ok(lum(after) < 70, `dark as soon as the host says so, not once every tile is in: rgb(${after})`);
+  assert.deepEqual(errors, []);
+});
+
+// A host still laying out its pane: the frame starts short and gets its height while the tiles load. The camera stayed
+// fitted to the short frame (zoomed out) until every tile was in, then zoomed to the places.
+test('in a host\'s frame resized while the tiles load, the first view fits the places in the new size at once and stays when the tiles come', { skip, timeout: 120000 }, async () => {
+  const dir = makeSite('host-size');
+  const { page, frame, errors, release, layout, size, styleIn } = await openHosted(dir, { viewport: { width: 400, height: 700 }, colorScheme: 'dark' }, { w: 375, h: 200 });
+  await styleIn();
+  await layout('dark');
+  await size(375, 650);
+  await page.waitForTimeout(800);
+  assert.equal(await frame.evaluate(() => window.__uwReady), false, 'still waiting for its tiles');
+  const loading = await placesIn(frame);
+  assert.equal(loading.H, 650);
+  for (const [k, [x, y]] of Object.entries(loading.pts)) {
+    assert.ok(x >= 8 && x <= loading.W - 8 && y >= 8 && y <= loading.top - 8, `${k} above the sheet while the tiles load: ${JSON.stringify(loading)}`);
+  }
+  release();
+  await frame.waitForFunction(() => window.__uwReady === true, null, { timeout: 60000 });
+  await page.waitForTimeout(300);
+  const ready = await placesIn(frame);
+  assert.ok(Math.abs(ready.zoom - loading.zoom) < 0.01 && Math.abs(ready.center[0] - loading.center[0]) < 1e-5 && Math.abs(ready.center[1] - loading.center[1]) < 1e-5,
+    `the first view does not move when the tiles come in: ${JSON.stringify({ loading, ready })}`);
+  assert.deepEqual(errors, []);
+});
+
+// After a press on a map's card the pane said "Opening <title>…" only until the frame loaded, then showed a dark, empty
+// pane for 2 to 5 s while the map drew itself. A host keeps its line for a page that lists "ready" in its layout-ack,
+// until that page says `ready`.
+test('in a host\'s frame, the map says it draws itself after it loads and says `ready` once drawn; a map that cannot draw says so at once', { skip, timeout: 120000 }, async () => {
+  const dir = makeSite('host-ready');
+  const { frame, errors, release, layout, styleIn, said } = await openHosted(dir, { viewport: { width: 640, height: 700 }, colorScheme: 'dark' }, { w: 600, h: 650 });
+  await styleIn();
+  await layout('dark');
+  await frame.waitForTimeout(500);
+  const early = await said();
+  const ack = early.find((m) => m.type === 'layout-ack');
+  assert.ok(ack?.supports?.includes('ready'), `the layout-ack lists "ready": ${JSON.stringify(early)}`);
+  assert.equal(early.filter((m) => m.type === 'ready').length, 0, 'not drawn while its tiles are on their way');
+  release();
+  await frame.waitForFunction(() => window.__uwReady === true, null, { timeout: 60000 });
+  await frame.waitForTimeout(300);
+  assert.equal((await said()).filter((m) => m.type === 'ready').length, 1, 'says ready once, when its first view is drawn');
+  assert.deepEqual(errors, []);
+
+  // a map whose settings cannot load shows why, and says so at once (never 15 s of "Opening …" over its message)
+  const broken = makeSite('host-broken');
+  fs.writeFileSync(path.join(broken, 'map.config.json'), '{ "title": ');
+  const b = await openHosted(broken, { viewport: { width: 640, height: 700 }, colorScheme: 'dark' }, { w: 600, h: 650 });
+  await b.frame.waitForSelector('.uw-fatal', { timeout: 30000 });
+  await b.layout('dark');
+  await b.frame.waitForTimeout(500);
+  assert.equal((await b.said()).filter((m) => m.type === 'ready').length, 1, JSON.stringify(await b.said()));
+  assert.equal(await b.frame.evaluate(() => document.documentElement.getAttribute('data-instafy-ready')), 'true');
+  b.release();
 });

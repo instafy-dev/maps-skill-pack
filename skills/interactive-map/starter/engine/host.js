@@ -9,6 +9,8 @@
 //         insets = px of the frame covered by host chrome (bars, composer, peek), measured from the frame's edges.
 // OUT  { source: "instafy-map", v: 1, type: "layout-ack", payload: {...} } through bridge.emit after each layout, so the
 //      host can drop its own padding. A host that never gets an ack keeps padding the frame (older or non-map pages).
+//      Its supports list "ready": the map draws itself after the page loads, and says { type: "ready" } once its first
+//      view is drawn (or it shows why it can't draw), so a host can say it is opening the map until then.
 //
 // Effects (all CSS, set on <html>, so they work before the map has booted):
 //   --uw-host-t/b/l/r          the insets; engine.css folds them into --sat/--sab/--sal/--sar as a floor
@@ -122,7 +124,7 @@ export class HostLink {
     const done = applyLayout(L, this.root, this.name || 'host');
     if (o.stash !== false) this.stash(L);
     try { this.onLayout(L); } catch (err) { console.warn('[map] host layout:', err?.message); }
-    if (o.ack !== false) this.emit('layout-ack', { v: 1, noun: 'map', ...done, supports: ['insets', 'title', 'caps.geolocation', 'caps.location', 'reload', 'hotkey', 'select', 'lens', 'ask', 'done', 'page', 'navigate', 'view', 'tap'] });
+    if (o.ack !== false) this.emit('layout-ack', { v: 1, noun: 'map', ...done, supports: ['insets', 'title', 'caps.geolocation', 'caps.location', 'reload', 'hotkey', 'select', 'lens', 'ask', 'done', 'page', 'navigate', 'view', 'tap', 'ready'] });
     return done;
   }
   key() { return STASH + (this.win.location?.pathname || '/'); }
