@@ -1293,6 +1293,7 @@ export class UI {
 
   fatal(title, text) {
     this.root.append(h('div.uw-fatal', h('div.uw-fatal-card', h('div.uw-fatal-e', '🗺️'), h('h2', title), h('p', text))));
+    this.ctx.onFatal?.();
   }
 }
 

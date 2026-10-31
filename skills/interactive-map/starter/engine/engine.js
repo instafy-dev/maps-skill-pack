@@ -63,12 +63,10 @@ const hostLink = new HostLink({
     E.ui.hostInsets = { ...L.insets };
     E.ui.layout();
     syncMapSize();
-    if (E.map && E.booted) {
-      layoutNotes();
-      // the host's composer / chat sheet grew: keep the selected place in the part of the map that is still visible
-      if (L.insets.bottom !== prevBottom && E.sel) { const S = E.layers?.byId.get(E.sel.layer), f = S?.byFid.get(E.sel.id), c = f && E.layers.featureCenter(S, f); if (c) reveal(c); }
-      else refitFirstView();
-    }
+    if (E.map && E.booted) layoutNotes();
+    // the host's composer / chat sheet grew: keep the selected place in the part of the map that is still visible
+    if (E.map && E.booted && L.insets.bottom !== prevBottom && E.sel) { const S = E.layers?.byId.get(E.sel.layer), f = S?.byFid.get(E.sel.id), c = f && E.layers.featureCenter(S, f); if (c) reveal(c); }
+    else refitFirstView();
   },
   // answers to "Show my location" from a host that locates for us (caps.location "host", locate.js)
   onLocation: (d) => locator.receive(d),
@@ -399,12 +397,13 @@ function camKey() {
 }
 /**
  * The first view fits the places again when the frame changes under it (a desktop frame turned phone, the host's bars
- * over it): the camera kept the centre fitted for the old frame, which put a side panel's offset on a phone and the
- * places at its edge. Only while nobody has moved, selected or followed anything since (the camera is still the one
+ * over it), from the map's first frame on, so also while its tiles load: the camera kept the centre fitted for the
+ * old frame, which put a side panel's offset on a phone and the places at its edge, or the places zoomed out until
+ * every tile was in. Only while nobody has moved, selected or followed anything since (the camera is still the one
  * the first view set); a link's own view (#at=) is never redone.
  */
 function refitFirstView() {
-  if (!E.booted || !E.firstView || E.viewTouched || E.sel || E.ui.card || E.camOnMe) return;
+  if (!E.map || !E.firstView || E.viewTouched || E.sel || E.ui.card || E.camOnMe) return;
   if (camKey() !== E.firstView) { E.firstView = null; return; }
   home(false);
   E.firstView = camKey();
@@ -1515,6 +1514,8 @@ async function boot() {
     dayWalkLabel: (d) => walkLabel(dayRouteFeature(d)?.properties.mode) });
   E.onLayout = (side) => { syncMapSize(); placeAttribution(side); layoutNotes(); };
   E.onSnap = () => { setTimeout(layoutNotes, 460); follow.changed(); };
+  // a map that can't draw shows why at once: a host waiting for its first view ("ready", host.js) stops waiting
+  E.onFatal = () => { document.documentElement.setAttribute('data-instafy-ready', 'true'); E.emit('ready', { title: document.title }); };
   E.onView = () => follow.changed();
   // opening the Plan tab shows its day on the map (before, nothing happened until "next", and a 1-day plan never applied)
   E.onTab = (id) => { if (id === 'plan' && E.day == null && E.config?.plan?.days?.length && E.map) setDay(0); navChanged(); };
@@ -1592,7 +1593,11 @@ async function boot() {
   // the basemap's look (labels, overrides, day / night) as soon as the style is in, before its first frame: 'load'
   // waits for every tile, and until then a dark page drew the style's light colours (a white map for seconds)
   map.once('style.load', () => { try { basemapLook(map, config); } catch (e) { E.error('basemap look: ' + e.message, e); } });
-  // a gesture on the map ends the first view (refitFirstView); a new frame size may refit it, once the sheet is laid out
+  // the device's or the host's theme (engine/host.js writes Studio's on <html>) sets the basemap from then on, also
+  // while the tiles load: a host's theme that came after the style left a light map under a dark page until 'load'
+  window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', () => { if (E.look) E.look.state.dark = -1; applyLook(); });
+  try { new MutationObserver(() => { if (E.look) E.look.state.dark = -1; applyLook(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-uw-host-theme'] }); } catch { /* old browsers */ }
+  // a gesture on the map ends the first view (refitFirstView); a new frame size refits it, also while the tiles load
   map.on('movestart', (e) => { if (e.originalEvent) E.viewTouched = true; });
   map.on('resize', () => requestAnimationFrame(refitFirstView));
   // the container's size, always (syncMapSize): our own observer, which keeps every callback, plus the window's resizes
@@ -1602,6 +1607,9 @@ async function boot() {
   syncMapSize();
   if (!hash.at && v.center && v.bounds) fit(v.bounds, { duration: 0, maxZoom: maxZoomFor(v), pitch: v.pitch || 0, bearing: v.bearing || 0 });
   else if (!hash.at && v.center) map.jumpTo({ center: centerFor(v.center) });
+  // the first view from the first frame: a host's layout or a new frame size before the tiles are in fits the places
+  // again at once (it stayed fitted to the frame as it was, zoomed out, until 'load')
+  if (!hash.at && !hash.s) E.firstView = camKey();
   placeAttribution(ui.side);
   map.on('error', (e) => {
     const msg = e?.error?.message || String(e?.error || 'map error');
@@ -1733,9 +1741,6 @@ async function boot() {
       if (E.ui.card?.kind === 'feature' || E.ui.tab === 'compare') refreshPanels({ soft: true });
     }, 30000);
     refreshPanels({ soft: true });
-    window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', () => { E.look.state.dark = -1; applyLook(); });
-    // the host's theme (engine/host.js writes it) also sets the basemap when the clock is off
-    try { new MutationObserver(() => { E.look.state.dark = -1; applyLook(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-uw-host-theme'] }); } catch { /* old browsers */ }
     bindMap();
     window.addEventListener('hashchange', () => {
       const s = readHash();

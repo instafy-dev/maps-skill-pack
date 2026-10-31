@@ -3,6 +3,29 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.17 (2026-10-31)
+
+Fixes from a "Plan 3 days in Seville for a first visit … what to see each day, on a map" run, whose map had one sight
+in three days and no Plan tab, and from reloading that map dark in Studio.
+
+- **One lookup per command, then the plan.** The run put three sight lookups and `uw plan` in one command, twice. A
+  slow lookup outlasted the command, so the sights after it and the plan never ran, and the turn replied with minutes
+  left. Phase B of the trip guide now runs each sight in a command of its own, one `uw add-point` per command, and
+  `uw plan` once each has answered, with the sights that landed (one not found stays out, in the reply's unverified
+  line). A team's unplaced sights run the same way.
+- **The host's dark theme counts at once.** In Studio on a light device, the frame learns Studio's dark theme from
+  Studio's message, which can come after the map's style is in. The map then stayed light under the dark page until
+  every tile was in (2 to 3 s on a reload). The basemap now follows a theme change from the moment its style is in.
+- **A frame resized while the tiles load keeps its places in view.** The first view was fitted again to a new frame
+  size only once every tile was in, so a frame that got its height while the tiles loaded showed its places zoomed
+  out, then zoomed to them. It now fits them again at once, from the map's first frame on, until someone moves it.
+- **Studio says it is opening the map until the map is drawn.** After a press on a map's card, Studio said "Opening
+  <title>…" only until the frame loaded, and the map then drew itself for 2 to 5 s in a dark, empty pane. Studio keeps
+  its line for a page that lists "ready" in its layout-ack, until that page says `ready`. The map now lists it and
+  says `ready` once its first view is drawn, or at once when it shows why it can't draw.
+- **Tests:** three browser tests in a host's frame (its theme after the style is in, a resize while the tiles load,
+  `ready`), and one for the trip guide's one lookup per command.
+
 ## 0.1.16 (2026-10-30)
 
 Fixes to 0.1.15, found in its review.

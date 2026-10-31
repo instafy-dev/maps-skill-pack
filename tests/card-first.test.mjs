@@ -63,6 +63,21 @@ test('itinerary.md Phase B: sights come from `uw cite` in this turn, never from 
   assert.match(phaseB, /add sights rather than reply\. Sights come from `uw cite` in this turn, never from a browser card\./);
 });
 
+// A "3 days in Seville" turn put three sight lookups and `uw plan` in one command, twice. A slow lookup outlasted the
+// command, so the sights after it and the plan never ran: one sight, no Plan tab, and a reply with minutes left.
+test('itinerary.md Phase B: one `uw add-point` per command, then the plan with the sights that landed', () => {
+  const md = flat('reference/itinerary.md');
+  const step1 = md.slice(md.indexOf('1. **Sights with sources'), md.indexOf('2. **Train times**'));
+  assert.match(step1, /Then each sight in a command of its own, one `uw add-point` per command \(chained, one slow lookup held back the sights after it and the plan\):/);
+  assert.match(step1, /Once each has answered, `uw plan … --sights sights,food,daytrips --force` with the sights that landed \(the layers that exist; one not found stays out, in the reply's unverified line\)/);
+  // the example is one lookup: no second one and no plan in its block
+  const open = step1.indexOf('```'), block = step1.slice(open, step1.indexOf('```', open + 3));
+  assert.equal((block.match(/uw add-point/g) || []).length, 1, block);
+  assert.doesNotMatch(block, /uw plan|&&|;\s*uw /);
+  // a team's unplaced sights are run the same way
+  assert.match(md, /come with their exact commands: run them, one per command \(then `uw plan … --force`\), before the reply/);
+});
+
 test('uw new names the card command as the next step, from the site folder, before the trip or option steps', () => {
   const r = spawnSync(process.execPath, [UW, 'new', 'lx', '--title', 'Lisbon in 3 days', '--center', '-9.1393,38.7107', '--zoom', '13', '--expect', 'Lisbon:3'],
     { cwd: tmp, encoding: 'utf8' });
