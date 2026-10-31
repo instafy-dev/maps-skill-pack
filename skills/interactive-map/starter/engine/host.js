@@ -28,6 +28,7 @@ export const MAX_INSET = 480;
 const LOCATION_TYPES = ['location', 'location-error', 'location-stop'];
 // follow mode (follow.js): start / stop presenting, a presenter's view or tap to show
 const FOLLOW_TYPES = ['present', 'apply-view', 'apply-tap'];
+// the last layout per path, for a soft reload; engine/host-theme.js reads its theme before the first frame (same key)
 const STASH = 'uw:host-layout:';
 // a provisional title guess before the first message: Studio shows its bar (and the title) where the frame gets the
 // side-panel layout; on phones it shows none. The layout message always wins.

@@ -187,24 +187,28 @@ test('a feature stands for an item by its id, stop or a name that names it as a 
   assert.deepEqual(uncovered({}, fm, parseExpect('Hualien')), [], 'no plan yet: the map is enough');
 });
 
-test('validate fails while an expected item is not on the map, from the config or from --expect', async () => {
+test('validate fails while a stop asked for is not on the map, from the config or from --expect', async () => {
   const site = 'v-site';
   assert.equal((await uw(['new', site, '--title', 'Trip', '--center', '11,50.5', '--zoom', '7', '--expect', 'Alpha:3,Beta:2'])).code, 0);
   assert.deepEqual(cfgOf(site).expect, [{ name: 'Alpha', nights: 3 }, { name: 'Beta', nights: 2 }]);
   const none = await uw(['validate', site]);
   assert.equal(none.code, 1, none.out);
-  assert.match(none.out, /asked for but not on the map: Alpha \(3 nights\), Beta \(2 nights\) \(0 of 2 expected items are covered\)/);
+  assert.match(none.out, /asked for but not on the map: Alpha \(3 nights\), Beta \(2 nights\) \(0 of 2 stops on the map\)/);
   assert.equal((await uw(['add-point', site, '--layer', 'stations', '--at', '10.004,50.002', '--name', 'Alpha Station', '--id', 'alpha'])).code, 0);
   const one = await uw(['validate', site, '--json']);
   assert.equal(one.code, 1);
-  assert.deepEqual(one.json.errors.filter((e) => e.path === '$.expect').map((e) => e.message), ['asked for but not on the map: Beta (2 nights) (1 of 2 expected items are covered)']);
+  assert.deepEqual(one.json.errors.filter((e) => e.path === '$.expect').map((e) => e.message), ['asked for but not on the map: Beta (2 nights) (1 of 2 stops on the map)']);
   assert.equal((await uw(['add-point', site, '--layer', 'stations', '--at', '11.003,50.503', '--name', 'Beta Station', '--id', 'beta'])).code, 0);
   const all = await uw(['validate', site, '--json']);
   assert.deepEqual(all.json.errors.filter((e) => /expect/.test(e.path)), [], JSON.stringify(all.json.errors));
   // a list the config does not carry
-  const more = await uw(['validate', site, '--expect', 'Gamma', '--json']);
+  const more = await uw(['validate', site, '--expect', 'Gamma:2', '--json']);
   assert.equal(more.code, 1);
-  assert.match(more.json.errors.find((e) => e.path === '$.expect').message, /not on the map: Gamma/);
+  assert.match(more.json.errors.find((e) => e.path === '$.expect').message, /not on the map: Gamma \(2 nights\)/);
+  // only stops with nights: anything else is refused, as by uw new
+  const text = await uw(['validate', site, '--expect', 'Gamma']);
+  assert.equal(text.code, 2, text.out + text.err);
+  assert.match(text.err, /--expect: "Gamma" is not a stop with nights\. Name only the trip's stops with their nights \("Lisbon:3"\)\. Days and stays come from uw plan and uw stay\./);
   // the engine knows the key: no console warning on the page
   assert.match(fs.readFileSync(path.join(SKILL, 'starter', 'engine', 'engine.js'), 'utf8'), /'missing', 'expect'\]/);
 });

@@ -30,8 +30,8 @@ Every command has `--help` and `--json`. Exit 0 ok, 1 error, 2 not found / needs
    areas; no Google APIs, Nominatim, scraping. Sign-in, CAPTCHA, 429: stop.
 7. Never type a price or licence number. Never present a filed rate as a price, permitted hours as opening hours,
    or one register's answer as all.
-8. Each item the request names is on the map, or the reply names it as missing: `uw new … --expect "A,B:2"` makes
-   `uw validate` fail while one is missing.
+8. A trip's stops with nights only: `uw new … --expect "Lisbon:3"` (days: `uw plan`, stays: `uw stay`);
+   `uw validate` fails while one or the plan is missing.
 
 ## Procedure: fast first
 

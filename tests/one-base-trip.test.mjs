@@ -1,6 +1,6 @@
 // Days in one place (the 27 Oct 2026 live test: "Plan 3 days in Lisbon"): `uw plan` takes one stop (a stay with day
 // loops, no "Lisbon → Lisbon" travel day), groups a stop's places by area (Jardim da Estrela never lands on the Alfama
-// day), marks the departure day instead of leaving it looking empty, and `uw validate` warns when a hand-edited day
+// day), gives 3 nights 3 dated days (no fourth, empty departure date), and `uw validate` warns when a hand-edited day
 // has a place far from its other places or nearer another day's. Offline: no lookups; the places are the fixtures'.
 // Run: node --test tests/one-base-trip.test.mjs
 import { test, after } from 'node:test';
@@ -59,26 +59,24 @@ async function makeSite(name) {
   return { dir, cfgPath };
 }
 
-test('plan (CLI): one stop is a stay of 3 nights: dated days, no travel day to itself, the departure marked', async () => {
+// "3 days in Lisbon" was 3 nights plus a fourth date with nothing on it (Leave Lisbon.): days in one place have no
+// departure date; the stay line still runs to the day the traveller leaves, the date a booking needs.
+test('plan (CLI): one stop is a stay of 3 nights: three dated days, no travel day to itself and no departure date', async () => {
   const { cfgPath } = await makeSite('lx');
   const r = await run(['plan', 'lx', '--stops', 'stops', '--ids', 'lisbon', '--nights', '3', '--start', '2026-10-30', '--stays', 'stays', '--sights', 'sights', '--json']);
   assert.equal(r.code, 0, r.err + r.out);
   const plan = JSON.parse(fs.readFileSync(cfgPath, 'utf8')).plan;
-  assert.deepEqual(plan.days.map((d) => d.title), ['Fri 30 Oct · Lisbon', 'Sat 31 Oct · Lisbon', 'Sun 1 Nov · Lisbon', 'Mon 2 Nov · Lisbon: depart']);
+  assert.deepEqual(plan.days.map((d) => d.title), ['Fri 30 Oct · Lisbon', 'Sat 31 Oct · Lisbon', 'Sun 1 Nov · Lisbon']);
   assert.ok(plan.days.every((d) => !d.title.includes('→') && !/^Travel day/.test(d.text)), 'never a travel day');
+  assert.ok(plan.days.every((d) => !d.depart && !/^Leave /.test(d.text)), 'no departure day');
   assert.match(r.json.route, /^Lisbon 3 \(3 nights, Fri 30 Oct – Mon 2 Nov\)$/);
-  // every day before the departure is a loop from the same base, with its places
+  // every day is a loop from the same base, with its places
   assert.equal(r.json.not_on_plan, undefined);
-  for (const d of plan.days.slice(0, 3)) {
+  for (const d of plan.days) {
     assert.deepEqual(d.focus, { layer: 'stays', id: LISBON.base.id });
     assert.ok(d.items.some((it) => it.ref?.layer === 'sights'), `${d.title} has places`);
   }
   assert.match(plan.days[0].items[0].text, /^Base: Hotel in Baixa · 3 min walk to Baixa$/, 'a stay near a district walks to it, not to "the station"');
-  // the departure: marked, nothing invented on it
-  const last = plan.days[3];
-  assert.equal(last.depart, true);
-  assert.deepEqual(last.items, []);
-  assert.equal(last.text, 'Leave Lisbon.');
   assert.equal((await run(['fit', 'lx'])).code, 0);
   const v = await run(['validate', 'lx']);
   assert.equal(v.code, 0, v.out + v.err);
@@ -173,11 +171,11 @@ test('plan: a stop named twice in a row is one stay, never "Lisbon → Lisbon �
   await makeSite('lx2');
   const r = await run(['plan', 'lx2', '--stops', 'stops', '--ids', 'lisbon,lisbon', '--nights', '2,1', '--start', '2026-10-30', '--stays', 'stays', '--sights', 'sights', '--json']);
   assert.equal(r.code, 0, r.err + r.out);
-  assert.equal(r.json.days, 4);
+  assert.equal(r.json.days, 3);
   assert.ok(r.json.plan.days.every((d) => !d.title.includes('→')), r.json.plan.days.map((d) => d.title).join(' | '));
   assert.match(r.json.route, /^Lisbon 3 \(3 nights/);
   const plan = buildPlan({ stops: [lisbonStop, lisbonStop], nights: [2, 1], start: '2026-10-30', stays: [baseStay] });
-  assert.deepEqual(plan.days.map((d) => d.title), ['Fri 30 Oct · Lisbon', 'Sat 31 Oct · Lisbon', 'Sun 1 Nov · Lisbon', 'Mon 2 Nov · Lisbon: depart']);
+  assert.deepEqual(plan.days.map((d) => d.title), ['Fri 30 Oct · Lisbon', 'Sat 31 Oct · Lisbon', 'Sun 1 Nov · Lisbon']);
   // legs made for that list (leg 1 Lisbon → Lisbon, leg 2 Lisbon → Porto): the travel day takes the real leg
   const porto = { id: 'porto', layer: 'stops', coord: [-8.6110, 41.1456], props: { id: 'porto', name: 'Porto' } };
   const leg = (id, order, to, extra = {}) => Object.assign(point(id, LISBON.centre, { order, from: 'lisbon', to, ...extra }), { _layer: 'trip' });

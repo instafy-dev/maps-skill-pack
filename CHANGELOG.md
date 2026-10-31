@@ -3,6 +3,42 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.19 (2026-10-31)
+
+Fixes from a "Plan 3 days in Seville for a first visit: where to stay, what to see each day, on a map" run, whose plan
+made each day a place of its own ("Travel day … about 10 min by train" between neighbourhoods 2 km apart), had four
+dates for three days and a "Days" group in the list; and from reloading a map in a dark Studio.
+
+- **`--expect` takes only a trip's stops with their nights.** The run listed its own items there ("Where to stay",
+  "Day 1: historic center", …), renamed its pins to match them ("Day 1 · Alcazar and cathedral"), and those pins
+  became the trip's stops. `uw new --expect` (and `uw validate --expect`) now refuse anything but stops with nights,
+  before anything is made: "Name only the trip's stops with their nights ("Lisbon:3"). Days and stays come from uw
+  plan and uw stay." `uw validate` reads only the stops a map lists (other items an older map listed are not read),
+  and SKILL.md rule 8 says only that.
+- **`uw plan` refuses stays in one city.** Two stays in a row (nights at both) closer than about 15 km
+  (`trip_out_km` in `scripts/plan-checks.json`, the distance that already makes a place a trip out of town) are
+  refused: "These are places in one city (… are 1.2 km apart). Plan one stop (--ids <city> --nights 3: …); its sights
+  are grouped into days by area." A stop passed through (0 nights: an airport, a station out of town) and a loop's
+  return to its first stop are not stays. A wrong plan then never reaches the map.
+- **Days in one place have no departure date.** "3 days" was 3 nights plus a fourth date ("Leave <city>.") with
+  nothing on it. A plan with one stop now has a dated day per night and no departure day; the stay line for the reply
+  still runs to the day the traveller leaves ("Seville 3 (3 nights, Sun 1 Nov – Wed 4 Nov)"), the dates a booking
+  needs. A trip of several stops keeps its departure day.
+- **A reloaded map is dark from its first frame.** A dark map faded in from the style's light land on every load:
+  MapLibre fades a paint change over 300 ms, the first look too, and on a reload the cached light tiles showed through
+  it. In a dark host on a light device, the light page also showed until the engine's modules ran. The map's look now
+  goes in without a fade until the map is drawn (later changes, the hour, still fade), and the host's theme from its
+  last layout in this tab goes on the page before it draws (`engine/host-theme.js`, loaded first by `index.html`). A
+  site made before 0.1.19 keeps its own `index.html`, so `uw upgrade` brings it the first half only. The `ready` in the
+  layout-ack (0.1.17) already keeps a host's line until the map is drawn.
+- **Tests:** a fixture run of the Seville request (place search, lodging search and walking router mocked): the run's
+  own `--expect` list is refused, its pins as stops are refused, and the guide's flow gives one stop, three dated days
+  of 2-3 sights each cited from its own page, three hotels from `uw stay`, no travel day and no "Days" group, and
+  `uw validate --signal` passes. Unit tests for the stops-only `--expect`, the one-city refusal (a 0-night stop and a
+  loop pass) and the plan's dates. A host-frame browser test reloads a map three times in a dark host on a light
+  device and finds no light frame; it fails with either half of the change taken out. A synthetic trip in the
+  itinerary tests passes through its stop 10 km from the first instead of staying there.
+
 ## 0.1.18 (2026-10-31)
 
 Fixes to 0.1.17, found in its review.

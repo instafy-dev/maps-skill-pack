@@ -1,9 +1,10 @@
-// "expect": the items the request names (its stops, its places, its products), kept in map.config.json so every later
-// `uw validate` checks the built map against them. A builder that loses an item to a slow lookup cannot ship a map
-// that quietly leaves it out (r10: every Taiwan team run dropped the two east-coast stops the traveller asked for,
-// and validate still said the map was fine).
-// An entry is a name, or { name, nights }. `uw handoff --apply --route …` writes the route; `uw new --expect` and
-// `uw validate --expect` take a list like "Taipei:3,Hualien:2,Taitung" (nights optional).
+// "expect": the trip's stops with their nights, kept in map.config.json so every later `uw validate` checks the built
+// map against them. A builder that loses a stop to a slow lookup cannot ship a map that quietly leaves it out (r10:
+// every Taiwan team run dropped the two east-coast stops the traveller asked for, and validate still said the map was
+// fine). Only stops: a turn that listed its own days and stays there ("Day 1: historic center", "Where to stay")
+// renamed its pins to match, and those pins became the trip's stops, a day each.
+// An entry is { name, nights }. `uw handoff --apply --route …` writes the route; `uw new --expect` and
+// `uw validate --expect` take a list like "Taipei:3,Hualien:2,Taitung:0" (parseStops refuses anything else).
 import { slugify, UsageError } from './util.mjs';
 
 /** "Taipei:3, Hualien:2,Taitung" (or a JSON array) → [{ name, nights? }]. */
@@ -30,12 +31,24 @@ function normEntry(x) {
   }
   const s = String(x ?? '').trim();
   if (!s) return null;
-  const m = s.match(/^(.+?):(\d{1,2})$/);
+  const m = s.match(/^(.+?)\s*:\s*(\d{1,2})$/);
   return m ? { name: m[1].trim(), nights: Number(m[2]) } : { name: s };
 }
 
-/** The config's list, cleaned (unknown shapes dropped). */
-export const expectOf = (cfg) => parseExpect(Array.isArray(cfg?.expect) ? cfg.expect : []);
+/** `--expect` of `uw new` and `uw validate`: the trip's stops with their nights ("Lisbon:3"), or a UsageError that
+ *  names what is not one. Days come from `uw plan`, stays from `uw stay`. */
+export function parseStops(raw, flag = '--expect') {
+  const list = parseExpect(raw);
+  const other = list.filter((e) => e.nights == null);
+  if (other.length) {
+    throw new UsageError(`${flag}: ${other.map((e) => JSON.stringify(e.name)).join(', ')} ${other.length === 1 ? 'is not a stop' : 'are not stops'} with nights. `
+      + 'Name only the trip\'s stops with their nights ("Lisbon:3"). Days and stays come from uw plan and uw stay.');
+  }
+  return list;
+}
+
+/** The config's stops with nights (unknown shapes, and items without nights an older map listed, are not read). */
+export const expectOf = (cfg) => parseExpect(Array.isArray(cfg?.expect) ? cfg.expect : []).filter((e) => e.nights != null);
 
 /** Union, keeping the first list's order and its nights. */
 export function mergeExpect(a, b) {

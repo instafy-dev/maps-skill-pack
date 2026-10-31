@@ -10,7 +10,10 @@
 //   style was in, and the map stayed light under the dark page until every tile was in; the frame's size changed, or
 //   the host's chrome came over its bottom, while the tiles loaded, and the map stayed fitted to the frame as it was
 //   until then;
-// - a map that cannot draw says why, and says `ready` to its host at once, never with its ready mark.
+// - a map that cannot draw says why, and says `ready` to its host at once, never with its ready mark;
+// - reloaded in a dark host on a light device (Studio's Reload), the map is dark from its first frame. The page drew
+//   its light background until the engine's modules ran, and the map faded from the style's light colours to the dark
+//   look over MapLibre's 300 ms transition (over its cached light tiles, on a reload).
 // Offline: every request off this machine is held, then refused (no tiles, no sprite, no fonts).
 // Needs Playwright (UW_PLAYWRIGHT=/path/to/playwright, optionally UW_BROWSER_CHANNEL=chrome); skipped without it.
 // Run: UW_PLAYWRIGHT=… node --test tests/first-view-browser.test.mjs
@@ -109,6 +112,41 @@ async function openHosted(dir, ctxOpts, { w, h }) {
   // what the site said to its host (a host only reads its own frame's messages)
   const said = () => page.evaluate(() => window.__msgs.filter((m) => m && m.source === 'instafy-map' && m.v === 1).map((m) => ({ type: m.type, supports: m.payload?.supports })));
   return { page, frame, errors, release, layout, size, styleIn, said };
+}
+
+/** The site in a frame of a host that behaves as Studio's preview pane: the frame from another origin with
+ *  `?instafy_host=studio`, the layout (dark theme) posted on the frame's load event and again when the site first
+ *  speaks; `reload()` replaces the frame with a new one at the same address, as the pane's Reload does. */
+async function openStudioLike(dir, ctxOpts, { w, h }) {
+  const site = createStaticServer(dir);
+  const port = await listen(site, 0, '127.0.0.1');
+  closers.push(() => new Promise((res) => site.close(res)));
+  const origin = `http://127.0.0.1:${port}`;
+  const host = http.createServer((req, res) => {
+    res.setHeader('content-type', 'text/html');
+    res.end(`<!doctype html><style>html,body{margin:0;background:#202020;color-scheme:dark}iframe{border:0;display:block;width:${w}px;height:${h}px}</style>
+<div id="pane"></div>
+<script>
+let frame = null, heard = false;
+const layout = () => frame.contentWindow.postMessage({ source: 'instafy-host', v: 1, type: 'layout', caps: { location: 'host' }, theme: 'dark' }, '${origin}');
+window.mount = () => { heard = false; const f = document.createElement('iframe'); f.src = '${origin}/?instafy_host=studio'; f.onload = layout; frame = f; document.getElementById('pane').replaceChildren(f); };
+addEventListener('message', (e) => { if (frame && e.source === frame.contentWindow && !heard) { heard = true; layout(); } });
+window.mount();
+</script>`);
+  });
+  const hport = await listen(host, 0, '127.0.0.1');
+  closers.push(() => new Promise((res) => host.close(res)));
+  const browser = await launchChromium(pw);
+  closers.push(() => browser.close());
+  const ctx = await browser.newContext(ctxOpts);
+  await ctx.route(/^https?:\/\/(?!127\.0\.0\.1|localhost)/, (route) => route.abort().catch(() => {}));
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  await page.goto(`http://127.0.0.1:${hport}/`);
+  const frame = () => page.frames().find((f) => f.url().startsWith(origin));
+  const reload = () => page.evaluate(() => window.mount());
+  return { page, frame, errors, reload };
 }
 
 /** The colour the page shows at (x, y) of the viewport, from a screenshot decoded in the page itself. */
@@ -331,5 +369,28 @@ test('in a host\'s frame, a layout whose chrome covers the bottom of the frame w
   const ready = await placesIn(frame);
   assert.ok(Math.abs(ready.zoom - loading.zoom) < 0.01 && Math.abs(ready.center[0] - loading.center[0]) < 1e-5 && Math.abs(ready.center[1] - loading.center[1]) < 1e-5,
     `the first view does not move when the tiles come in: ${JSON.stringify({ loading, ready })}`);
+  assert.deepEqual(errors, []);
+});
+
+// Studio's Reload in its dark theme on a light device showed the map light for under a second: the page's light
+// background until the engine's modules ran (they run after the first frames; the host's theme from its last layout
+// is now on the page before it draws), then the style's light land fading to the dark look over MapLibre's 300 ms
+// transition (the first look now goes in without a fade, until the map is drawn).
+test('in a dark host on a light device, a Reload is dark from its first frame: no light page before the engine runs, no fade from the style\'s light land', { skip, timeout: 180000 }, async () => {
+  const dir = makeSite('host-reload');
+  const { page, frame, errors, reload } = await openStudioLike(dir, { viewport: { width: 640, height: 680 }, colorScheme: 'light' }, { w: 600, h: 640 });
+  for (let i = 0; i < 300 && !frame(); i++) await page.waitForTimeout(100);
+  await frame().waitForFunction(() => window.__uwReady === true, null, { timeout: 60000 });
+  for (let i = 1; i <= 3; i++) {
+    await reload();
+    const t0 = Date.now(), seen = [];
+    while (Date.now() - t0 < 1500) seen.push([Date.now() - t0, lum(await pixel(page, 450, 150))]);
+    const light = seen.filter(([, L]) => L > 70);
+    assert.ok(seen.length >= 15, `sampled often enough: ${seen.length}`);
+    assert.deepEqual(light, [], `reload ${i}: frames lighter than the dark host (ms, luminance): ${JSON.stringify(seen)}`);
+    for (let k = 0; k < 300 && !frame(); k++) await page.waitForTimeout(100);
+    await frame().waitForFunction(() => window.__uwReady === true, null, { timeout: 60000 });
+    assert.equal(await frame().evaluate(() => document.documentElement.dataset.uwHostTheme), 'dark');
+  }
   assert.deepEqual(errors, []);
 });

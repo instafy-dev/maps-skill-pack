@@ -11,7 +11,10 @@ export const help = `plan <dir> --stops <layer> --start YYYY-MM-DD [--ids taipei
   Writes map.config.json "plan": one day per date from --start, nights per stop in travel order, a travel day per leg.
   --ids: the stops in travel order (a loop names its first stop again at the end); default: the layer's order. One
   stop is a stay in one place ("3 days in Lisbon": --ids lisbon --nights 3): its days are loops from the same base,
-  no travel day. A stop named twice in a row is one stay (its nights add up), never a travel day to itself.
+  no travel day, and no departure day (3 nights are 3 dated days; the traveller leaves the day after). A stop named
+  twice in a row is one stay (its nights add up), never a travel day to itself. Two stays in a row (nights at both)
+  closer than about 15 km are places in one city, not a trip: refused (plan one stop, the city; its sights are
+  grouped into days by area).
   --nights: one number per --ids entry (the last stop of a loop may be 0 = fly out the day you arrive; a first stop
   with 0 nights is left the day you arrive; one stop with 0 nights is a single day there); default: each stop feature's "nights". With --nights the stop features' "nights"
   become the total per stop (dots under the name).
@@ -25,9 +28,9 @@ export const help = `plan <dir> --stops <layer> --start YYYY-MM-DD [--ids taipei
   first day of the trip (its arrival, no travel before it) is one of its days: it takes an area too as soon as there are
   more places than full days, so every day before the departure gets a place before any gets a second. A full day that gets sourced
   places gets a text from them instead of "Day in …": their names, the first with its "why" (the reason its page
-  gives), ≤ 140 characters. The day after the last night is the departure ("depart": true, "Leave <stop>."): nothing
-  is planned on it. The map's first view then frames the trip (its stops, --stays, --legs and --sights layers) and
-  every layer \`uw fit\` frames. Prints a warning for a place that is far from its day's other places or closer to another day's
+  gives), ≤ 140 characters. A trip of several stops ends with the departure, the day after the last night ("depart":
+  true, "Leave <stop>."): nothing is planned on it. The map's first view then frames the trip (its stops, --stays,
+  --legs and --sights layers) and every layer \`uw fit\` frames. Prints a warning for a place that is far from its day's other places or closer to another day's
   (plan-checks.json). Refuses to replace an existing plan without --force. Days with no sourced place keep "Day in …":
   add places. --sights also says the trip is about what to see each day: the plan keeps those layers ("sights"), and
   \`uw validate\` fails while a full day (the arrival day of the trip too) has no sourced place.`;
@@ -80,13 +83,20 @@ function sourcedItems(d) {
 }
 
 /** The route with nights and dates, one line, for the reply ("Taipei 3 → Hualien 2 → … (Tue 20 Oct – Tue 3 Nov)"):
- *  the night split is an assumption the traveller must see. Pure; exported for the tests. */
-export function routeLine(stops, nights, plan) {
+ *  the night split is an assumption the traveller must see. The dates run to the day the traveller leaves: a plan
+ *  with no departure day (days in one place) ends on its last night, so with `start` the line names the day after it.
+ *  Pure; exported for the tests. */
+export function routeLine(stops, nights, plan, start = null) {
   const parts = stops.map((s, i) => (nights[i] > 0 ? `${cityOf(s.props)} ${nights[i]}` : null)).filter(Boolean);
   const days = plan?.days || [];
   const first = days[0]?.title?.split(' · ')[0];
-  const last = days[days.length - 1]?.title?.split(' · ')[0];
   const total = nights.reduce((a, b) => a + b, 0);
+  let last = days[days.length - 1]?.title?.split(' · ')[0];
+  if (start && total > 0 && !days.some(isDepartDay)) {
+    const leave = new Date(`${start}T00:00:00Z`);
+    leave.setUTCDate(leave.getUTCDate() + total);
+    if (!Number.isNaN(leave.getTime())) last = fmtDay(leave);
+  }
   const when = first && last ? (first === last ? first : `${first} – ${last}`) : '';
   return `${parts.join(' → ') || cityOf(stops[0]?.props)} (${total} night${total === 1 ? '' : 's'}${when ? `, ${when}` : ''})`;
 }
@@ -122,6 +132,21 @@ export function poolSights(stops, sights) {
 
 const pointOf = (f) => (f?.geometry ? representativePoint(f.geometry) : null);
 const km = (a, b) => (a && b ? haversine(a, b) / 1000 : Infinity);
+
+/** Two stays in a row (nights at both, different stops) closer than trip_out_km are places in one city, not a trip:
+ *  a turn made each day's pin a stop, and its plan had "Travel day … about 10 min by train" between neighbourhoods 2 km
+ *  apart. A stop passed through (0 nights: an airport, a high-speed station out of town) is not a stay. `stops` and
+ *  `nights` as collapseStops gives them. → { a, b, km } (the first such pair) or null. Pure; exported for the tests. */
+export function sameCityStays(stops, nights, maxKm = planChecks().trip_out_km) {
+  let prev = null;
+  for (let i = 0; i < stops.length; i++) {
+    if (!(nights[i] > 0)) continue;
+    const s = stops[i];
+    if (prev && prev.id !== s.id && km(prev.coord, s.coord) < maxKm) return { a: prev, b: s, km: km(prev.coord, s.coord) };
+    prev = s;
+  }
+  return null;
+}
 
 /** The places of one stay split into at most `k` days by where they are: two groups merge while their farthest pair
  *  of places is the closest of any two groups (so a day never spans two areas when another split exists), never past
@@ -358,8 +383,9 @@ export function buildPlan({ stops: stopsIn, nights: nightsIn, start, legs = [], 
       if (carry) { carry.title += ` → ${bCity}`; carry.items.push(...items); carry.focus = focusOf(b); carry.text = text; }
       else days.push(carry = { title: `${fmtDay(next())} · ${city} → ${bCity}`, time: 9, time_hint: true, focus: focusOf(b), text, items });
       if (!through) carry = null;
-    } else if (n > 0) {
-      // the day after the last night: the traveller leaves; nothing is planned on it, and the plan says so
+    } else if (n > 0 && stops.length > 1) {
+      // the day after the last night of a trip: the traveller leaves; nothing is planned on it, and the plan says so.
+      // Days in one place have no such day: "3 days in Lisbon" is three dated days, not three and an empty fourth
       days.push({ title: `${fmtDay(next())} · ${city}: depart`, time: 9, time_hint: true, focus: focusOf(s), text: `Leave ${city}.`, depart: true, items: [] });
     }
   }
@@ -455,6 +481,12 @@ export async function run(argv) {
   }
   if (nightsIn.length !== stopsIn.length) throw new UsageError(`--nights has ${nightsIn.length} values for ${stopsIn.length} stops`);
   const { stops, nights } = collapseStops(stopsIn, nightsIn);
+  // a wrong plan never reaches the map: stays a short ride apart are one city, whose days are its places by area
+  const near = sameCityStays(stops, nights);
+  if (near) {
+    throw new UserError(`These are places in one city (${cityOf(near.a.props)} and ${cityOf(near.b.props)} are ${fmtKm(near.km)} km apart). `
+      + `Plan one stop (--ids <city> --nights ${nights.reduce((a, b) => a + b, 0)}: the city, as reference/itinerary.md "One base" pins it); its sights are grouped into days by area.`);
+  }
   const perDay = args['per-day'] ?? 3;
   const withLayer = (id) => { if (!id) return []; const fc = loadLayer(site, checkLayerId(id), { required: false }); return (fc?.features || []).map((f) => Object.assign(f, { _layer: id })); };
   // --sights takes several layers (sights,food,daytrips): every sourced place a lane or a follow-up pinned
@@ -490,7 +522,7 @@ export async function run(argv) {
   const totalN = nights.reduce((a, b) => a + b, 0);
   const sightsOf = (s) => sights.filter((f) => f.properties.stop === s.id).length;
   const missingSights = stops.filter((s, i) => nights[i] >= 2 && sightsOf(s) < 2).map((s) => `${cityOf(s.props)} (${sightsOf(s)})`);
-  const route = routeLine(stops, nights, plan);
+  const route = routeLine(stops, nights, plan, args.start);
   const gaps = emptyPlanDays(plan);
   const drafted = plan.days.filter((d, i) => (i > 0 || plan.days.length === 1) && !SKELETON_DAY.test(String(d.text || '')) && !/^(Arrive in|Leave |Travel day)/.test(String(d.text || ''))).length;
   const feats = new Map([...[...legs, ...stays, ...sights].map((f) => [`${f._layer}:${f.properties?.id}`, f]), ...sfc.features.map((f) => [`${stopLayer}:${f.properties?.id}`, f])]);
