@@ -113,7 +113,9 @@ function startMock() {
 }
 const env = (extra = {}) => {
   const e = { ...process.env, ...NO_WIKIPEDIA, UW_CACHE: path.join(tmp, 'cache-default'), UW_PHOTON: mock.url, UW_OVERPASS: mock.url + '/api/interpreter', UW_OSRM: mock.url, UW_VALHALLA: mock.url,
-    UW_TURN_BUDGET: '0', INSTAFY_LOOKUP_STATE: path.join(tmp, 'lookup-health.json'), TMPDIR: path.join(tmp, 'os-tmp'), UW_RETRY_PAUSE_MS: '0', UW_APPLY_RAIL_TIMEOUT: '20', ...extra };
+    UW_TURN_BUDGET: '0', INSTAFY_LOOKUP_STATE: path.join(tmp, 'lookup-health.json'), TMPDIR: path.join(tmp, 'os-tmp'), UW_RETRY_PAUSE_MS: '0', UW_APPLY_RAIL_TIMEOUT: '20',
+    // the rail track's fallback reads the basemap's tiles: the mock's, never the live tile server
+    UW_BASEMAP_TILES: mock.url + '/no-tiles.json', ...extra };
   for (const k of ['INSTAFY_TURN_STARTED_AT', 'INSTAFY_TURN_DEADLINE', 'INSTAFY_TURN_CONTINUE_FILE', 'INSTAFY_STEP_TIMINGS_FILE', 'UW_NO_CACHE', 'UW_JOB_TIMINGS']) if (!(k in extra)) delete e[k];
   for (const k of Object.keys(e)) if (e[k] === undefined) delete e[k];
   return e;
@@ -292,6 +294,22 @@ test('a background job runs outside the turn clock when a continuation turn can 
   assert.equal(w.code, 0, w.out + w.err);
   const got = fs.readFileSync(waitFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   assert.ok(got.some((l) => l.phase === 'job' && /uw geocode/.test(l.step) && l.exit === 0), JSON.stringify(got));
+});
+
+// `uw wait` is how a turn waits on a long job. A command tool waits at most 30 s for a command; past that it answers
+// with a session and no exit code, and a turn that reads only the command's output sees just the output so far. `uw
+// wait` waited 50 s, so its "still running … run `uw wait <id>` again" never came within that wait. It now ends within
+// it, with that line.
+test('uw wait ends within a command tool\'s 30 s wait and says the job is still running', async () => {
+  const cwd = fs.mkdtempSync(path.join(tmp, 'job-wait-'));
+  const slow = { UW_PHOTON: mock.url + '/hang', INSTAFY_LOOKUP_STATE: path.join(cwd, 'health.json') };
+  const start = await uw(['geocode', 'Tokyo, Japan', '--timeout', '120', '--detach'], slow, cwd);
+  const id = start.out.match(/started job (\S+):/)?.[1];
+  assert.ok(id, start.out + start.err);
+  const w = await uw(['wait', id], slow, cwd);
+  assert.equal(w.code, 75, w.out + w.err);
+  assert.ok(w.ms < 30000, `uw wait took ${w.ms} ms, past a command tool's 30 s wait`);
+  assert.match(w.out, new RegExp(`still running \\(\\d+ s so far\\): run \`uw wait ${id}\` again`));
 });
 
 test('the turn clock says to hand off to a continuation turn only when the host offers one', () => {

@@ -14,9 +14,11 @@ import { stateDirOf } from './state-dir.mjs';
 const UW = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'uw.mjs');
 /** Exit code of `uw wait` while the job still runs (EX_TEMPFAIL). */
 export const STILL_RUNNING = 75;
-const DEFAULT_WAIT_S = 50;
+// within an agent's longest command wait (30 s): past it the agent gets the output so far and no word that the job
+// runs on, so `uw wait` ends first and says so itself (a command an agent waits on must end while it still waits)
+const DEFAULT_WAIT_S = 25;
 
-export const help = `wait [<job id>] [--max 50] [--json]
+export const help = `wait [<job id>] [--max ${DEFAULT_WAIT_S}] [--json]
   Waits for a job a command started with --detach (the newest one when no id is given): prints its new output, waits up
   to --max seconds (default ${DEFAULT_WAIT_S}), then exits with the command's own exit code when it has finished, or with
   ${STILL_RUNNING} while it still runs: run \`uw wait <id>\` again. Never start the command a second time.

@@ -122,11 +122,12 @@ add sights rather than reply. Sights come from `uw cite` in this turn, never fro
    (props with words in them always go on stdin like this: an apostrophe in single-quoted JSON breaks the command;
    exit 2 = no hit carries the name: retry once with the local name, else list it as unverified; food spots go on
    `--layer food`, day trips on `--layer daytrips --max-km 80`).
-   Once each has answered, `uw plan … --sights sights,food,daytrips --force` with the sights that landed (the layers
-   that exist; one not found stays out, in the reply's unverified line): places land on the stop's full days with
-   their source links, and each such day's text says what it is for ("Livraria Lello (the 1906 bookshop) · Eat:
-   Mercado do Bolhão"). Reword a text in the traveller's words if you like (≤ 140 characters, nothing its pages do
-   not say; no opening hours or prices from memory); a day still "Day in …" needs places.
+   Once each has finished (an exit code, not still running: wait on one that is, never start it again),
+   `uw plan … --sights sights,food,daytrips --force` with the sights that landed (the layers that exist; one not
+   found stays out, in the reply's unverified line): places land on the stop's full days with their source links, and
+   each such day's text says what it is for ("Livraria Lello (the 1906 bookshop) · Eat: Mercado do Bolhão"). Reword a
+   text in the traveller's words if you like (≤ 140 characters, nothing its pages do not say; no opening hours or
+   prices from memory); a day still "Day in …" needs places.
 2. **Train times**, if a timetable page answers it this turn: re-run `uw legs` with `--durations`/`--source`/
    `--source-url`, then `uw plan … --force` (re-add the day texts). Copy the page's own number; a page that gives a
    range ("2 to 3 h") stays a range (`--durations "2h–3h"`), never a midpoint. The operator's timetable or journey
@@ -191,9 +192,9 @@ requested stop is still not on the map: the report starts and ends with `REQUEST
 nights>` and the commands that place them; run them before anything else (step 6), never reply with the shorter
 route as if it were the trip. The researched sights and food (with the researcher's `why`) are
 on the map and in the plan, so the full days already say what they are for. Sights it lists as not on the map
-because the place lookup was unavailable come with their exact commands: run them, one per command (then
-`uw plan … --force`), before the reply when the turn clock allows; a sight still not placed goes into its day's text
-with its source link. A full day never ships empty. Then act on the facts: a stop with full
+because the place lookup was unavailable come with their exact commands: run them, one per command (then, once each
+has finished, `uw plan … --force`), before the reply when the turn clock allows; a sight still not placed goes into
+its day's text with its source link. A full day never ships empty. Then act on the facts: a stop with full
 days and no researched sights gets 2-3 sourced ones (Phase B step 1, then `uw plan … --force`); a far station: say
 where it is; a leg of about 100 km or more with a high-speed line at both ends: consider its HSR stations (step 2),
 with "no": conventional train, never mention HSR. Reword day texts with the printed facts where they add something,

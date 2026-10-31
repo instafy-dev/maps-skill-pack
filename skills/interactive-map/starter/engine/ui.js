@@ -1291,7 +1291,9 @@ export class UI {
     return t;
   }
 
+  /** Why the map cannot draw, over it. The first reason stays: a style that does not load can report several. */
   fatal(title, text) {
+    if (this.root.querySelector('.uw-fatal')) return;
     this.root.append(h('div.uw-fatal', h('div.uw-fatal-card', h('div.uw-fatal-e', '🗺️'), h('h2', title), h('p', text))));
     this.ctx.onFatal?.();
   }
