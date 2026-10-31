@@ -3,6 +3,46 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.21 (2026-10-31)
+
+Fixes from a "Plan 3 days in Seville for a first visit: where to stay, what to see each day, on a map" run whose map
+had one sight in three days, and whose reply said the run had ended with six minutes left.
+
+- **`uw plan` and `uw validate` name the uw commands still running on the site.** The run looked up four sights in one
+  command. Its command tool stopped waiting after 30 s and answered with a session and no exit code; the turn printed
+  only the command's output, which was empty, so it planned the days and replied while the lookups ran on. A network
+  command run on a site's folder now leaves a mark in the site's state folder while it runs (`running/<pid>.json`) and
+  removes it when it ends. `uw plan` names the ones still running ("Still running on this site: uw add-point … (35 s
+  so far). What it finds is not in this plan yet: wait until it has finished …"), in its JSON too (`still_running`,
+  `next`), and `uw validate` fails while one runs, as what it finds is not on the map yet. A mark whose process is
+  gone (killed with its turn) or whose time is up does not count. The steps `uw handoff --apply` runs as uw commands
+  of their own share its run, so they never name it or each other.
+- **A place the search found is not "Not found yet".** The search had each of the run's sights as its first hit in
+  range, and `add-point --strict-name` refused three of them as not matching their own names, so the map listed them
+  as not found: "Real Alcázar de Sevilla" (the search also found streets in Alcázar de San Juan, Ciudad Real, 330 km
+  away, whose town made "Real" and "Alcázar" read as words of the area), "Plaza de España, Seville" ("plaza" is a
+  generic word and "España" the country) and "Triana, Seville" (the district the other hits lie in). The words of the
+  area now come from the hits in range, and a hit whose own name is the query's name (accents, case and punctuation
+  aside; the part before a comma) is a match.
+- **The guide no longer says to reply "with time to spare".** SKILL.md said "card + map + verdict early, reply with
+  time to spare", and the run's reply blamed the run's end with six minutes left. The turn clock's rule stays: under
+  about 3 minutes left, start nothing slow and reply.
+- **No suggestion chips.** SKILL.md ended a reply with a ```suggestions block, and the trip guide with "2-3 one-tap
+  follow-ups"; Instafy shows no chips, so such a block would show as text. Both are gone, and so are the trip guide's
+  other one-tap follow-ups.
+- **Days in one place have no "Stops" group.** The places list had a "Stops 1" group with the city itself. `uw plan`
+  with one stop sets that layer's `"list": false` (the Plan tab names the stop); a trip of several stops lists them
+  again.
+- **A place of worship has the neutral sign.** A cathedral showed a shrine gate (⛩️), the sign of every
+  `place_of_worship`; it is 🛐 now, any faith's. A temple or shrine the places search found by its religion keeps its
+  own.
+- **Tests:** a fixture run of the Seville request with the search's own answers for the run's queries, one lookup per
+  command and one of them slow: `uw plan` and `uw validate` name the slow one while it runs, and "Not found yet" does
+  not list it; once it has finished, each full day has 2 or 3 sights cited from their own pages, "Not found yet" lists
+  only the place the search did not find, the stop is not a group in the places list, and `uw validate --signal`
+  passes. Unit tests for the marks (a process that is gone, a mark out of time, the same run), the name rule, a far-off
+  hit's town, the neutral sign and the guides' words. Each fails without its change.
+
 ## 0.1.20 (2026-10-31)
 
 Fixes to 0.1.19, found in its review.

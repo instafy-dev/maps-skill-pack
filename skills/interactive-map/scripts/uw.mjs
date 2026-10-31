@@ -89,6 +89,19 @@ function siteDirOf(rest) {
   }
   return null;
 }
+/** The command's arguments without the site's folder (siteDirOf's): the label of a command running "on this site". */
+function withoutSite(rest, siteDir) {
+  const out = [];
+  let found = false;
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i];
+    if (!found && a.startsWith('--site=') && path.resolve(a.slice(7)) === siteDir) { found = true; continue; }
+    if (!found && a === '--site' && rest[i + 1] && path.resolve(rest[i + 1]) === siteDir) { found = true; i++; continue; }
+    if (!found && !a.startsWith('-') && path.resolve(a) === siteDir) { found = true; continue; }
+    out.push(a);
+  }
+  return out;
+}
 function turnClock(dir, { touchOnly = false } = {}) {
   // the host's own clock beats the idle-gap guess
   if (HOST_TURN && process.env.UW_TURN_BUDGET == null) return { elapsedS: Math.max(0, Math.round((Date.now() - HOST_TURN.started) / 1000)), host: true };
@@ -226,6 +239,12 @@ async function main() {
     // the steps a self-paced run starts end with it
     if (selfPaced) process.env.INSTAFY_JOB_DEADLINE = jobDeadlineValue(Date.now() + limit * 1000);
     ctx.limit = limit; ctx.cmd = cmd; ctx.rest = rest;
+    // a network command on a site says so while it runs, until its hard stop at the latest: uw plan and uw validate
+    // name the ones still running (lib/running.mjs)
+    if (siteDir) {
+      const { markRunning } = await import('./lib/running.mjs');
+      markRunning(siteDir, { cmd, args: withoutSite(rest, siteDir), untilMs: Date.now() + (limit + 30) * 1000 });
+    }
     setDeadline(limit * 1000);
     if (limit > 0) {
       // a hard stop a little after the limit, in case a request hangs past its abort; never while the command is

@@ -20,14 +20,21 @@ test('SKILL.md: plan without asking, state the Assumed line, never ask to confir
   }
 });
 
-test('itinerary.md: a vague trip is built on defaults, stated in one line, with one-tap follow-ups', () => {
+test('itinerary.md: a vague trip is built on defaults, stated in one line', () => {
   const md = read('reference/itinerary.md');
   assert.match(md, /Never stop to ask, even on a vague ask/);
   assert.match(md, /2 adults, mid-range hotels, a balanced pace, the length they gave \(none: 7 nights\)/);
   assert.match(md, /State every filled gap in ONE line/);
-  assert.match(md, /2-3 one-tap follow-ups/);
-  assert.match(md, /In Instafy they go in\s+`suggestions`: a plain-text reply ends with a fenced block tagged `suggestions`/);
-  assert.match(md, /never a question the user must answer before the plan exists/);
+});
+
+// Instafy shows no suggestion chips under a reply: a reply that ended with a ```suggestions block showed it as text.
+// Neither guide asks for one, nor for "one-tap follow-ups".
+test('SKILL.md and itinerary.md ask for no suggestions block and no one-tap follow-ups', () => {
+  for (const rel of ['SKILL.md', 'reference/itinerary.md']) {
+    const md = read(rel);
+    assert.doesNotMatch(md, /suggestions/, rel);
+    assert.doesNotMatch(md, /one-tap|a chip per line/, rel);
+  }
 });
 
 test('uw geocode: a fuzzy register match tells the agent to name the listing, never to ask the user to confirm', () => {
