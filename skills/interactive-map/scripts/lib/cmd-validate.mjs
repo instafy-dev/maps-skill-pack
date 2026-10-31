@@ -8,9 +8,9 @@ import { spawnSync } from 'node:child_process';
 import { parseArgs, makeOut, exists, fmtBytes } from './util.mjs';
 import { checkV2, V2_TOP_KEYS, V2_LAYER_KEYS } from './validate-v2.mjs';
 import { STARTER_DIR } from './site.mjs';
-import { parseExpect, expectOf, mergeExpect, uncovered, describeItems, featureNames } from './expect.mjs';
+import { parseStops, expectOf, mergeExpect, uncovered, describeItems, featureNames } from './expect.mjs';
 
-export const help = `validate <dir> [--signal] [--strict] [--expect "<item>,<item>:<nights>,…"] [--json]
+export const help = `validate <dir> [--signal] [--strict] [--expect "<stop>:<nights>,…"] [--json]
   Checks map.config.json (schema, enums, refs), every layer file (exists, valid GeoJSON, geometry fits the layer type,
   properties.id unique + name present, coordinates sane, inside view.bounds + margin, not [0,0]), plan/notes/compare/vote
   refs, style.json, custom.js (node --check), engine/ and index.html, and size budgets.
@@ -20,10 +20,10 @@ export const help = `validate <dir> [--signal] [--strict] [--expect "<item>,<ite
   (intents, JSON-Schema subset, prefill tokens, ui placements, targets, handlers), the credit each open-data adapter on the map requires (e.g. OGDL for Taiwan data).
   --signal  the static clutter rules fail instead of warn: S5 (every visible layer says what it is), S6 (a criterion
             that ties on every option), S7 (labels without English; fails only with --strict), photo credits.
-  Expected items: every item in map.config.json "expect" (uw handoff --apply writes the route there; uw new --expect)
-  and in --expect must be on the map and, when there is a plan, named by a day. One the request named and the map
-  leaves out is an error, whatever the reason (a lookup that timed out included): place it, or say plainly in the
-  reply that it is missing.
+  A trip's stops: every stop with nights in map.config.json "expect" (uw handoff --apply writes the route there; uw new
+  --expect) and in --expect must be on the map and, when there is a plan, named by a day. One the request named and
+  the map leaves out is an error, whatever the reason (a lookup that timed out included): place it, or say plainly in
+  the reply that it is missing.
   Exit 1 on errors, 0 when only warnings remain (--strict: warnings also fail).`;
 
 const LAYER_TYPES = ['points', 'lines', 'areas', 'grid', 'route', 'legs', 'heat'];
@@ -107,6 +107,7 @@ function checkLetterColors({ cfg, featuresByLayer, W, CFG }) {
 export async function run(argv) {
   const args = parseArgs(argv, { strict: 'bool', signal: 'bool', expect: 'string' }, { positionals: [1, 1], command: 'validate' });
   if (args.help) return console.log(help);
+  const askedStops = parseStops(args.expect);
   const out = makeOut(args);
   const dir = path.resolve(args._[0]);
   const errors = [], warnings = [];
@@ -512,19 +513,18 @@ export async function run(argv) {
         W(CFG, '$.plan.days', `${gaps.thin} of ${gaps.full} full days have fewer than 2 sourced items: one sight per stop is not a day worth following`, 'add sights until each stop has 2-3 with a source page (reference/itinerary.md Phase B step 1), then uw plan … --sights sights --force');
     }
   }
-  // --- expect: the items the request named (its stops, places, products) are all on the map, and in the plan
-  if (cfg.expect !== undefined && !Array.isArray(cfg.expect)) E(CFG, '$.expect', 'expect must be an array of names or { "name", "nights" }', 'uw handoff --apply writes it; or uw new … --expect "A,B:2"');
-  const expected = mergeExpect(expectOf(cfg), parseExpect(args.expect));
+  // --- expect: the trip's stops (each with its nights) are all on the map, and in the plan
+  if (cfg.expect !== undefined && !Array.isArray(cfg.expect)) E(CFG, '$.expect', 'expect must be an array of { "name", "nights" }', 'uw handoff --apply writes it; or uw new … --expect "Porto:3,Lisbon:4"');
+  const expected = mergeExpect(expectOf(cfg), askedStops);
   if (expected.length) {
     const gaps = uncovered(cfg, featuresByLayer, expected);
     const off = gaps.filter((g) => !g.on_map), unplanned = gaps.filter((g) => g.on_map && g.in_plan === false);
-    if (off.length) E(CFG, '$.expect', `asked for but not on the map: ${describeItems(off)} (${expected.length - gaps.length} of ${expected.length} expected items are covered)`,
-      `place each one (a trip stop: uw station … --city "<name>" --country "<country>" --nights N, or uw add-point … --query "<name>"; a lookup that timed out: run its retry command), then uw plan … --force; if none can be placed this turn, the reply says plainly which are missing and why`);
+    if (off.length) E(CFG, '$.expect', `asked for but not on the map: ${describeItems(off)} (${expected.length - gaps.length} of ${expected.length} stops on the map)`,
+      `place each one (uw station … --city "<name>" --country "<country>" --nights N; days in one place: reference/itinerary.md "One base"; a lookup that timed out: run its retry command), then uw plan … --force; if none can be placed this turn, the reply says plainly which are missing and why`);
     if (unplanned.length) E(CFG, '$.plan.days', `on the map but in no day of the plan: ${describeItems(unplanned)}`, 'rebuild the plan with every stop: uw plan … --ids <all stop ids in travel order> --nights … --force');
     // nights asked for are a trip: its days are the plan (the map's Plan tab), never a day's text inside a place's note
-    const stays = expected.filter((e) => e.nights != null);
-    if (stays.length && !(Array.isArray(cfg.plan?.days) && cfg.plan.days.length))
-      E(CFG, '$.plan', `a trip (${describeItems(stays)}) with no plan: its days go in the plan, which the map shows as its own tab, not in place notes`,
+    if (!(Array.isArray(cfg.plan?.days) && cfg.plan.days.length))
+      E(CFG, '$.plan', `a trip (${describeItems(expected)}) with no plan: its days go in the plan, which the map shows as its own tab, not in place notes`,
         `follow reference/itinerary.md ("One base" for days in one place): places to stay (uw stay), 2-3 sourced places a day grouped by area, then uw plan ${args._[0]} --stops … --ids … --nights … --stays stays --sights sights`);
   }
   // --- a "Not found yet" entry for a place that is on the map after all: the page would say it is missing while it

@@ -27,10 +27,10 @@ agent reads `SKILL.md` and runs `uw <command>`. Its `activity` table gives each 
 To add a pinned copy to a space yourself (or to try a newer tag), import the skill folder:
 
 ```
-/skills import https://github.com/instafy-dev/maps-skill-pack/tree/v0.1.18/skills/interactive-map
+/skills import https://github.com/instafy-dev/maps-skill-pack/tree/v0.1.19/skills/interactive-map
 ```
 
-This copies the folder into the space (`/skills import` takes up to 256 files and 8 MB; the pack is about 108 files
+This copies the folder into the space (`/skills import` takes up to 256 files and 8 MB; the pack is about 109 files
 and 3 MB). Any other agent that reads `SKILL.md` files can use the folder the same way: copy
 `skills/interactive-map/` into its skills directory.
 

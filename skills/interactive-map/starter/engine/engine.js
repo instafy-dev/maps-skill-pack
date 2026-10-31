@@ -1502,6 +1502,18 @@ function basemapLook(map, config) {
   E.look.apply(dark, warm);
 }
 
+/** MapLibre fades every paint change over the style's transition (300 ms unless style.json sets one), the first look
+ *  too: a dark page showed the style's light colours fading out on every load, over its cached light tiles on a
+ *  reload. Until the map is drawn, a look goes in at once (the first one, and the host's theme if it comes while the
+ *  tiles load); the function returned puts the style's own transition back, so later changes (the hour) still fade. */
+function noFade(map) {
+  const sheet = map.style?.stylesheet;
+  if (!sheet || typeof sheet !== 'object') return () => {};
+  const had = Object.hasOwn(sheet, 'transition'), kept = sheet.transition;
+  sheet.transition = { duration: 0, delay: 0 };
+  return () => { if (had) sheet.transition = kept; else delete sheet.transition; };
+}
+
 // ---------------- boot ----------------
 function hasWebGL() { try { const c = document.createElement('canvas'); return !!(c.getContext('webgl2') || c.getContext('webgl')); } catch { return false; } }
 
@@ -1594,9 +1606,10 @@ async function boot() {
   let map;
   try { map = E.map = new maplibregl.Map(opts); } catch (e) { E.error('map init failed: ' + e.message, e); ui.fatal('The map could not start', e.message); return; }
   // the basemap's look (labels, overrides, day / night) as soon as the style is in, before its first frame: 'load'
-  // waits for every tile, and until then a dark page drew the style's light colours (a white map for seconds)
-  let styleIn = false;
-  map.once('style.load', () => { styleIn = true; try { basemapLook(map, config); } catch (e) { E.error('basemap look: ' + e.message, e); } });
+  // waits for every tile, and until then a dark page drew the style's light colours (a white map for seconds). It goes
+  // in without a fade (noFade) until the map is drawn (ready), so the first frame already has it
+  let styleIn = false, fadeBack = () => {};
+  map.once('style.load', () => { styleIn = true; fadeBack = noFade(map); try { basemapLook(map, config); } catch (e) { E.error('basemap look: ' + e.message, e); } });
   // the device's or the host's theme (engine/host.js writes Studio's on <html>) sets the basemap from then on, also
   // while the tiles load: a host's theme that came after the style left a light map under a dark page until 'load'
   window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', () => { if (E.look) E.look.state.dark = -1; applyLook(); });
@@ -1780,7 +1793,7 @@ async function boot() {
   restoreAfterReload();
 
   let done = false;
-  const ready = () => { if (done) return; done = true; window.__uwReady = true; document.documentElement.dataset.uwReady = '1'; document.documentElement.setAttribute('data-instafy-ready', 'true'); E.emit('ready', { title: config.title || '' }); navStart(); follow.start(); };
+  const ready = () => { if (done) return; done = true; fadeBack(); window.__uwReady = true; document.documentElement.dataset.uwReady = '1'; document.documentElement.setAttribute('data-instafy-ready', 'true'); E.emit('ready', { title: config.title || '' }); navStart(); follow.start(); };
   map.once('idle', () => { collapseAttribution(); layoutNotes(); ready(); });
   map.triggerRepaint();
   setTimeout(ready, 15000);

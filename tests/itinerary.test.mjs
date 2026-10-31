@@ -525,7 +525,8 @@ test('buildPlan: dates, nights and travel days add up for the Taiwan loop; a 0-n
 });
 
 test('plan (CLI): writes a plan validate accepts, sums nights per stop, refuses to overwrite without --force; validate checks item links', async () => {
-  const r = await uw(['plan', 'lg', '--stops', 'stops', '--ids', 'a,b,c,a', '--nights', '2,1,1,1', '--start', '2026-10-20', '--legs', 'trip', '--json']);
+  // B is 10 km from A: passed through (0 nights), as two stays that close would be one city (refused below)
+  const r = await uw(['plan', 'lg', '--stops', 'stops', '--ids', 'a,b,c,a', '--nights', '2,0,2,1', '--start', '2026-10-20', '--legs', 'trip', '--json']);
   assert.equal(r.code, 0, r.err);
   assert.equal(r.json.days, 6);
   const cfg = cfgOf('lg');
@@ -533,8 +534,14 @@ test('plan (CLI): writes a plan validate accepts, sums nights per stop, refuses 
   assert.equal(byId(readFC('lg', 'stops')).a.properties.nights, 3, 'A: 2 + 1 nights over two visits');
   const v = await uw(['validate', 'lg']);
   assert.equal(v.code, 0, v.out + v.err);
-  assert.equal((await uw(['plan', 'lg', '--stops', 'stops', '--ids', 'a,b', '--nights', '1,1', '--start', '2026-10-20'])).code, 1, 'existing plan kept');
-  assert.equal((await uw(['plan', 'lg', '--stops', 'stops', '--ids', 'a,b', '--nights', '1,1', '--start', '20 Oct'])).code, 2, 'dates are YYYY-MM-DD');
+  const kept = await uw(['plan', 'lg', '--stops', 'stops', '--ids', 'a,c', '--nights', '1,1', '--start', '2026-10-20']);
+  assert.equal(kept.code, 1, 'existing plan kept');
+  assert.match(kept.err, /already has a "plan"/);
+  const near = await uw(['plan', 'lg', '--stops', 'stops', '--ids', 'a,b', '--nights', '1,1', '--start', '2026-10-20', '--force']);
+  assert.equal(near.code, 1, 'two stays 10 km apart are one city');
+  assert.match(near.err, /These are places in one city \(A and B are 10 km apart\)/);
+  assert.equal(cfgOf('lg').plan.days.length, 6, 'the plan is not replaced');
+  assert.equal((await uw(['plan', 'lg', '--stops', 'stops', '--ids', 'a,c', '--nights', '1,1', '--start', '20 Oct'])).code, 2, 'dates are YYYY-MM-DD');
   // a plan item link must be https
   cfg.plan.days[0].items.push({ text: 'Bad link', url: 'javascript:alert(1)' });
   fs.writeFileSync(path.join(tmp, 'lg', 'map.config.json'), JSON.stringify(cfg, null, 2));

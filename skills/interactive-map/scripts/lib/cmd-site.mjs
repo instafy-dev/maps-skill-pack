@@ -7,11 +7,11 @@ import { UA, LOOKUPS, lookupState } from './net.mjs';
 import { chainOf, resolveProvider } from './lookup.mjs';
 import { STARTER_DIR, ensureGitignore, openSite, loadLayer, listLayerIds, withSiteLock } from './site.mjs';
 import { loadPlaywright, launchChromium } from './cmd-serve.mjs';
-import { parseExpect, describeItems } from './expect.mjs';
+import { parseStops, describeItems } from './expect.mjs';
 
 export const helps = {
   newSite: `new <dir> [--title "Where to stay in Taipei"] [--subtitle "…"] [--ask "Which hotel for 3 nights?"] [--center lng,lat] [--zoom 14]
-      [--lang en|sv] [--expect "<item>,<item>:<nights>,…"] [--force] [--json]
+      [--lang en|sv] [--expect "<stop>:<nights>,…"] [--force] [--json]
   Copies the starter (index.html, map.config.json, style.json, custom.js, data/, engine/) into <dir>, sets title and view
   (bounds are derived from --center + --zoom) and writes a .gitignore (.uwcache/ and the working snapshots, keeping
   snapshots/mobile.png, desktop.png and thumb.png for a gallery). Refuses a non-empty
@@ -19,9 +19,9 @@ export const helps = {
   Get the centre from: uw.mjs geocode "Zhongshan, Taipei". Zoom: city 12, district 13.5, neighbourhood 14.5, street 16.
   --ask "…"  the user's question (≤ 70 characters), kept as "description"; \`uw question\` uses it when it gets no --ask.
   --lang sv  "locale": "sv": the words the map writes itself (tabs, verdict phrases from uw question) are Swedish.
-  --expect "…"  every item the request names (stops with nights, places, options), kept as "expect": uw validate
-             fails while one of them is not on the map (or, with a plan, in no day). A stop with nights
-             ("Lisbon:3" for 3 days in Lisbon) is a trip: validate fails until the map has its plan.`,
+  --expect "…"  a trip's stops with their nights ("Lisbon:3" for 3 days in Lisbon; "Porto:3,Lisbon:4"), kept as
+             "expect": uw validate fails while one is not on the map (or, with a plan, in no day), and until the map
+             has its plan. Anything else is refused: days come from uw plan, stays from uw stay.`,
   fit: `fit <dir> [--layers hotels,day1] [--pad 0.12] [--max-zoom 16] [--json]
   Sets view.center, view.zoom and view.bounds in map.config.json to frame the data. A find-place question frames its
   lettered top N (ranked like the engine) plus the hand-picked layers. Default: the hand-picked layers
@@ -88,9 +88,8 @@ export function cardCommand(title) {
 export async function newSite(argv) {
   const args = parseArgs(argv, { title: 'string', subtitle: 'string', ask: 'string', center: 'string', zoom: 'number', lang: 'string', force: 'bool', expect: 'string' }, { positionals: [1, 1], command: 'new' });
   if (args.help) return console.log(helps.newSite);
-  const expect = parseExpect(args.expect);
-  // stops with nights: a trip, built by reference/itinerary.md
-  const trip = expect.filter((e) => e.nights != null);
+  // a trip's stops with nights (refused before anything is made: a day or a stay listed here became a pin, then a stop)
+  const trip = parseStops(args.expect);
   const out = makeOut(args);
   checkStarter();
   const dir = path.resolve(args._[0]);
@@ -122,7 +121,7 @@ export async function newSite(argv) {
     if (ask.length > 70) throw new UsageError(`--ask is ${ask.length} characters: it is the map's heading, so write the question yourself in ≤ 70 (e.g. "Two weeks in Taiwan by train"), never the user's message`);
     cfg.description = ask;
   }
-  if (expect.length) cfg.expect = expect;
+  if (trip.length) cfg.expect = trip;
   cfg.view = cfg.view || {};
   if (center) {
     cfg.view.center = center;

@@ -144,7 +144,8 @@ add sights rather than reply. Sights come from `uw cite` in this turn, never fro
 `Assumed:` line), step 1, step 6 and Phase B stay; instead of steps 2-5:
 
 1. **The stop** is the city: `uw add-point <site> --layer stops --query "<City>" --country "<Country>" --kind city --id <slug>
-   --props '{"nights":N}'`. "N days" is N nights (they leave the day after) unless the user gave dates; one day is 0.
+   --props '{"nights":N}'`. "N days" is N nights unless the user gave dates; one day is 0. The plan has a dated day
+   per night and no departure day: they leave the day after, which the stay line's dates end on.
 2. **Stays** in the area you recommend staying in (a page you read says why): `uw geocode "<area>, <City>"`, then
    `uw stay <site> --near <its lng,lat> --near-label "<area>" --stop <slug>` (step 3's rules: hotels unless asked,
    a reason each). The base is the rank-1 stay; each day starts and ends there. Never the area itself as a hotel. No
@@ -157,9 +158,9 @@ add sights rather than reply. Sights come from `uw cite` in this turn, never fro
    list had room. Every full day gets its places before the reply: `uw validate` fails while one has none.
 4. **Plan**: `uw plan <site> --stops stops --ids <slug> --nights N --start <date> --stays stays --sights sights,food,daytrips`.
    Every day is a loop from the base: a stop's places are grouped by area (the closest share a day, in walking
-   order, the area nearest the base first; every day before the departure, the arrival day too, gets a place before
-   any gets a second), then the departure day. Never "<city> →
-   <city>": a stop named twice in a row is one stay. The reply says where to stay and why, then each day's area.
+   order, the area nearest the base first; every day, the arrival day too, gets a place before any gets a second).
+   Never "<city> → <city>": a stop named twice in a row is one stay. The reply says where to stay and why, then each
+   day's area.
 
 **Days that hang together.** `uw plan` and `uw validate` warn when a day has a place far from its other places, or
 nearer another day's (`day places: "<place>" (<day>) is 3.1 km from that day's other places but 0.2 km from

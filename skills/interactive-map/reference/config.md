@@ -423,8 +423,8 @@ pages: "Not checked · which trails are open · where to check ↗" (`check_url`
 `uw plan` (dates, nights, legs, stays, sights; see itinerary.md); add one short `text` per day by hand.
 `"sights": ["sights", "food"]` (written by `uw plan --sights`) says the trip is about what to see each day: `uw validate`
 fails while a full day has no item with a `url`.
-`"depart": true` marks the day after the last night (`uw plan` writes it): nothing is planned on it, its row says
-"Departure", and the page's "N days" does not count it. A day's places should lie together: `uw validate` warns when
+`"depart": true` marks the day after the last night of a trip of several stops (`uw plan` writes it; days in one
+place have none): nothing is planned on it, its row says "Departure", and the page's "N days" does not count it. A day's places should lie together: `uw validate` warns when
 one is far from the day's other places or nearer another day's (thresholds: `scripts/plan-checks.json`).
 
 Adds the Plan tab: one list of every day, the same day rows as Instafy's timeline page ("Sat 24 Oct · Taipei": the
