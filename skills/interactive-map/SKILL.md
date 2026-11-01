@@ -1,7 +1,7 @@
 ---
 name: interactive-map
 description: REQUIRED when the answer is a map, or places on one (choosing hotels or areas, places nearby, a trip's stays and sights, recolouring map features). Before writing anything, read .agents/skills/interactive-map/SKILL.md in full and build with its uw commands (uw new <dir> ...). Never hand-write map HTML or embed a Google Maps iframe; never type coordinates yourself.
-routing_keywords: [map, maps, walk, walking, walkable, neighbourhood, neighbourhoods, neighborhood, neighborhoods, district, area, hotel, hotels, hostel, apartment, apartments, airbnb, stay, where to stay, closest, nearest, distance, commute, road trip, trip, travel, itinerary, day trip, food spots, places, nearby, cafes, coffee, restaurants, gym, gyms, office, beach, bike, cycling, noisy, noise, quiet, railways, pins, layers, visualise, visualize, air quality, street view, licence, karta, kartan, hotell, hotellen, boende, promenad, närmast, resa, område, stadsdel, kvarter, bo, lugna, nätter, mapa, 地図, マップ]
+routing_keywords: [map, maps, walk, walking, walkable, neighbourhood, neighbourhoods, neighborhood, neighborhoods, district, area, hotel, hotels, hostel, apartment, apartments, airbnb, stay, where to stay, closest, nearest, distance, commute, road trip, trip, travel, travelling, itinerary, day trip, food spots, places, nearby, cafes, coffee, restaurants, gym, gyms, office, beach, bike, cycling, noisy, noise, quiet, railways, pins, layers, visualise, visualize, air quality, street view, licence, karta, kartan, hotell, hotellen, boende, promenad, närmast, resa, område, stadsdel, kvarter, bo, lugna, nätter, mapa, 地図, マップ]
 context_parent: instafy-skill-router
 ---
 

@@ -3,6 +3,15 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.25 (2026-11-01)
+
+Fixes to 0.1.24.
+
+- **"travelling" is a routing word too.** Instafy's skill router folds "traveling" and "travels" into "travel", but
+  keeps the double l of "travelling" ("travell"): "I'm travelling to Kyoto for 5 days, what should I see each day?"
+  matched no routing word of this skill, or of any other, with "travel" or without it.
+- **Tests:** the skill's routing words include "travelling". It fails without it.
+
 ## 0.1.24 (2026-11-01)
 
 Fixes to 0.1.23.
@@ -23,7 +32,7 @@ Fixes to 0.1.23.
   The end is set for the snap at once again and slides with the sheet (a length with the sheet's own transition):
   each frame of a slide ends the list at the frame's edge, never under a host's composer, also in a frame that draws
   none of the slide.
-- **"travel" is a routing word again.** "I'm travelling to Kyoto for 5 days, what should I see each day?" reached no
+- **"travel" is a routing word again.** "I'm traveling to Kyoto for 5 days, what should I see each day?" reached no
   skill without it. "route" stays out.
 - **Tests:** the card's command, chained after `uw new` from the space's folder through a shell, runs `instafy preview
   open` in the map's own folder, and its serve command serves the map from there; a folder's 404 is in plain words and

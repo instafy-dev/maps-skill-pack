@@ -3,7 +3,8 @@
 // words), so the turn made a 32-file map site, deleted its index.html and wrote the page by hand, served by `uw host`
 // and blind to Studio's theme. The skill now claims a map, or places on one; a page of hours or directions is a page.
 // A trip is still its own ("I'm travelling to Kyoto for 5 days, what should I see each day?"): "travel" stays a
-// routing word (Instafy folds travelling, travels and traveling into it), as "trip" does.
+// routing word, as "trip" does, and so does "travelling": Instafy's router folds "traveling" and "travels" into
+// "travel" but keeps the double l of "travelling" ("travell"), so that request matched no word of any skill.
 // Run: node --test tests/skill-scope.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -22,7 +23,7 @@ test('the description claims a map, or places on one, and no request just becaus
   assert.doesNotMatch(description, /any request|routes?\b|walks\b|directions|hours|page/i);
   // a way to get somewhere is not this skill's routing word; a trip is
   assert.ok(!keywords.includes('route'), 'routing word "route"');
-  for (const w of ['map', 'maps', 'trip', 'travel', 'itinerary', 'where to stay', 'nearby']) assert.ok(keywords.includes(w), `routing word "${w}" stays`);
+  for (const w of ['map', 'maps', 'trip', 'travel', 'travelling', 'itinerary', 'where to stay', 'nearby']) assert.ok(keywords.includes(w), `routing word "${w}" stays`);
 });
 
 test('a page of hours or directions is built as a page, never inside a map site', () => {
