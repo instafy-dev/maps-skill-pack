@@ -40,7 +40,8 @@ export const help = `host <site|gallery-dir> [--port 4173] [--host 127.0.0.1|0.0
   prov.source in the intent's "sources" and lanes open/official/local, stamps prov.intent + prov.job, merges into
   target.records (kept under 180 KB: the oldest results go first, an item with its claims) and bumps
   data/version.json (jobs[id] = { state, name, ref, error, summary }), then broadcasts results + done.
-  A gallery folder (e.g. examples/) gets <sub>/__uw/* for every subfolder with a bound.json.
+  A gallery folder (e.g. examples/) serves each site at <sub>/ (its own address answers 404 without an index.html) and
+  gets <sub>/__uw/* for every subfolder with a bound.json.
   --confirm  each job waits for "y" on this terminal first (simulates the Instafy confirm tray; ack needs_confirm).
   --log      log every request.
   --no-warm  skip warming handler datasets at start (handlers that support UW_WARM=1 download them in the background).

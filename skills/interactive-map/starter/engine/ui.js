@@ -228,10 +228,7 @@ export class UI {
     if (this.side) { this.snap = name; return; }
     this.snap = name;
     const y = this.snaps[name];
-    const animated = animate && !reducedMotion();
-    // where the sheet is drawn now (mid-drag, mid-slide), read before it is sent to its snap
-    const from = animated ? this.drawnTop() : null;
-    this.sheet.classList.toggle('is-anim', animated);
+    this.sheet.classList.toggle('is-anim', animate && !reducedMotion());
     this.sheet.style.transform = `translate3d(0,${y}px,0)`;
     this.sheet.dataset.snap = name;
     // a frame too short for the whole ask: at peek the verdict lines are cut so the tab bar stays above the inset
@@ -239,29 +236,13 @@ export class UI {
     this.qbox.style.maxHeight = cut == null ? '' : cut + 'px'; this.qbox.style.overflow = cut == null ? '' : 'hidden';
     // a hint shown above the sheet follows it (a host's inset can lift the peek after the hint appeared)
     if (this.toasts.style.bottom) this.toasts.style.bottom = `${Math.round(this.H - y + 10)}px`;
-    // the list ends at the frame's edge for the lower of where the sheet is drawn and where it goes: sliding up, it
-    // keeps the end it has until it arrives (with the end set for where it went, its rows ran on to the frame's edge,
-    // under a host's composer, all the way up, and in a frame that drew none of the slide); sliding down, it takes
-    // the new end at once
-    const slide = (this.slideId = (this.slideId || 0) + 1);
-    if (from != null && from > y + 0.5) {
-      this.listEnd(from);
-      const done = (e) => {
-        if (e.target !== this.sheet || e.propertyName !== 'transform') return;
-        this.sheet.removeEventListener('transitionend', done);
-        if (this.slideId === slide) this.listEnd(y);
-      };
-      this.sheet.addEventListener('transitionend', done);
-    } else this.listEnd(y);
+    // the list's end for the snap, set at once: while the sheet slides there, engine.css slides the end with it (the
+    // same transition as the sheet's), so in every frame drawn the list ends at the frame's edge. Kept for where the
+    // sheet was going, its rows ran on under a host's composer while a slide up was drawn (and in a frame that drew
+    // none of it); kept for where it came from, a raised list stayed blank all the way up
+    this.listEnd(y);
     this.handle.setAttribute('aria-expanded', String(name !== 'peek'));
     this.ctx.onSnap?.(name);
-  }
-  /** The sheet's top as drawn this frame (its transform, mid-slide included), or null. */
-  drawnTop() {
-    const m = /^matrix(3d)?\(([^)]*)\)$/.exec(getComputedStyle(this.sheet).transform || '');
-    const v = m ? m[2].split(',').map(Number) : [];
-    const ty = m ? (m[1] ? v[13] : v[5]) : NaN;
-    return Number.isFinite(ty) ? ty : null;
   }
   /** The list of a sheet whose top is at `top` ends at the frame's bottom edge (a host's composer, the phone's home
    *  bar: --sab): the body runs past that edge by what the sheet is lowered, its padding lets the last row scroll up

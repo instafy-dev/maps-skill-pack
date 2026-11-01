@@ -1,7 +1,7 @@
 ---
 name: interactive-map
 description: REQUIRED when the answer is a map, or places on one (choosing hotels or areas, places nearby, a trip's stays and sights, recolouring map features). Before writing anything, read .agents/skills/interactive-map/SKILL.md in full and build with its uw commands (uw new <dir> ...). Never hand-write map HTML or embed a Google Maps iframe; never type coordinates yourself.
-routing_keywords: [map, maps, walk, walking, walkable, neighbourhood, neighbourhoods, neighborhood, neighborhoods, district, area, hotel, hotels, hostel, apartment, apartments, airbnb, stay, where to stay, closest, nearest, distance, commute, road trip, trip, itinerary, day trip, food spots, places, nearby, cafes, coffee, restaurants, gym, gyms, office, beach, bike, cycling, noisy, noise, quiet, railways, pins, layers, visualise, visualize, air quality, street view, licence, karta, kartan, hotell, hotellen, boende, promenad, närmast, resa, område, stadsdel, kvarter, bo, lugna, nätter, mapa, 地図, マップ]
+routing_keywords: [map, maps, walk, walking, walkable, neighbourhood, neighbourhoods, neighborhood, neighborhoods, district, area, hotel, hotels, hostel, apartment, apartments, airbnb, stay, where to stay, closest, nearest, distance, commute, road trip, trip, travel, itinerary, day trip, food spots, places, nearby, cafes, coffee, restaurants, gym, gyms, office, beach, bike, cycling, noisy, noise, quiet, railways, pins, layers, visualise, visualize, air quality, street view, licence, karta, kartan, hotell, hotellen, boende, promenad, närmast, resa, område, stadsdel, kvarter, bo, lugna, nätter, mapa, 地図, マップ]
 context_parent: instafy-skill-router
 ---
 
@@ -49,9 +49,9 @@ Long commands: `--detach`, then `uw wait` (exit 75: again).
    Write title, ask and notes in the user's language; Swedish: `--lang sv` in step 3.
 2. `uw geocode "<district, city>"` → `lng,lat`. Exit 4: go on without `--center`/`--near`.
 3. `uw new <site> --title "…" --ask "<ask>" --center <lng,lat> --zoom 13`, then its card at once, before any lookup
-   (a slow one costs content, never the card), with the same `<site>`: `instafy preview open --title "<title>"
-   --serve-cmd "uw host <site> --port {port}" --start --json`. It picks the port, starts the map (outlives the turn; runs
-   bound.json buttons) and posts the card; the card can restart it. Exit 2 names a log: read it, fix, rerun.
+   (a slow one costs content, never the card), where `uw new` ran: `(cd <site> && instafy preview open --title
+   "<title>" --serve-cmd "uw host . --port {port}" --start --json)`. It picks the port, starts the map (outlives the
+   turn; runs bound.json buttons) and posts the card; the card can restart it. Exit 2 names a log: read it, fix, rerun.
    Never post a URL (not even localhost). Without `instafy`: `uw host <site> --detach`.
 4. `uw add-point <site> --layer hotels --query "<name>, <city>" --near <lng,lat> --id <slug>` per option. Keep each
    `Tell the user` line. Address sent later: `--query "延平北路三段 4號" --name "<name>" --kind hotel`.
