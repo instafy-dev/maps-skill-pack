@@ -203,7 +203,7 @@ test('case 1 ("3 days in Seville … where to stay, what to see each day"): one 
   // the same next steps with --json (the run's turn made its site with --json, and lost the pointer to the guide)
   const asJson = await uw(['new', 'sv-json', '--title', '3 days in Seville', '--center', CITY.join(','), '--zoom', '13', '--expect', 'Seville:3', '--json']);
   assert.equal(asJson.code, 0, asJson.err);
-  assert.match(asJson.json.next.join('\n'), /^Next, at once: its card: instafy preview open --title "3 days in Seville" --serve-cmd "uw host sv-json --port \{port\}" --start --json\nThen: a trip \(Seville \(3 nights\)\): follow reference\/itinerary\.md \("One base" for days in one place\)/);
+  assert.match(asJson.json.next.join('\n'), /^Next, at once: its card: \(cd sv-json && instafy preview open --title "3 days in Seville" --serve-cmd "uw host \. --port \{port\}" --start --json\)\nThen: a trip \(Seville \(3 nights\)\): follow reference\/itinerary\.md \("One base" for days in one place\)/);
   assert.deepEqual(cfgOf('sv').expect, [{ name: 'Seville', nights: 3 }]);
   const stop = await uw(['add-point', 'sv', '--layer', 'stops', '--query', 'Seville', '--country', 'Spain', '--kind', 'city', '--id', 'seville', '--name', 'Seville', '--props', '{"nights":3}', '--json']);
   assert.equal(stop.code, 0, stop.out + stop.err);

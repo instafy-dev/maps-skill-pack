@@ -14,11 +14,11 @@ import { hostRefusal, publicHostnames } from './host-check.mjs';
 
 export const helps = {
   serve: `serve <dir> [--port 4173] [--host 127.0.0.1|0.0.0.0] [--quiet] [--public-url <url>] [--detach | --stop]
-  Static server for a site (or any folder, e.g. examples/): Range (206) support, correct MIME types (.json .geojson .pbf
-  .pmtiles .mjs .webp .svg …), Cache-Control: no-cache, folders serve their index.html (one without it answers 404,
-  never a list of its files). Dotfiles (.uwcache, .env …) are
-  never served. Listens on 127.0.0.1 (this computer only) unless --host 0.0.0.0, which also prints the LAN URL to open on a
-  phone on the same Wi-Fi. If the port is busy (and --port was not given) the next free one is used.
+  Static server for a site (or a folder of sites, e.g. examples/, each at <sub>/): Range (206) support, correct MIME
+  types (.json .geojson .pbf .pmtiles .mjs .webp .svg …), Cache-Control: no-cache, folders serve their index.html (one
+  without it answers 404, never a list of its files). Dotfiles (.uwcache, .env …) are never served. Listens on
+  127.0.0.1 (this computer only) unless --host 0.0.0.0, which also prints the LAN URL to open on a phone on the same
+  Wi-Fi. If the port is busy (and --port was not given) the next free one is used.
   Answers only for this computer, IP addresses, Instafy tunnels/previews of the port and --public-url hosts (repeatable;
   or UW_PUBLIC_URL), so a web page cannot rebind its own name onto the port and read the site's files.
   --detach  start it in the background, outliving this shell and an agent's turn (a tunnel needs it alive), wait until
@@ -26,7 +26,7 @@ export const helps = {
             space started again by itself). Log and pid: serve.log and serve.json in <dir>'s state folder (in an
             Instafy space the space's own folder, INSTAFY_CACHE_DIR; else <dir>/.uwcache). Prints the command that
             starts the same server in the foreground ("serve_cmd"). In Instafy a map is not detached: one
-            \`instafy preview open … --serve-cmd "uw host <dir> --port {port}" --start\` serves it and shows its card.
+            \`instafy preview open … --serve-cmd "uw host . --port {port}" --start\`, from <dir>, serves it and shows its card.
   --stop    stop the background server of <dir>.`,
   snapshot: `snapshot <dir> [--out <dir>/snapshots] [--only desktop|mobile] [--hash "t=22&v=0.8"] [--eval "<js>"] [--tag name]
          [--thumb] [--scheme light|dark] [--wait ms] [--signal [--strict]] [--json]
@@ -96,9 +96,10 @@ export function staticHandler(root, { log = () => {}, refuse = null, identity = 
     try { st = fs.statSync(file); } catch { log(404, urlPath); return send(404, `not found: ${urlPath}`); }
     if (st.isDirectory()) {
       // a folder is its index.html, never a list of its files: a card that served the space's folder instead of the
-      // map's showed the space's files, and a check passed that list as the page
+      // map's showed the space's files, and a check passed that list as the page. The 404 is in plain words: a card
+      // still started on such a folder shows it to the person who opens it
       const idx = path.join(file, 'index.html');
-      if (!exists(idx)) { log(404, urlPath); return send(404, `not found: ${urlPath} (no index.html)`); }
+      if (!exists(idx)) { log(404, urlPath); return send(404, 'There is no page here.'); }
       if (!urlPath.endsWith('/')) {
         const q = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
         return send(301, '', { Location: encodeURI(urlPath + '/') + q });
@@ -275,7 +276,7 @@ export async function serve(argv) {
   const dir = path.resolve(args._[0]);
   if (!exists(dir) || !fs.statSync(dir).isDirectory()) throw new UserError(`"${args._[0]}" is not a directory`);
   if (args.stop) return stop(args, dir);
-  if (!exists(path.join(dir, 'index.html'))) console.error(`warning: ${args._[0]} has no index.html; serving a file listing.`);
+  if (!exists(path.join(dir, 'index.html'))) console.error(`warning: ${args._[0]} has no index.html: its address answers 404 (a folder is its index.html, never a list of its files).`);
   if (args.detach) return detach(args, dir, 'serve', ['--quiet', ...args['public-url'].flatMap((u) => ['--public-url', u])]);
   const host = args.host || '127.0.0.1';
   const hostOpts = { port: null, publicHosts: publicHostnames(args['public-url']) };

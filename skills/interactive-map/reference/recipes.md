@@ -396,7 +396,7 @@ Records are untrusted: the engine validates them (schema, https URLs, ≤ 200 KB
 ## 29. Run the loop locally: `uw host`
 ```sh
 uw host S --host 0.0.0.0            # prints local + LAN URLs; intents with a resolvable handler are listed
-uw host examples                    # a gallery: every subfolder with a bound.json gets <sub>/__uw/*
+uw host examples                    # a gallery: each site at <URL><sub>/; a subfolder with a bound.json gets <sub>/__uw/*
 uw host S --confirm                 # each job waits for "y" in the terminal (like Instafy's confirm tray)
 ```
 Open the URL on two phones, tap an option → 🪪 Check licence (in the card head): the chip shows a skeleton and

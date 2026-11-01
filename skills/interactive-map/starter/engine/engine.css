@@ -360,8 +360,8 @@ html, body {
   will-change: transform; transform: translate3d(0, 100vh, 0);
   padding-left: var(--sal); padding-right: var(--sar);
 }
-.uw-sheet { transition: background-color 0.35s, color 0.35s; }
-.uw-sheet.is-anim { transition: transform 0.42s cubic-bezier(0.22, 0.95, 0.3, 1), background-color 0.35s, color 0.35s; }
+.uw-sheet { transition: background-color 0.35s, color 0.35s; --uw-slide: 0.42s cubic-bezier(0.22, 0.95, 0.3, 1); }
+.uw-sheet.is-anim { transition: transform var(--uw-slide), background-color 0.35s, color 0.35s; }
 .uw-grab { flex: none; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
 .uw-sheet.is-dragging .uw-grab { cursor: grabbing; }
 .uw-grab { position: relative; padding-top: 18px; }
@@ -440,7 +440,11 @@ html, body {
 }
 /* phones: the list ends just above the sheet's bottom edge (the frame's edge, a host's composer, the home bar): its
    rows fade out over 16 px there instead of running on under it. --uw-list-end is how far the body reaches past that
-   edge (ui.js setSnap). */
+   edge (ui.js setSnap, set for the snap the sheet goes to). A length, so it slides with the sheet: the same transition
+   as the sheet's own, and each frame of a slide (one a frame that is out of view never draws included) ends the list
+   at the frame's edge. */
+@property --uw-list-end { syntax: '<length>'; inherits: false; initial-value: 0px; }
+.uw-sheet.is-anim .uw-body { transition: --uw-list-end var(--uw-slide); }
 .uw-root:not(.is-side) .uw-body {
   -webkit-mask-image: linear-gradient(to top, transparent var(--uw-list-end, 0px), #000 calc(var(--uw-list-end, 0px) + 16px));
   mask-image: linear-gradient(to top, transparent var(--uw-list-end, 0px), #000 calc(var(--uw-list-end, 0px) + 16px));

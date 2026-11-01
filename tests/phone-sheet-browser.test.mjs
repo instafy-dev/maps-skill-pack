@@ -26,6 +26,13 @@ after(async () => { for (const c of closers.reverse()) { try { await c(); } catc
 const pt = (id, c, p) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: c }, properties: { id, ...p } });
 // Studio on a phone: its bar above the frame, its chips and composer below it (the frame ends where they start)
 const BAR = 110, COMPOSER = 130;
+/** --uw-list-end of the sheet's list in px: the body's own value (a registered length that its children do not inherit) */
+const LIST_END = () => {
+  const body = document.querySelector('.uw-body');
+  const d = document.createElement('div');
+  d.style.cssText = `position:absolute;visibility:hidden;height:${getComputedStyle(body).getPropertyValue('--uw-list-end').trim() || '0px'}`;
+  body.parentNode.append(d); const v = d.getBoundingClientRect().height; d.remove(); return v;
+};
 
 test('phone sheet in a host frame: raised, it shows the first place whole and its list ends above the bottom edge; search focus leaves it where it is', { skip: pw ? false : 'Playwright not found (set UW_PLAYWRIGHT)', timeout: 120000 }, async () => {
   const dir = path.join(tmp, 'site');
@@ -90,7 +97,7 @@ test('phone sheet in a host frame: raised, it shows the first place whole and it
   // the list ends above the bottom edge: the part of the body past it is masked out, then a 16 px fade
   assert.match(String(half.mask), /linear-gradient/);
   const hidden = half.bodyBottom - (half.H - half.sab);
-  const end = await frame.evaluate(() => { const b = document.querySelector('.uw-body'); const d = document.createElement('div'); d.style.height = 'var(--uw-list-end)'; b.append(d); const v = d.getBoundingClientRect().height; d.remove(); return v; });
+  const end = await frame.evaluate(LIST_END);
   assert.ok(Math.abs(end - (hidden + half.sab)) <= 1 || Math.abs(end - hidden) <= 1, `--uw-list-end ${end} px, the body runs ${hidden} px past the edge`);
 
   // focusing the search box leaves the sheet where it is
@@ -119,9 +126,9 @@ test('phone sheet in a host frame: raised, it shows the first place whole and it
   const rest = await frame.evaluate(() => {
     const tabs = document.querySelector('.uw-tabs').getBoundingClientRect(), body = document.querySelector('.uw-body');
     const sab = parseFloat(getComputedStyle(document.querySelector('.uw-root')).getPropertyValue('--sab')) || 0;
-    const d = document.createElement('div'); d.style.height = 'var(--uw-list-end)'; body.append(d); const listEnd = d.getBoundingClientRect().height; d.remove();
-    return { H: innerHeight, sab, tabsBottom: tabs.bottom, bodyBottom: body.getBoundingClientRect().bottom, listEnd };
+    return { H: innerHeight, sab, tabsBottom: tabs.bottom, bodyBottom: body.getBoundingClientRect().bottom };
   });
+  rest.listEnd = await frame.evaluate(LIST_END);
   const { PEEK_GAP } = await import(pathToFileURL(path.join(SKILL, 'starter', 'engine', 'ui.js')).href);
   assert.ok(PEEK_GAP >= 8);
   const edge = rest.H - rest.sab;
@@ -148,17 +155,14 @@ test('phone sheet in a host frame: raised, it shows the first place whole and it
   assert.deepEqual(errors, []);
 });
 
-// The 1 Nov 2026 drive: the Seville map's sheet, dragged up and let go in Studio's pane while the pane was out of view,
-// showed its rows down to the frame's bottom edge, under the composer: the list's end was already the one for the
-// raised sheet while the sheet was still drawn where the drag left it. Its end now follows the sheet while it is dragged,
-// and stays at the frame's edge until the slide has arrived.
-test('phone sheet in a host frame: dragged up and let go, the list never runs past the frame\'s bottom edge, also while the slide is not drawn', { skip: pw ? false : 'Playwright not found (set UW_PLAYWRIGHT)', timeout: 120000 }, async () => {
-  const dir = path.join(tmp, 'drag');
+/** a map with ten sights in Studio's place on a 375×812 phone (dark), resting at peek: the page and its frame */
+async function mapInHost(name) {
+  const dir = path.join(tmp, name);
   const r = spawnSync(process.execPath, [UW, 'new', dir, '--title', 'Three days in Seville', '--center', '-5.99,37.38', '--zoom', '13'], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   const names = ['Cathedral', 'Alcázar', 'Archive of the Indies', 'Plaza de España', 'Torre del Oro', 'María Luisa Park', 'Triana', 'Metropol Parasol', 'Casa de Pilatos', 'Museum of Fine Arts'];
   fs.writeFileSync(path.join(dir, 'data', 'sights.geojson'), JSON.stringify({ type: 'FeatureCollection', uw: { cmd: 'add-point' },
-    features: names.map((name, i) => pt(`s${i}`, [-5.995 + (i % 5) * 0.004, 37.378 + Math.floor(i / 5) * 0.006], { name, kind: 'attraction', source: 'Wikipedia' })) }));
+    features: names.map((n, i) => pt(`s${i}`, [-5.995 + (i % 5) * 0.004, 37.378 + Math.floor(i / 5) * 0.006], { name: n, kind: 'attraction', source: 'Wikipedia' })) }));
   const cfgPath = path.join(dir, 'map.config.json');
   const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
   cfg.layers = [{ id: 'sights', title: 'Sights', type: 'points', data: 'data/sights.geojson' }];
@@ -185,32 +189,83 @@ test('phone sheet in a host frame: dragged up and let go, the list never runs pa
   const frame = await (await page.waitForSelector('#f')).contentFrame();
   await frame.waitForFunction(() => window.__uwReady === true, null, { timeout: 60000 });
   await frame.waitForFunction(() => document.querySelector('.uw-sheet')?.dataset.snap === 'peek', null, { timeout: 10000 });
-  // where the list ends (the body's bottom less --uw-list-end) against the frame's bottom edge (less --sab)
-  const ends = () => frame.evaluate(() => {
-    const sheet = document.querySelector('.uw-sheet'), body = document.querySelector('.uw-body');
-    const d = document.createElement('div'); d.style.height = 'var(--uw-list-end)'; body.append(d); const listEnd = d.getBoundingClientRect().height; d.remove();
-    const sab = parseFloat(getComputedStyle(document.querySelector('.uw-root')).getPropertyValue('--sab')) || 0;
-    return { snap: sheet.dataset.snap, top: Math.round(sheet.getBoundingClientRect().top), list: body.getBoundingClientRect().bottom - listEnd, edge: innerHeight - sab };
-  });
+  return { page, frame };
+}
+/** where the list ends (the body's bottom less --uw-list-end) against the frame's bottom edge (less --sab), and how
+ *  many places show whole above both */
+const ENDS = (listEnd) => {
+  const sheet = document.querySelector('.uw-sheet'), body = document.querySelector('.uw-body');
+  const sab = parseFloat(getComputedStyle(document.querySelector('.uw-root')).getPropertyValue('--sab')) || 0;
+  const b = body.getBoundingClientRect(), list = b.bottom - listEnd, edge = innerHeight - sab;
+  const rows = [...body.querySelectorAll('.uw-row')].map((r) => r.getBoundingClientRect()).filter((r) => r.height > 0 && r.top >= b.top && r.bottom <= Math.min(list, edge)).length;
+  return { snap: sheet.dataset.snap, top: Math.round(sheet.getBoundingClientRect().top), list, edge, rows };
+};
+const ends = async (frame) => frame.evaluate(ENDS, await frame.evaluate(LIST_END));
+
+// The Seville map's sheet, dragged up and let go in Studio's pane while the pane was out of view, showed its rows down
+// to the frame's bottom edge, under the composer: the list's end was already the one for the raised sheet while the
+// sheet was still drawn where the drag left it. Its end now follows the sheet while it is dragged, and slides with it.
+test('phone sheet in a host frame: dragged up and let go, the list never runs past the frame\'s bottom edge, also while the slide is not drawn', { skip: pw ? false : 'Playwright not found (set UW_PLAYWRIGHT)', timeout: 120000 }, async () => {
+  const { page, frame } = await mapInHost('drag');
   const fr = await (await page.$('#f')).boundingBox();
   const grip = await frame.evaluate(() => { const b = document.querySelector('.uw-handle').getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; });
   await page.mouse.move(fr.x + grip.x, fr.y + grip.y);
   await page.mouse.down();
   for (let i = 1; i <= 12; i++) { await page.mouse.move(fr.x + grip.x, fr.y + grip.y - i * 30); await page.waitForTimeout(16); }
   // dragged: the list ends at the frame's edge, wherever the sheet is
-  const dragged = await ends();
+  const dragged = await ends(frame);
   assert.ok(Math.abs(dragged.list - dragged.edge) <= 1, `dragged to ${dragged.top}: the list ends at ${dragged.list}, the edge is at ${dragged.edge}`);
   // let go, in a frame that draws none of the slide (each transition is held at its start)
   await frame.evaluate(() => document.addEventListener('transitionrun', (e) => { for (const a of e.target.getAnimations()) { a.pause(); a.currentTime = 0; } }, true));
   await page.mouse.up();
   await frame.waitForTimeout(400);
-  const held = await ends();
+  const held = await ends(frame);
   assert.equal(held.snap, 'full');
   assert.ok(Math.abs(held.top - dragged.top) <= 2, `the slide is held where the drag left it (${held.top}, ${dragged.top})`);
-  assert.ok(held.list <= held.edge + 1, `held at ${held.top}: the list ends at ${held.list}, past the frame's edge at ${held.edge}`);
+  assert.ok(Math.abs(held.list - held.edge) <= 1, `held at ${held.top}: the list ends at ${held.list}, the frame's edge is at ${held.edge}`);
   // drawn again: the slide arrives and the list ends at the edge of the raised sheet
-  await frame.evaluate(() => { for (const a of document.querySelector('.uw-sheet').getAnimations()) a.finish(); });
+  await frame.evaluate(() => { for (const a of document.getAnimations()) a.finish(); });
   await frame.waitForTimeout(200);
-  const raised = await ends();
+  const raised = await ends(frame);
   assert.ok(Math.abs(raised.list - raised.edge) <= 1, `raised: the list ends at ${raised.list}, the edge is at ${raised.edge}`);
+  assert.ok(raised.rows >= 3, `raised: ${raised.rows} places in view`);
+});
+
+// Raised by a tap, the list showed none of its rows until the sheet arrived (its end was kept where it was at peek for
+// the whole slide), and none at all when the host hid the frame mid-slide (the end was never moved). Every frame of the
+// slide ends the list at the frame's edge: its rows come into view as the sheet rises, and never run under the composer.
+test('phone sheet in a host frame: raised by a tap, its places come into view as it rises, and stay in view when the host hides the frame mid-slide', { skip: pw ? false : 'Playwright not found (set UW_PLAYWRIGHT)', timeout: 120000 }, async () => {
+  const { page, frame } = await mapInHost('tap');
+  const peek = await ends(frame);
+  // each frame drawn while the sheet slides from peek to half
+  await frame.evaluate(({ ends, listEnd }) => {
+    const fEnds = new Function(`return (${ends})`)(), fListEnd = new Function(`return (${listEnd})`)();
+    window.__slide = [];
+    const rec = () => { window.__slide.push(fEnds(fListEnd())); if (window.__slide.length < 90) requestAnimationFrame(rec); };
+    requestAnimationFrame(rec);
+  }, { ends: ENDS.toString(), listEnd: LIST_END.toString() });
+  await frame.click('.uw-handle');
+  await frame.waitForFunction(() => window.__slide.length >= 90, null, { timeout: 10000 });
+  const frames = await frame.evaluate(() => window.__slide);
+  const half = frames[frames.length - 1];
+  assert.equal(half.snap, 'half');
+  const sliding = frames.filter((f) => f.top < peek.top - 1 && f.top > half.top + 1);
+  assert.ok(sliding.length >= 3, `${sliding.length} frames of the slide`);
+  for (const f of sliding) {
+    assert.ok(f.list <= f.edge + 1, `at ${f.top} the list ends at ${f.list}, under the composer (the frame's edge is at ${f.edge})`);
+    assert.ok(f.list >= peek.list - 1, `at ${f.top} the list ends at ${f.list}, above where it ended at peek (${peek.list}): its rows are hidden`);
+  }
+  assert.ok(sliding.some((f) => f.rows > 0), `a place comes into view while the sheet rises: ${JSON.stringify(sliding.map((f) => [f.top, f.rows]))}`);
+  assert.ok(half.rows >= 2 && Math.abs(half.list - half.edge) <= 1, JSON.stringify(half));
+  // up again, and the host hides the frame mid-slide (Studio hides a preview pane it is not showing), then shows it
+  await frame.click('.uw-handle');
+  await page.waitForTimeout(60);
+  await page.evaluate(() => { document.getElementById('pane').style.display = 'none'; });
+  await page.waitForTimeout(1000);
+  await page.evaluate(() => { document.getElementById('pane').style.display = ''; });
+  await frame.waitForTimeout(500);
+  const shown = await ends(frame);
+  assert.equal(shown.snap, 'full');
+  assert.ok(Math.abs(shown.list - shown.edge) <= 1, `shown again: the list ends at ${shown.list}, the frame's edge is at ${shown.edge}`);
+  assert.ok(shown.rows >= 3, `shown again: ${shown.rows} places in view`);
 });

@@ -77,53 +77,44 @@ test('phone peek: the tab bar ends above the host inset (98 px composer, 150 px 
   for (const s of [at98, at150]) assert.ok(s.full < s.half && s.half < s.peek, JSON.stringify(s));
 });
 
-// The 1 Nov 2026 Seville map on a phone: dragged up and let go, the raised sheet's rows ran on to the frame's bottom
-// edge, under Studio's composer ("Tue 3 Nov · Seville" half hidden). The list's end was set for where the sheet was
-// going (full), while it was still drawn where the drag left it; a frame that draws none of the slide (Studio's pane
-// out of view) shows exactly that. Sliding up, the list keeps the end it has until the sheet arrives; sliding down it
-// takes the new end at once; a drag moves it with the sheet.
-test('phone sheet: the list ends at the frame\'s edge for where the sheet is drawn, also while it slides up to a snap', async () => {
+// A raised sheet's list ends at the frame's edge in every frame of its slide. With its end set for where the sheet was
+// going, a sheet dragged up and let go ran its rows on to the frame's bottom edge, under a host's composer, for the
+// length of the slide (a frame out of view, which drew none of it, showed just that); with its end kept for where the
+// sheet came from until it arrived, a list raised by a tap stayed blank all the way up, and stayed blank when its frame
+// was hidden mid-slide. setSnap sets the end for the snap at once, and engine.css slides it with the sheet: the end is
+// a length that takes the sheet's own transition.
+test('phone sheet: the list\'s end is set for the snap at once, and slides with the sheet in the same transition', async () => {
   const { UI } = await eng('ui.js');
   const hadWindow = 'window' in globalThis;
   globalThis.window ??= { matchMedia: () => ({ matches: false }) };
   try {
-    const listeners = [];
     const sheet = { style: {}, dataset: {}, classList: { toggle() {}, contains: () => false, add() {}, remove() {} },
-      addEventListener: (type, f) => listeners.push([type, f]), removeEventListener: (type, f) => { const i = listeners.findIndex((x) => x[1] === f); if (i >= 0) listeners.splice(i, 1); } };
-    const fire = (propertyName, target = sheet) => { for (const [type, f] of [...listeners]) if (type === 'transitionend') f({ target, propertyName }); };
+      addEventListener() { throw new Error('a slide sets no listener'); } };
     const body = { style: { setProperty(k, v) { this[k] = v; } } };
-    let drawn = 465; // where the sheet is drawn now (its transform this frame)
     const ui = Object.assign(Object.create(UI.prototype), { side: false, snaps: { full: 10, half: 225, peek: 465 }, peekGap: 12, peekCut: 0, qboxH: 0, H: 580,
-      sheet, body, qbox: { style: {} }, toasts: { style: {} }, handle: { setAttribute() {} }, ctx: {}, snap: 'peek', drawnTop: () => drawn });
+      sheet, body, qbox: { style: {} }, toasts: { style: {} }, handle: { setAttribute() {} }, ctx: {}, snap: 'peek' });
     const end = () => body.style['--uw-list-end'];
-    // a drag let go 105 px from the top: the slide to full starts there, and the list ends at the frame's edge for 105
-    drawn = 105;
+    // let go after a drag up, wherever the sheet is drawn: the end is the raised sheet's at once
     ui.setSnap('full');
     assert.equal(sheet.style.transform, 'translate3d(0,10px,0)');
-    assert.equal(end(), 'calc(95px + var(--sab))', 'the end for where the sheet is drawn, not for full (0 px)');
-    assert.equal(body.style.paddingBottom, 'calc(95px + var(--sab) + 16px)');
-    fire('background-color');
-    fire('transform', {});
-    assert.equal(end(), 'calc(95px + var(--sab))', 'another transition, or a child\'s, is not the slide');
-    fire('transform');
-    assert.equal(end(), 'calc(0px + var(--sab))', 'arrived: the end for full');
-    // sliding down takes the new end at once (the list ends higher than the sheet's edge while it slides, never lower)
-    drawn = 10;
+    assert.equal(end(), 'calc(0px + var(--sab))');
+    assert.equal(body.style.paddingBottom, 'calc(0px + var(--sab) + 16px)');
     ui.setSnap('peek');
     assert.equal(end(), 'calc(483px + var(--sab))', 'peek: below the tab bar and its gap');
-    // a slide that a newer one replaced never sets its end afterwards
-    drawn = 465; ui.setSnap('half');
-    drawn = 300; ui.setSnap('full');
-    assert.equal(end(), 'calc(290px + var(--sab))');
-    fire('transform');
-    assert.equal(end(), 'calc(0px + var(--sab))');
-    assert.equal(listeners.length, 0, 'every slide\'s listener is gone once a slide ended');
-    // no animation (reduced motion, a resize): the end for the snap at once
-    ui.setSnap('half', false);
+    ui.setSnap('half');
     assert.equal(end(), 'calc(215px + var(--sab))');
+    ui.setSnap('full', false);
+    assert.equal(end(), 'calc(0px + var(--sab))');
   } finally {
     if (!hadWindow) delete globalThis.window;
   }
+  const css = fs.readFileSync(path.join(ENGINE, 'engine.css'), 'utf8');
+  // a length (registered), so a transition can slide it; set on the body, read by the body's own mask only
+  assert.match(css, /@property --uw-list-end \{ syntax: '<length>'; inherits: false; initial-value: 0px; \}/);
+  const slide = /\.uw-sheet \{[^}]*--uw-slide: ([^;]+);/.exec(css)?.[1];
+  assert.ok(slide && /^0\.\d+s cubic-bezier\(/.test(slide), slide);
+  assert.match(css, /\.uw-sheet\.is-anim \{ transition: transform var\(--uw-slide\),/);
+  assert.match(css, /\.uw-sheet\.is-anim \.uw-body \{ transition: --uw-list-end var\(--uw-slide\); \}/);
 });
 
 test('phone peek without a host is where it always was; a peek too tall for the frame cuts the ask, never the tabs', async () => {

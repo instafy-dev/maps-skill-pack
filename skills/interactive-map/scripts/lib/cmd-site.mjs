@@ -77,16 +77,19 @@ export function boundsFor(center, zoom) {
   return [[round6(center[0] - dLng), round6(center[1] - dLat)], [round6(center[0] + dLng), round6(center[1] + dLat)]];
 }
 
-/** The one command that serves a site and posts its card (SKILL.md step 3), with the site's path as `uw new` was
- *  given it: run where `uw new` ran (a turn chained the two from the space's folder, and `uw host .` served the
- *  whole space). The title in single quotes when it has a character the shell reads inside double quotes; a path
- *  with other than plain path characters too. Pure; exported for the tests. */
+/** The one command that serves a site and posts its card (SKILL.md step 3), run where `uw new` ran: it serves the
+ *  site from its own folder, which Instafy takes for the card's site (where the map starts again after a sleep, and
+ *  whose changes take the card's picture again). From the space's folder, `uw host .` served the whole space, and
+ *  `uw host <site>` made every file of the space the map's. The title in single quotes when it has a character the
+ *  shell reads inside double quotes; a path with other than plain path characters too. Pure; exported for the tests. */
 export function cardCommand(title, site = '.') {
   const q = (s) => (/^[^"$`\\!]*$/.test(s) ? `"${s}"` : `'${s.replace(/'/g, `'\\''`)}'`);
+  const open = `instafy preview open --title ${q(String(title ?? ''))} --serve-cmd "uw host . --port {port}" --start --json`;
   const dir = String(site ?? '.') || '.';
-  // `--serve-cmd` is one command split like a shell would split it, inside the double quotes around it
+  if (dir === '.') return open;
   const word = /^[\w@%+=:,./-]+$/.test(dir) ? dir : `'${dir.replace(/'/g, `'\\''`)}'`;
-  return `instafy preview open --title ${q(String(title ?? ''))} --serve-cmd "uw host ${word} --port {port}" --start --json`;
+  // a subshell: a command chained after it still runs where `uw new` ran
+  return `(cd ${word} && ${open})`;
 }
 
 export async function newSite(argv) {
@@ -139,7 +142,7 @@ export async function newSite(argv) {
   const rel = path.relative(process.cwd(), dir) || '.';
   const next = [
     // the card before any lookup (SKILL.md step 3): a slow lookup can then cost the map content, never its card. It
-    // serves the site by its path, from this same folder
+    // runs from this same folder, and serves the site from its own
     `Next, at once: its card: ${cardCommand(cfg.title, rel)}`,
     trip.length
       ? `Then: a trip (${describeItems(trip)}): follow reference/itinerary.md ("One base" for days in one place), not SKILL.md steps 4-8; uw validate fails until the plan has its days.`

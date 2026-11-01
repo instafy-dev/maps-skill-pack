@@ -3,6 +3,35 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.24 (2026-11-01)
+
+Fixes to 0.1.23.
+
+- **The card's site is the map's own folder.** 0.1.23's card command named the site's path (`uw host <site>`) and ran
+  from the folder `uw new` ran in, usually the space's. Instafy takes the folder `instafy preview open` runs in for
+  the card's site: where it starts the map again after a sleep, and whose changes take a new picture for the card. So
+  every change in the space counted as the map's (a page another chat built retook the map's picture, and two maps
+  retook each other's), and run from the site's own folder, as Instafy's page and preview skills run a card, the
+  command did not start the map. Step 3 and `uw new`'s "Next" line now give `(cd <site> && instafy preview open
+  --title "<title>" --serve-cmd "uw host . --port {port}" --start --json)`, run where `uw new` ran: the card runs in
+  the site's folder and serves it from there. A folder with no `index.html` still answers 404.
+- **A folder's 404 is in plain words:** "There is no page here." A card started on such a folder before 0.1.23 shows
+  it to the person who opens it. `uw serve` no longer warns that it serves a file listing; it says the folder's
+  address answers 404, and the help says where a gallery's sites are.
+- **A raised sheet shows its places while it rises.** 0.1.23 kept the list's end where it was until the sheet arrived,
+  so a list raised by a tap stayed blank for the whole slide, and stayed blank after the host hid the frame mid-slide.
+  The end is set for the snap at once again and slides with the sheet (a length with the sheet's own transition):
+  each frame of a slide ends the list at the frame's edge, never under a host's composer, also in a frame that draws
+  none of the slide.
+- **"travel" is a routing word again.** "I'm travelling to Kyoto for 5 days, what should I see each day?" reached no
+  skill without it. "route" stays out.
+- **Tests:** the card's command, chained after `uw new` from the space's folder through a shell, runs `instafy preview
+  open` in the map's own folder, and its serve command serves the map from there; a folder's 404 is in plain words and
+  `uw serve` says so when it starts; the sheet's list end is set for the snap at once and engine.css gives it the
+  sheet's transition; in a browser, a sheet raised by a tap ends its list at the frame's edge in every frame drawn
+  while it rises, with its places coming into view, and again after the host hides the frame mid-slide; `travel` is a
+  routing word. Each fails without its change.
+
 ## 0.1.23 (2026-11-01)
 
 Fixes from a "Plan 3 days in Seville … on a map" run whose card opened a list of the space's files instead of the map,
