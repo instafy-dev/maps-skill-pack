@@ -3,6 +3,45 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.23 (2026-11-01)
+
+Fixes from a "Plan 3 days in Seville … on a map" run whose card opened a list of the space's files instead of the map,
+and from a "put the hours and the metro route on a small page" request that was built inside a map site.
+
+- **The card's command serves the site by its path.** SKILL.md step 3 said to post the card "from the site's folder"
+  with `--serve-cmd "uw host . --port {port}"`. The turn chained `uw new sites/seville-3-days … && instafy preview open
+  …` in one command from the space's folder, so `.` was the whole space, and the card opened a list of its files
+  (`sites/`, `AGENTS.md`, `CLAUDE.md` …); its picture showed that list. Step 3 and `uw new`'s "Next" line now give
+  `--serve-cmd "uw host <site> --port {port}"` with the same path `uw new` was given, run from the same folder.
+- **A folder is its `index.html` or a 404.** `uw serve` and `uw host` answered a folder with no `index.html` with a list
+  of its files, which `instafy preview check` took for the page. They now answer 404 (also before the redirect that
+  adds the trailing slash, so no folder name is given away), which the check reports. Hidden files and paths outside
+  the folder stay refused.
+- **The skill claims a map, or places on one.** Its description claimed "any request that involves a map (… walks,
+  routes, trips …)" and `route` and `travel` were routing words, so a page with opening hours and a metro route was
+  built inside a 32-file map site and served without the host's theme. The description now claims a map, or places on
+  one (hotels or areas to choose from, places nearby, a trip's stays and sights, recolouring map features); `route`
+  and `travel` are no longer routing words; and "No map (a plan, a list, a page of hours or directions)" names the
+  page starters, never a map site.
+- **A day's stops leave out its base.** The Plan tab's row for a day with the hotel and two sights read "3 stops"; the
+  base (`uw plan`'s "Base: …" item, where the day starts and ends) is no longer counted.
+- **Days in one place list no "Stations" group.** A one-city map whose turn placed the city's station with `uw station`
+  listed "Stations 1"; `uw plan` with one stop now leaves the layers `uw station` made out of the places list, as it
+  does the stop's own layer. The station stays on the map, and a trip of several stops lists its stations again.
+- **A sight's source is the venue's own site first.** The trip guide said "(the attraction's own site, a national
+  park's, else its Wikipedia article)"; a run cited Wikipedia for every sight. It now puts the venue's official site
+  first, as the web-research skill ranks sources, says how to find it (one you know, or the official site a reference
+  search lists), and keeps the Wikipedia article for a venue with no site that names it and can be read.
+- **The phone sheet's list never runs under the host's composer.** The list's end was set for where the sheet was
+  going while it was still drawn where a drag left it: let go after a drag up, the raised sheet's rows ran on to the
+  frame's bottom edge, under a host's floating composer, for the length of the slide, and for as long as a frame that
+  was out of view drew none of it. The list's end now follows the sheet while it is dragged, keeps its place while the
+  sheet slides up until it arrives, and takes the lower end at once when it slides down.
+- **Tests:** the card's own command, run from a space's folder, serves the map and nothing outside it, while the
+  space's folder and its subfolders answer 404 with no list; the stop count; the Stations group for one and two stops;
+  the skill's description and routing words; the sourcing guide; the sheet's list end while it slides (a unit test)
+  and, in a browser, after a drag released in a frame that draws none of the slide. Each fails without its change.
+
 ## 0.1.22 (2026-10-31)
 
 Fixes to 0.1.21.

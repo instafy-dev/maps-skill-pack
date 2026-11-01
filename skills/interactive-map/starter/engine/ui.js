@@ -48,12 +48,15 @@ function dayHeading(d, j) {
 }
 
 /** a day row's caption, the same words as the timeline page: "4 stops · 2 not checked"; the departure day (nothing is
- * planned on it) says so, so it never reads as a day left empty */
+ * planned on it) says so, so it never reads as a day left empty. The day's base (uw plan's "Base: <stay> · …", where
+ * the day starts and ends) is where the traveller sleeps, not a stop: a day with the hotel and two sights read
+ * "3 stops" */
 function dayCaption(d) {
   const items = Array.isArray(d.items) ? d.items : [];
   if (isDepartDay(d) && !items.length) return 'Departure';
+  const stops = items.filter((it) => !/^Base: /.test(String(it?.text || ''))).length;
   const open = items.filter((it) => it && typeof it.check === 'string' && it.check.trim()).length;
-  return [items.length ? `${items.length} ${items.length === 1 ? 'stop' : 'stops'}` : null, open ? `${open} not checked` : null].filter(Boolean).join(' · ');
+  return [stops ? `${stops} ${stops === 1 ? 'stop' : 'stops'}` : null, open ? `${open} not checked` : null].filter(Boolean).join(' · ');
 }
 
 const AQ = [[12, 'Good', '#22c55e'], [35.4, 'Moderate', '#eab308'], [55.4, 'Sensitive', '#f97316'], [150.4, 'Unhealthy', '#ef4444'], [Infinity, 'Very unhealthy', '#a21caf']];
@@ -225,7 +228,10 @@ export class UI {
     if (this.side) { this.snap = name; return; }
     this.snap = name;
     const y = this.snaps[name];
-    this.sheet.classList.toggle('is-anim', animate && !reducedMotion());
+    const animated = animate && !reducedMotion();
+    // where the sheet is drawn now (mid-drag, mid-slide), read before it is sent to its snap
+    const from = animated ? this.drawnTop() : null;
+    this.sheet.classList.toggle('is-anim', animated);
     this.sheet.style.transform = `translate3d(0,${y}px,0)`;
     this.sheet.dataset.snap = name;
     // a frame too short for the whole ask: at peek the verdict lines are cut so the tab bar stays above the inset
@@ -233,16 +239,39 @@ export class UI {
     this.qbox.style.maxHeight = cut == null ? '' : cut + 'px'; this.qbox.style.overflow = cut == null ? '' : 'hidden';
     // a hint shown above the sheet follows it (a host's inset can lift the peek after the hint appeared)
     if (this.toasts.style.bottom) this.toasts.style.bottom = `${Math.round(this.H - y + 10)}px`;
-    // the body runs past the frame's bottom by what the sheet is lowered: its padding lets the last row scroll up
-    // above the bottom edge (a host's composer, the phone's home bar: --sab), and the list fades out just above that
-    // edge (engine.css, --uw-list-end) instead of running on under it
-    const below = Math.max(0, y - this.snaps.full);
-    this.body.style.paddingBottom = `calc(${below}px + var(--sab) + 16px)`;
-    // at peek the gap under the tab bar is the sheet's own colour: the list and its 16 px fade stay below it
-    const gap = name === 'peek' && this.peekGap ? this.peekGap + 16 : 0;
-    this.body.style.setProperty('--uw-list-end', `calc(${below + gap}px + var(--sab))`);
+    // the list ends at the frame's edge for the lower of where the sheet is drawn and where it goes: sliding up, it
+    // keeps the end it has until it arrives (with the end set for where it went, its rows ran on to the frame's edge,
+    // under a host's composer, all the way up, and in a frame that drew none of the slide); sliding down, it takes
+    // the new end at once
+    const slide = (this.slideId = (this.slideId || 0) + 1);
+    if (from != null && from > y + 0.5) {
+      this.listEnd(from);
+      const done = (e) => {
+        if (e.target !== this.sheet || e.propertyName !== 'transform') return;
+        this.sheet.removeEventListener('transitionend', done);
+        if (this.slideId === slide) this.listEnd(y);
+      };
+      this.sheet.addEventListener('transitionend', done);
+    } else this.listEnd(y);
     this.handle.setAttribute('aria-expanded', String(name !== 'peek'));
     this.ctx.onSnap?.(name);
+  }
+  /** The sheet's top as drawn this frame (its transform, mid-slide included), or null. */
+  drawnTop() {
+    const m = /^matrix(3d)?\(([^)]*)\)$/.exec(getComputedStyle(this.sheet).transform || '');
+    const v = m ? m[2].split(',').map(Number) : [];
+    const ty = m ? (m[1] ? v[13] : v[5]) : NaN;
+    return Number.isFinite(ty) ? ty : null;
+  }
+  /** The list of a sheet whose top is at `top` ends at the frame's bottom edge (a host's composer, the phone's home
+   *  bar: --sab): the body runs past that edge by what the sheet is lowered, its padding lets the last row scroll up
+   *  above it, and its rows fade out there (engine.css, --uw-list-end) instead of running on under it. At peek the gap
+   *  under the tab bar is the sheet's own colour: the list and its 16 px fade stay below it. */
+  listEnd(top) {
+    const below = Math.max(0, top - this.snaps.full);
+    const gap = top >= this.snaps.peek - 0.5 && this.peekGap ? this.peekGap + 16 : 0;
+    this.body.style.paddingBottom = `calc(${below}px + var(--sab) + 16px)`;
+    this.body.style.setProperty('--uw-list-end', `calc(${below + gap}px + var(--sab))`);
   }
   initDrag() {
     let start = null;
@@ -262,6 +291,9 @@ export class UI {
       const { full, peek } = this.snaps;
       if (y < full) y = full - Math.sqrt(full - y) * 2; if (y > peek) y = peek + Math.sqrt(y - peek) * 2;
       this.sheet.style.transform = `translate3d(0,${y}px,0)`;
+      // the list ends at the frame's edge wherever the sheet is dragged (an end left from the snap it came from ran
+      // its rows on under a host's composer when dragged down from full)
+      this.listEnd(y);
       start.samples.push([performance.now(), e.clientY]); if (start.samples.length > 6) start.samples.shift();
       start.cur = y;
     };
@@ -305,6 +337,7 @@ export class UI {
       if (e.cancelable) e.preventDefault();
       const y = Math.min(this.snaps.peek + 20, Math.max(this.snaps.full, pull.top + (t.clientY - pull.y)));
       this.sheet.style.transform = `translate3d(0,${y}px,0)`;
+      this.listEnd(y);
       pull.cur = y; pull.samples.push([performance.now(), t.clientY]); if (pull.samples.length > 6) pull.samples.shift();
     }, { passive: false });
     const endPull = () => {

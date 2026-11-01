@@ -15,7 +15,8 @@ import { hostRefusal, publicHostnames } from './host-check.mjs';
 export const helps = {
   serve: `serve <dir> [--port 4173] [--host 127.0.0.1|0.0.0.0] [--quiet] [--public-url <url>] [--detach | --stop]
   Static server for a site (or any folder, e.g. examples/): Range (206) support, correct MIME types (.json .geojson .pbf
-  .pmtiles .mjs .webp .svg …), Cache-Control: no-cache, folders serve their index.html. Dotfiles (.uwcache, .env …) are
+  .pmtiles .mjs .webp .svg …), Cache-Control: no-cache, folders serve their index.html (one without it answers 404,
+  never a list of its files). Dotfiles (.uwcache, .env …) are
   never served. Listens on 127.0.0.1 (this computer only) unless --host 0.0.0.0, which also prints the LAN URL to open on a
   phone on the same Wi-Fi. If the port is busy (and --port was not given) the next free one is used.
   Answers only for this computer, IP addresses, Instafy tunnels/previews of the port and --public-url hosts (repeatable;
@@ -25,7 +26,7 @@ export const helps = {
             space started again by itself). Log and pid: serve.log and serve.json in <dir>'s state folder (in an
             Instafy space the space's own folder, INSTAFY_CACHE_DIR; else <dir>/.uwcache). Prints the command that
             starts the same server in the foreground ("serve_cmd"). In Instafy a map is not detached: one
-            \`instafy preview open … --serve-cmd "uw host . --port {port}" --start\` serves it and shows its card.
+            \`instafy preview open … --serve-cmd "uw host <dir> --port {port}" --start\` serves it and shows its card.
   --stop    stop the background server of <dir>.`,
   snapshot: `snapshot <dir> [--out <dir>/snapshots] [--only desktop|mobile] [--hash "t=22&v=0.8"] [--eval "<js>"] [--tag name]
          [--thumb] [--scheme light|dark] [--wait ms] [--signal [--strict]] [--json]
@@ -94,12 +95,15 @@ export function staticHandler(root, { log = () => {}, refuse = null, identity = 
     let st;
     try { st = fs.statSync(file); } catch { log(404, urlPath); return send(404, `not found: ${urlPath}`); }
     if (st.isDirectory()) {
+      // a folder is its index.html, never a list of its files: a card that served the space's folder instead of the
+      // map's showed the space's files, and a check passed that list as the page
+      const idx = path.join(file, 'index.html');
+      if (!exists(idx)) { log(404, urlPath); return send(404, `not found: ${urlPath} (no index.html)`); }
       if (!urlPath.endsWith('/')) {
         const q = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
         return send(301, '', { Location: encodeURI(urlPath + '/') + q });
       }
-      const idx = path.join(file, 'index.html');
-      if (exists(idx)) { file = idx; st = fs.statSync(idx); } else return send(200, listing(file, urlPath), { 'Content-Type': 'text/html; charset=utf-8' });
+      file = idx; st = fs.statSync(idx);
     }
     const type = MIME[path.extname(file).toLowerCase()] || 'application/octet-stream';
     // no Access-Control-Allow-Origin: other web pages the user opens must not read a local site's files
@@ -125,16 +129,6 @@ export function staticHandler(root, { log = () => {}, refuse = null, identity = 
     if (req.method === 'HEAD') return res.end();
     fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
   };
-}
-
-function listing(dir, urlPath) {
-  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const items = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => !e.name.startsWith('.'))
-    .sort((a, b) => (b.isDirectory() - a.isDirectory()) || a.name.localeCompare(b.name))
-    .map((e) => `<li><a href="${encodeURIComponent(e.name)}${e.isDirectory() ? '/' : ''}">${esc(e.name)}${e.isDirectory() ? '/' : ''}</a></li>`).join('');
-  return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(urlPath)}</title>
-<style>body{font:16px/1.5 system-ui,sans-serif;margin:24px;background:#fff;color:#111}a{display:block;padding:10px 0;color:#2563eb}@media(prefers-color-scheme:dark){body{background:#111;color:#eee}a{color:#93c5fd}}</style>
-<h1>${esc(urlPath)}</h1><ul>${urlPath !== '/' ? '<li><a href="../">../</a></li>' : ''}${items}</ul>`;
 }
 
 /** localhost only opens where this runs (in a hosted runtime: not on the user's device): say how to share it */

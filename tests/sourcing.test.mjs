@@ -175,3 +175,13 @@ test('robots.txt rules match percent-encoded and doubled-slash spellings of a pa
   assert.equal(robotsBlocker(g, '/public'), null);
   assert.ok(linkOnly('https://a.co/d/abc'), 'Amazon short links are link-only');
 });
+
+// The 1 Nov 2026 Seville map cited Wikipedia for every sight, the cathedral included, whose own site the 31 Oct run
+// had cited. The trip guide puts the venue's own site first, as the web-research skill's sources by need do, and says
+// how to find it; its Wikipedia article is the fallback.
+test('the trip guide sources a sight from the venue\'s own site first; its Wikipedia article only when it has none that can be read', () => {
+  const md = fs.readFileSync(path.join(SKILL, 'reference', 'itinerary.md'), 'utf8').replace(/\s+/g, ' ');
+  const step1 = md.slice(md.indexOf('1. **Sights with sources'), md.indexOf('2. **Train times**'));
+  assert.match(step1, /The venue's own site first, as skill `instafy-web-research` ranks sources \(its "Sources by need"\): the attraction's, park's or operator's official site, one you know or the one `instafy web search "<its name>" --chain reference-search --json` lists; its Wikipedia article only when the venue has no site that names it and can be read\./);
+  assert.doesNotMatch(step1, /else its Wikipedia article/);
+});

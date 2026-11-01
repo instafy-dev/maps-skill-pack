@@ -27,7 +27,7 @@ agent reads `SKILL.md` and runs `uw <command>`. Its `activity` table gives each 
 To add a pinned copy to a space yourself (or to try a newer tag), import the skill folder:
 
 ```
-/skills import https://github.com/instafy-dev/maps-skill-pack/tree/v0.1.22/skills/interactive-map
+/skills import https://github.com/instafy-dev/maps-skill-pack/tree/v0.1.23/skills/interactive-map
 ```
 
 This copies the folder into the space (`/skills import` takes up to 256 files and 8 MB; the pack is about 110 files
@@ -58,9 +58,9 @@ uw validate my-map --signal && uw snapshot my-map --signal && uw serve my-map --
 `uw serve` prints a localhost address and, with `--host 0.0.0.0`, a LAN address to open on a phone on the same
 Wi-Fi. `uw host <site>` is `serve` plus the agent loop for the intents in the site's `bound.json`. With `--detach`
 both run in the background and print the command that starts the same server in the foreground. In Instafy a map is
-not detached: one `instafy preview open --title "<title>" --serve-cmd "uw host . --port {port}" --start --json`, from
-the site's folder, picks its port, serves it and shows its preview card, which the space can start again after the
-server stops.
+not detached: one `instafy preview open --title "<title>" --serve-cmd "uw host <site> --port {port}" --start --json`,
+with the same `<site>` as `uw new`, picks its port, serves it and shows its preview card, which the space can start
+again after the server stops. A folder with no `index.html` answers 404, never a list of its files.
 
 ### Commands
 
