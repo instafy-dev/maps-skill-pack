@@ -537,10 +537,13 @@ export async function run(argv) {
   const plan = sightLayers.length ? { title: built.title, sights: sightLayers, ...(unplaced.length ? { unplaced } : {}), days: built.days } : built;
   cfg.plan = plan;
   // days in one place: the stop is the city the whole map shows, so the places list has no group for it (the Plan tab
-  // names it); a trip of several stops lists them again
-  const stopDef = (Array.isArray(cfg.layers) ? cfg.layers : []).find((l) => l?.id === stopLayer);
-  if (stopDef && stops.length === 1) stopDef.list = false;
-  else if (stopDef?.list === false) delete stopDef.list;
+  // names it), nor for the station `uw station` placed in it (a one-city map listed "Stations 1"); both stay on the
+  // map. A trip of several stops lists them again
+  const cmdOf = (id) => { try { return loadLayer(site, id, { required: false })?.uw?.cmd || null; } catch { return null; } };
+  for (const def of (Array.isArray(cfg.layers) ? cfg.layers : []).filter((l) => l?.id && (l.id === stopLayer || (l.type === 'points' && cmdOf(l.id) === 'station')))) {
+    if (stops.length === 1) def.list = false;
+    else if (def.list === false) delete def.list;
+  }
   writeJSON(site.cfgPath, cfg, { pretty: true });
   // nights per stop feature (summed over visits): the numbered stops show one dot per night
   if (args.nights) {

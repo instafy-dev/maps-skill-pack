@@ -1,7 +1,7 @@
 ---
 name: interactive-map
-description: REQUIRED for any request that involves a map (choosing hotels or areas, places nearby, walks, routes, trips, recolouring map features). Before writing anything, read .agents/skills/interactive-map/SKILL.md in full and build with its uw commands (uw new <dir> ...). Never hand-write map HTML or embed a Google Maps iframe; never type coordinates yourself.
-routing_keywords: [map, maps, walk, walking, walkable, neighbourhood, neighbourhoods, neighborhood, neighborhoods, district, area, hotel, hotels, hostel, apartment, apartments, airbnb, stay, where to stay, closest, nearest, distance, commute, route, road trip, trip, travel, itinerary, day trip, food spots, places, nearby, cafes, coffee, restaurants, gym, gyms, office, beach, bike, cycling, noisy, noise, quiet, railways, pins, layers, visualise, visualize, air quality, street view, licence, karta, kartan, hotell, hotellen, boende, promenad, närmast, resa, område, stadsdel, kvarter, bo, lugna, nätter, mapa, 地図, マップ]
+description: REQUIRED when the answer is a map, or places on one (choosing hotels or areas, places nearby, a trip's stays and sights, recolouring map features). Before writing anything, read .agents/skills/interactive-map/SKILL.md in full and build with its uw commands (uw new <dir> ...). Never hand-write map HTML or embed a Google Maps iframe; never type coordinates yourself.
+routing_keywords: [map, maps, walk, walking, walkable, neighbourhood, neighbourhoods, neighborhood, neighborhoods, district, area, hotel, hotels, hostel, apartment, apartments, airbnb, stay, where to stay, closest, nearest, distance, commute, road trip, trip, itinerary, day trip, food spots, places, nearby, cafes, coffee, restaurants, gym, gyms, office, beach, bike, cycling, noisy, noise, quiet, railways, pins, layers, visualise, visualize, air quality, street view, licence, karta, kartan, hotell, hotellen, boende, promenad, närmast, resa, område, stadsdel, kvarter, bo, lugna, nätter, mapa, 地図, マップ]
 context_parent: instafy-skill-router
 ---
 
@@ -49,8 +49,8 @@ Long commands: `--detach`, then `uw wait` (exit 75: again).
    Write title, ask and notes in the user's language; Swedish: `--lang sv` in step 3.
 2. `uw geocode "<district, city>"` → `lng,lat`. Exit 4: go on without `--center`/`--near`.
 3. `uw new <site> --title "…" --ask "<ask>" --center <lng,lat> --zoom 13`, then its card at once, before any lookup
-   (a slow one costs content, never the card), from the site's folder: `instafy preview open --title "<title>"
-   --serve-cmd "uw host . --port {port}" --start --json`. It picks the port, starts the map (outlives the turn; runs
+   (a slow one costs content, never the card), with the same `<site>`: `instafy preview open --title "<title>"
+   --serve-cmd "uw host <site> --port {port}" --start --json`. It picks the port, starts the map (outlives the turn; runs
    bound.json buttons) and posts the card; the card can restart it. Exit 2 names a log: read it, fix, rerun.
    Never post a URL (not even localhost). Without `instafy`: `uw host <site> --detach`.
 4. `uw add-point <site> --layer hotels --query "<name>, <city>" --near <lng,lat> --id <slug>` per option. Keep each
@@ -99,7 +99,8 @@ send its address).
 - With a question, other layers become dots. If S1/S2 fail, give the busiest layer `"tier": "context"`.
 - Do things (only if planned): `bound.json` intents + `"bind": true`; handlers `pack:check_registry`,
   `pack:find_hotels_nearby` or your own `handlers/<name>.mjs` (recipe 27).
-- No map (a plan or list): `instafy bind init sites/<slug> --starter timeline|ranked`.
+- No map (a plan, a list, a page of hours or directions): `instafy bind init sites/<slug> --starter timeline|ranked|blank`,
+  never a map site.
 - Restyle only if asked: `basemap.overrides` / `layers[].style`. Commands never overwrite another's file: new `--layer` or
   `--append`. Re-run `enrich`, `areas`, `question` when inputs change. `uw upgrade <site>` refreshes `engine/`.
 

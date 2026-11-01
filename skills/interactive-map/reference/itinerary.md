@@ -109,11 +109,14 @@ add sights rather than reply. Sights come from `uw cite` in this turn, never fro
 
 1. **Sights with sources, 2-3 per city.** A city's page (its Wikivoyage See/Do, the official tourism site) only
    says which places are worth it; it is never a place's source. Each place's source is its own page, the one you
-   cite: `uw cite <its own page> --grep "<its name>"` (the attraction's own site, a national park's, else its
-   Wikipedia article), checked for being current (closures, renovations, seasonal hours); that page is its
-   `source_url` (`uw validate` warns when places share one). A refused site (it bans agents, robots.txt, a bot
-   check) is a plain link, never fetched another way. At most about 8 pages per city. Then each sight in a command
-   of its own, one `uw add-point` per command (chained, one slow lookup held back the sights after it and the plan):
+   cite: `uw cite <its own page> --grep "<its name>"`. The venue's own site first, as skill `instafy-web-research`
+   ranks sources (its "Sources by need"): the attraction's, park's or operator's official site, one you know or the
+   one `instafy web search "<its name>" --chain reference-search --json` lists; its Wikipedia article only when the
+   venue has no site that names it and can be read. Checked for being current (closures, renovations, seasonal
+   hours); that page is its `source_url` (`uw validate` warns when places share one). A refused site (it bans agents,
+   robots.txt, a bot check) is a plain link, never fetched another way. At most about 8 pages per city. Then each
+   sight in a command of its own, one `uw add-point` per command (chained, one slow lookup held back the sights after
+   it and the plan):
    ```
    uw add-point <site> --layer sights --query "<local-language name>" --country "<Country>" --strict-name --near <that station's lng,lat> --id <slug> --props-file - <<'JSON'
    {"stop":"<station id>","source_url":"<its own page>","source":"<site name>","why":"<what the page says to do there>"}

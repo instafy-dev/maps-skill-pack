@@ -270,6 +270,23 @@ test('the map: the departure day reads "Departure", and a trip\'s days do not co
   assert.equal(pageDescription({ plan: { days: [...days, { title: 'Mon 2 Nov · Lisbon: depart', depart: true, items: [] }] } }, 8), 'Trip · 3 days · 8 places');
 });
 
+// The 1 Nov 2026 Seville map's first day read "3 stops": its base and two sights. The base is where the day starts and
+// ends, where the traveller sleeps, not a stop of the day.
+test('the map: a day\'s stops leave out its base, the stay the day starts and ends at', () => {
+  const plan = buildPlan({ stops: [lisbonStop], nights: [3], start: '2026-10-30', stays: [baseStay], sights: sightFeats() });
+  const [arrival] = plan.days;
+  assert.match(arrival.items[0].text, /^Base: /);
+  const sights = arrival.items.filter((it) => it.ref?.layer === 'sights').length;
+  assert.ok(sights >= 1, JSON.stringify(arrival.items));
+  assert.equal(dayCaption(arrival), `${sights} ${sights === 1 ? 'stop' : 'stops'}`);
+  const base = { text: 'Base: Hotel Palacio Alcázar · 1 min walk to Santa Cruz', ref: { layer: 'stays', id: 'h' }, url: 'https://www.openstreetmap.org/copyright', source: 'OpenStreetMap' };
+  const day = { title: 'Mon 2 Nov · Seville', items: [base, { text: 'Cathedral of Seville', ref: { layer: 'sights', id: 'c' } }, { text: 'Alcázar of Seville', ref: { layer: 'sights', id: 'a' } }] };
+  assert.equal(dayCaption(day), '2 stops');
+  assert.equal(dayCaption({ ...day, items: [base, { text: 'Alcázar of Seville', check: 'timed tickets' }] }), '1 stop · 1 not checked');
+  // a day with nothing but its base has no stops to count
+  assert.equal(dayCaption({ title: 'Arrive', items: [base] }), '');
+});
+
 // "3 days in Lisbon" with three sights (the castle in Alfama, the tower and the monastery in Belém): the arrival day
 // had none and the next two had 1 and 2. Every day of the stay gets a place before any gets a second.
 test('plan: three places for three days, one each: the arrival day is one of the days to fill', () => {

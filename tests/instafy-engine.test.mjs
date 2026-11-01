@@ -96,7 +96,7 @@ test("UW_PLAYWRIGHT still wins over the runtime's Playwright", { skip }, () => {
 test('SKILL.md: one `instafy preview open --start` serves the map and shows its card, then `instafy preview check`; the file stays ≤ 9.5 KB', () => {
   const md = fs.readFileSync(path.join(HERE, '..', 'skills', 'interactive-map', 'SKILL.md'), 'utf8');
   const flat = md.replace(/\s+/g, ' ');
-  const open = flat.indexOf('instafy preview open --title "<title>" --serve-cmd "uw host . --port {port}" --start --json');
+  const open = flat.indexOf('instafy preview open --title "<title>" --serve-cmd "uw host <site> --port {port}" --start --json');
   const check = flat.indexOf('instafy preview check --port <port>');
   assert.ok(open > 0 && check > open, 'the check follows the card');
   assert.match(flat.slice(check, check + 200), /fix every error it lists; open the PNG/);

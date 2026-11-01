@@ -271,6 +271,34 @@ test('a trip of several stops lists its stops again', async () => {
   assert.equal('list' in cfgOf(site).layers.find((l) => l.id === 'stops'), false);
 });
 
+// The 1 Nov 2026 Seville map (days in one place) listed "Stations 1": the turn had placed the city's station with
+// `uw station`, whose layer is listed. Days in one place list neither the stop nor its station; both stay on the map.
+test('days in one place list no Stations group either; a trip of several stops lists its stations again', async () => {
+  const site = 'sv-station';
+  assert.equal((await uw(['new', site, '--title', 'Three days in Seville', '--center', CITY.join(','), '--zoom', '13', '--expect', 'Seville:3'])).code, 0);
+  for (const [id, name, c] of [['seville', 'Seville', CITY.join(',')], ['cordoba', 'Córdoba', '-4.7794,37.8882']]) {
+    assert.equal((await uw(['add-point', site, '--layer', 'stops', '--at', c, '--name', name, '--id', id, '--kind', 'city', '--props', '{"nights":2}'])).code, 0);
+  }
+  // the station, as `uw station` writes and registers it (Sevilla - Santa Justa)
+  const station = { type: 'Feature', geometry: { type: 'Point', coordinates: [-5.975281, 37.392027] },
+    properties: { id: 'seville', name: 'Sevilla - Santa Justa', kind: 'train_station', emoji: '🚉', station_of: 'Seville', station_kind: 'rail', source: 'OpenStreetMap' } };
+  fs.writeFileSync(path.join(tmp, site, 'data', 'stations.geojson'), JSON.stringify({ type: 'FeatureCollection', uw: { cmd: 'station' }, features: [station] }));
+  const cfg = cfgOf(site);
+  cfg.layers.push({ id: 'stations', title: 'Stations', type: 'points', data: 'data/stations.geojson', tier: 'support', style: { emoji: '🚉', color: '#475569' }, list: true });
+  fs.writeFileSync(path.join(tmp, site, 'map.config.json'), JSON.stringify(cfg, null, 2));
+  const one = await uw(['plan', site, '--stops', 'stops', '--ids', 'seville', '--nights', '3', '--start', '2026-11-02']);
+  assert.equal(one.code, 0, one.out + one.err);
+  const layers = cfgOf(site).layers;
+  assert.equal(layers.find((l) => l.id === 'stations').list, false, 'no "Stations 1" in the places list');
+  assert.equal(layers.find((l) => l.id === 'stops').list, false);
+  // still on the map: the layer and its point stay
+  assert.equal(layerOf(site, 'stations').length, 1);
+  assert.notEqual(layers.find((l) => l.id === 'stations').visible, false);
+  const two = await uw(['plan', site, '--stops', 'stops', '--ids', 'seville,cordoba', '--nights', '2,2', '--start', '2026-11-02', '--force']);
+  assert.equal(two.code, 0, two.out + two.err);
+  assert.equal(cfgOf(site).layers.find((l) => l.id === 'stations').list, undefined, 'listed again: a trip\'s stations are its places');
+});
+
 test('the area is where the place can be: a far-off hit\'s town never makes the query\'s own words area words', async () => {
   assert.equal((await uw(['new', 'sv-names', '--title', 'Seville', '--center', CITY.join(','), '--zoom', '13'])).code, 0);
   // "Alcázar" is a word of the name, though the search also found streets in Alcázar de San Juan, 330 km away
