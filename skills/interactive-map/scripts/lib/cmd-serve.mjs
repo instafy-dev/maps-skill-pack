@@ -16,8 +16,9 @@ export const helps = {
   serve: `serve <dir> [--port 4173] [--host 127.0.0.1|0.0.0.0] [--quiet] [--public-url <url>] [--detach | --stop]
   Static server for a site (or a folder of sites, e.g. examples/, each at <sub>/): Range (206) support, correct MIME
   types (.json .geojson .pbf .pmtiles .mjs .webp .svg …), Cache-Control: no-cache, folders serve their index.html (one
-  without it answers 404, never a list of its files). Dotfiles (.uwcache, .env …) are never served. Listens on 127.0.0.1 (this computer only) unless --host 0.0.0.0, which also prints the LAN URL to open on a
-  phone on the same Wi-Fi. If the port is busy (and --port was not given) the next free one is used.
+  without it answers 404, never a list of its files). Dotfiles (.uwcache, .env …) are never served. Listens on
+  127.0.0.1 (this computer only) unless --host 0.0.0.0, which also prints the LAN URL to open on a phone on the same
+  Wi-Fi. If the port is busy (and --port was not given) the next free one is used.
   Answers only for this computer, IP addresses, Instafy tunnels/previews of the port and --public-url hosts (repeatable;
   or UW_PUBLIC_URL), so a web page cannot rebind its own name onto the port and read the site's files.
   --detach  start it in the background, outliving this shell and an agent's turn (a tunnel needs it alive), wait until
