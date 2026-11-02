@@ -30,7 +30,12 @@ after(() => {
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-const baseEnv = () => { const e = { ...process.env, UW_NO_CACHE: '1', UW_CACHE: '' }; delete e.UW_CACHE; delete e.INSTAFY_CACHE_DIR; return e; };
+// the pack's own turn clock (its turn.json is what this file looks for), never the clock of a turn that runs the tests
+const baseEnv = () => {
+  const e = { ...process.env, UW_NO_CACHE: '1' };
+  for (const k of ['UW_CACHE', 'INSTAFY_CACHE_DIR', 'UW_TURN_BUDGET', 'UW_TURN_GAP', 'INSTAFY_TURN_STARTED_AT', 'INSTAFY_TURN_DEADLINE', 'INSTAFY_TURN_CONTINUE_FILE']) delete e[k];
+  return e;
+};
 const inSpace = () => ({ ...baseEnv(), INSTAFY_CACHE_DIR: spaceCache });
 const uw = (args, env = inSpace()) => new Promise((resolve) => {
   const p = spawn(process.execPath, [UW, ...args], { cwd: work, env });

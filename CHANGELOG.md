@@ -3,6 +3,34 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.27 (2026-11-02)
+
+Fixes to 0.1.26.
+
+- **A later turn keeps the days the person changed.** 0.1.26 failed `uw validate` on a full day with one place in
+  every turn. Moving a place to another day in a follow-up left a day with one place and failed, and the fix it
+  printed (pin one more, then `uw plan --force`) grouped the days by area again, which put the place back; a map
+  planned before 0.1.26 failed at any later edit. `uw plan --sights` now writes when it planned the days
+  (`planned_at`), and a day with one place fails only in that turn, while its clock shows more than about 3 minutes
+  left. Otherwise it is a warning that names the days, and its fix is what the reply says: which days have one place
+  to see, with an offer to add more (it asked for more sights even with under a minute left). The trip guide's reply
+  list says so too, and its later changes say that a move is never planned again and that a dropped place leaves the
+  map.
+- **One place a day when the person asks for it.** `uw plan --per-day 1` is kept in the plan (`per_day`), and its days
+  with one place pass.
+- **A place the lookup cannot pin.** The one-place error's fix now ends as the empty day's does: while the place
+  search is down, the place goes on its day as a link to its page, after the plan.
+- **The turn budget off is time to add.** With `UW_TURN_BUDGET=0` (a background job's), `uw validate` counted no time
+  left and only warned about a day with one place.
+- **A farmhouse hotel is the hotel.** 0.1.26 kept every `place=*` the search listed first. A dwelling, a farm or a plot
+  is one building or holding, so the hotel, museum or guest house of its name there is the place again; a square, a
+  quarter or a town keeps its own kind.
+- **Tests:** a move in a later turn warns and names the day, while the turn that planned the days still fails it; a
+  plan from before `planned_at` warns; `--per-day 1` passes; the fix names the way through while the place search is
+  down, and a link on the day clears it; the late warning's words; the turn budget off fails it; a dwelling, a farm and
+  a plot give way to the hotel, museum or guest house of their name. Each fails without its change. Two test files no
+  longer take a turn clock from the environment that runs them.
+
 ## 0.1.26 (2026-11-02)
 
 Fixes from a "Plan 3 days in Seville for a first visit: where to stay, what to see each day, on a map" run that
@@ -12,8 +40,8 @@ planned one sight a day, each citing its encyclopedia article.
   `uw validate` only warned about days with one place, with a fix that asked to add sights "until each stop has 2-3":
   the run replied with almost seven minutes left. The guide now asks for 2-3 sourced places a full day. With
   `--sights`, `uw validate` fails a full day with one place, as it fails one with none, while the turn clock shows more
-  than about 3 minutes left; with less it is a warning that asks for sights "until each full day has 2-3", and the
-  reply says it. A day with none still fails whatever the time.
+  than about 3 minutes left; with less it is a warning that asks for sights "until each full day has 2-3". A day with
+  none still fails whatever the time.
 - **A sight cites the venue's own site where the turn found one.** The guide's step said each place's source is "its
   own page", which its encyclopedia article is too. The command and the template now name the venue's own site, and
   the article is only for a venue whose own site the turn did not find or could not read. At most about 2 pages a

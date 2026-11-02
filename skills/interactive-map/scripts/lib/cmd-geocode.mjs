@@ -682,9 +682,10 @@ async function addPointRun(argv, ctx) {
       // (大安森林公園站 matched the station building, then moved to exit 1), nor away from a place in its own right
       // (place=*: a square, a quarter, a town): an object of its name there stands in it (an artwork on the square, a
       // shop named after the quarter), so the place keeps the kind it is (a square showed as "Artwork"). A locality
-      // only names a spot, so the object there is the better match.
+      // only names a spot, and a dwelling, a farm or a plot is one building or holding: an object of its name there is
+      // the same place mapped twice (a farmhouse hotel), so the object is the better match.
       const poiKey = /^(tourism|amenity|shop|leisure|railway|public_transport|historic|aeroway|natural|office|craft|healthcare|club|sport)=/;
-      const ownPlace = /^place=(?!locality$)/.test(chosen.type || '');
+      const ownPlace = /^place=(?!(?:locality|isolated_dwelling|farm|plot)$)/.test(chosen.type || '');
       const better = cands.find((c) => c !== chosen && !tooFar(c) && c.name_match !== false && c.type_ok !== false && haversine(c.coord, chosen.coord) < 300 &&
         !PART_TYPE.test(c.type || '') &&
         (args.kind ? c.kind === args.kind && chosen.kind !== args.kind : !ownPlace && poiKey.test(c.type) && !poiKey.test(chosen.type || '') && !(exactName(args.query, chosen) && !exactName(args.query, c)) && !(closeness(chosen) > closeness(c))));

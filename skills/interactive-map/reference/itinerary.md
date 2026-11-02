@@ -103,10 +103,11 @@ the map while the days fill in.
 
 A plan whose full days say only "Day in …" is not finished. When the ask is what to see or do each day (a trip of
 days: "3 days in Lisbon", "what to see each day"), build the plan with `--sights`: then `uw validate` fails while a
-full day has fewer than two sourced places (one: while the turn clock shows more than ~3 min left), as it fails for a
-stop asked for that is not on the map. Without `--sights` it warns when most full days are empty, and the turn clock
-prints how many are empty or thin. While any is and time is left, add sights rather than reply. Sights come from
-`uw cite` in this turn, never from a browser card. Step 1 comes first.
+full day has fewer than two sourced places (one: in the turn that planned the days, while its clock shows more than
+~3 min left; a later turn keeps the days the person changed), as it fails for a stop asked for that is not on the map.
+One place a day only when the person asked for it: `uw plan … --per-day 1`. Without `--sights` it warns when most
+full days are empty, and the turn clock prints how many are empty or thin. While any is and time is left, add sights
+rather than reply. Sights come from `uw cite` in this turn, never from a browser card. Step 1 comes first.
 
 1. **Sights with sources, 2-3 a full day.** A city's page (its Wikivoyage See/Do, the official tourism site) only
    says which places are worth it; it is never a place's source. Each place's source is the venue's own site, the one
@@ -228,8 +229,10 @@ open site in place; then `uw validate`, SKILL.md step 9, the reply.
 - When the ask is per base, per city or per day, check every one against it before replying, and say which got
   nothing and why.
 - The departure day keeps its plan text unless you have something sourced for it.
-- Moving a place to another day: move its item and reword both days' texts in the same edit; `uw validate` says
-  when a day's places are far apart or one is nearer another day's.
+- Moving a place to another day: move its item and reword both days' texts in the same edit (never `uw plan
+  --force` for it: it groups the days by area again, which undoes the move); `uw validate` says when a day's places
+  are far apart or one is nearer another day's.
+- Dropping a place: `uw set <site> <layer>:<id> --remove`, then remove its item and reword its day's text.
 - Rail track still missing (the legs are arcs): run the lines/legs retry first (Phase A step 4).
 - Changing a place's note or reason: keep its sourced facts (the walk, the register line) and add to them; never
   replace them with an "unverified" paragraph (that goes in the reply's unverified line).
@@ -254,7 +257,8 @@ Write for the traveller, 5-8 short lines:
    station, say how far and how ("Taitung: Hotel Y, 6 km from the station: taxi or local bus"), as the plan does.
 4. Trains: what is sourced (durations with their timetable) and what is an estimate from the distance (the plan
    says "about 2 h … (estimate …)"; "check the operator's timetable, linked on each leg").
-5. Day highlights or warnings worth acting on (a closure, a pass to buy), only from the pages you opened.
+5. Day highlights or warnings worth acting on (a closure, a pass to buy), only from the pages you opened; a full
+   day with one place to see (`uw validate` names it): say which, and offer to add more.
 6. `Sources:` in one line, by who publishes the data (e.g. "OpenStreetMap, Wikivoyage, the national park's site",
    the lodging register when one was used, plus the operator's journey planner when `uw transit` gave times).
 7. `Unverified:` prices and availability (never checked), train times not sourced, anything "Not found yet",
