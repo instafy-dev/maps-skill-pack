@@ -679,11 +679,15 @@ async function addPointRun(argv, ctx) {
       }
       // Same place mapped twice (e.g. landuse/building outline + the tourism=hotel object): prefer the POI,
       // or the candidate whose OSM value equals --kind. Never "upgrade" to an entrance, platform or stop
-      // (大安森林公園站 matched the station building, then moved to exit 1).
+      // (大安森林公園站 matched the station building, then moved to exit 1), nor away from a place in its own right
+      // (place=*: a square, a quarter, a town): an object of its name there stands in it (an artwork on the square, a
+      // shop named after the quarter), so the place keeps the kind it is (a square showed as "Artwork"). A locality
+      // only names a spot, so the object there is the better match.
       const poiKey = /^(tourism|amenity|shop|leisure|railway|public_transport|historic|aeroway|natural|office|craft|healthcare|club|sport)=/;
+      const ownPlace = /^place=(?!locality$)/.test(chosen.type || '');
       const better = cands.find((c) => c !== chosen && !tooFar(c) && c.name_match !== false && c.type_ok !== false && haversine(c.coord, chosen.coord) < 300 &&
         !PART_TYPE.test(c.type || '') &&
-        (args.kind ? c.kind === args.kind && chosen.kind !== args.kind : poiKey.test(c.type) && !poiKey.test(chosen.type || '') && !(exactName(args.query, chosen) && !exactName(args.query, c)) && !(closeness(chosen) > closeness(c))));
+        (args.kind ? c.kind === args.kind && chosen.kind !== args.kind : !ownPlace && poiKey.test(c.type) && !poiKey.test(chosen.type || '') && !(exactName(args.query, chosen) && !exactName(args.query, c)) && !(closeness(chosen) > closeness(c))));
       if (better) chosen = better;
       // the chosen one is a part (entrance, platform, stop) but the station / main object is listed too: take that
       if (PART_TYPE.test(chosen.type || '')) {

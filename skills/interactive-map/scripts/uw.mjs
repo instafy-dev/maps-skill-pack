@@ -258,7 +258,10 @@ async function main() {
       setTimeout(hardStop, (limit + 15) * 1000).unref();
     }
   }
-  const code = await mod[entry[1]](rest);
+  // validate is told what the turn clock has left: a day with one place to see fails while there is time to add places
+  // (lib/turn-advice.mjs REPLY_WITHIN_S)
+  const turnLeftS = cmd === 'validate' && clock ? (await import('./lib/turn-advice.mjs')).secondsLeft(clock.elapsedS, TURN_BUDGET_S) : null;
+  const code = cmd === 'validate' ? await mod[entry[1]](rest, { turnLeftS }) : await mod[entry[1]](rest);
   if (typeof code === 'number') process.exitCode = code;
   if (siteDir || cmd === 'new') turnClock(siteDir || siteDirOf(rest), { touchOnly: true });
   if (clock && (cmd === 'question' || cmd === 'validate') && !argv.includes('--json')) {

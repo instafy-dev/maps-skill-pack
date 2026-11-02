@@ -3,10 +3,17 @@
 // reference/itinerary.md Phase B). Pure, for the tests.
 const mmss = (s) => `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s`;
 
+/** SKILL.md's "under ~3 min left: start nothing slow, reply": with less than this left for tool work, what a plan
+ *  still lacks is said in the reply, not added (uw validate warns about a day with one place instead of failing). */
+export const REPLY_WITHIN_S = 180;
+
+/** Seconds left for tool work this turn: `t` seconds used of `budgetS` (what the clock line prints). */
+export const secondsLeft = (t, budgetS = 480) => Math.max(0, budgetS - t);
+
 /** `t`: seconds used; `gaps`: emptyPlanDays() of the site's trip plan, or null; `budgetS`: seconds for tool work;
  *  `continuation`: the host can continue this work in a new turn (INSTAFY_TURN_CONTINUE_FILE is set). */
 export function clockAdvice(t, gaps, budgetS = 480, { continuation = false } = {}) {
-  const left = Math.max(0, budgetS - t);
+  const left = secondsLeft(t, budgetS);
   const parts = [`time: ${mmss(t)} used, about ${mmss(left)} left for tool work this turn.`];
   if (gaps && gaps.full >= 1) {
     if (gaps.empty) parts.push(`${gaps.empty} of ${gaps.full} full days are still empty.`);

@@ -103,23 +103,24 @@ the map while the days fill in.
 
 A plan whose full days say only "Day in …" is not finished. When the ask is what to see or do each day (a trip of
 days: "3 days in Lisbon", "what to see each day"), build the plan with `--sights`: then `uw validate` fails while a
-full day has no sourced place, as it fails for a stop asked for that is not on the map. Without `--sights` it warns
-when most full days are empty, and the turn clock prints how many are empty or thin. While any is and time is left,
-add sights rather than reply. Sights come from `uw cite` in this turn, never from a browser card. Step 1 comes first.
+full day has fewer than two sourced places (one: while the turn clock shows more than ~3 min left), as it fails for a
+stop asked for that is not on the map. Without `--sights` it warns when most full days are empty, and the turn clock
+prints how many are empty or thin. While any is and time is left, add sights rather than reply. Sights come from
+`uw cite` in this turn, never from a browser card. Step 1 comes first.
 
-1. **Sights with sources, 2-3 per city.** A city's page (its Wikivoyage See/Do, the official tourism site) only
-   says which places are worth it; it is never a place's source. Each place's source is its own page, the one you
-   cite: `uw cite <its own page> --grep "<its name>"`. The venue's own site first, as skill `instafy-web-research`
-   ranks sources (its "Sources by need"): the attraction's, park's or operator's official site, one you know or the
-   one `instafy web search "<its name>" --chain reference-search --json` lists; its Wikipedia article only when the
-   venue has no site that names it and can be read. Checked for being current (closures, renovations, seasonal
+1. **Sights with sources, 2-3 a full day.** A city's page (its Wikivoyage See/Do, the official tourism site) only
+   says which places are worth it; it is never a place's source. Each place's source is the venue's own site, the one
+   you cite: `uw cite <its own site> --grep "<its name>"`. That is the attraction's, park's or operator's official site
+   (skill `instafy-web-research` ranks sources so, in its "Sources by need"): one you know, or the one `instafy web
+   search "<its name>" --chain reference-search --json` lists. Its Wikipedia article only where the turn found no such
+   site that names it and can be read. Checked for being current (closures, renovations, seasonal
    hours); that page is its `source_url` (`uw validate` warns when places share one). A refused site (it bans agents,
-   robots.txt, a bot check) is a plain link, never fetched another way. At most about 8 pages per city. Then each
+   robots.txt, a bot check) is a plain link, never fetched another way. At most about 2 pages a sight. Then each
    sight in a command of its own, one `uw add-point` per command (chained, one slow lookup held back the sights after
    it and the plan):
    ```
    uw add-point <site> --layer sights --query "<local-language name>" --country "<Country>" --strict-name --near <that station's lng,lat> --id <slug> --props-file - <<'JSON'
-   {"stop":"<station id>","source_url":"<its own page>","source":"<site name>","why":"<what the page says to do there>"}
+   {"stop":"<station id>","source_url":"<its own site's page>","source":"<site name>","why":"<what the page says to do there>"}
    JSON
    ```
    (props with words in them always go on stdin like this: an apostrophe in single-quoted JSON breaks the command;
@@ -158,7 +159,7 @@ add sights rather than reply. Sights come from `uw cite` in this turn, never fro
    there), and the reply says places to stay were not looked up yet.
 3. **Places by area**, before the plan: per day an area worth the day (a neighbourhood, a district a ride away, a day
    trip), 2-3 sourced places in it (Phase B step 1, with `"stop":"<slug>"`). Never put a place on a day because a
-   list had room. Every full day gets its places before the reply: `uw validate` fails while one has none.
+   list had room. Every full day gets its places before the reply: `uw validate` fails while one has fewer than two.
 4. **Plan**: `uw plan <site> --stops stops --ids <slug> --nights N --start <date> --stays stays --sights sights,food,daytrips`.
    Every day is a loop from the base: a stop's places are grouped by area (the closest share a day, in walking
    order, the area nearest the base first; every day, the arrival day too, gets a place before any gets a second).
@@ -199,7 +200,7 @@ on the map and in the plan, so the full days already say what they are for. Sigh
 because the place lookup was unavailable come with their exact commands: run them, one per command (then, once each
 has finished, `uw plan … --force`), before the reply when the turn clock allows; a sight still not placed goes into
 its day's text with its source link. A full day never ships empty. Then act on the facts: a stop with full
-days and no researched sights gets 2-3 sourced ones (Phase B step 1, then `uw plan … --force`); a far station: say
+days and no researched sights gets 2-3 sourced ones a full day (Phase B step 1, then `uw plan … --force`); a far station: say
 where it is; a leg of about 100 km or more with a high-speed line at both ends: consider its HSR stations (step 2),
 with "no": conventional train, never mention HSR. Reword day texts with the printed facts where they add something,
 `uw validate --signal`, the preview (step 6), the reply. Without

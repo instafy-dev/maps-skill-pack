@@ -392,9 +392,11 @@ async function osmCandidates(at, radius, out) {
     const t = e.tags || {};
     if (!c || !t.name) continue;
     const kind = t.tourism;
+    // its source is its own record in OpenStreetMap (what is mapped there: the name, the kind), never the licence page
+    const page = /^(node|way|relation)$/.test(e.type) && /^\d+$/.test(String(e.id)) ? `https://www.openstreetmap.org/${e.type}/${e.id}` : null;
     list.push({ name: t.name, name_en: t['name:en'] || null, coord: [round6(c[0]), round6(c[1])], osm_kind: kind, group: OSM_LODGING[kind] || 'hotel', rooms: Number(t.rooms) || null,
       stars: /^\d(\.\d)?S?$/.test(t.stars || '') ? String(t.stars).replace(/S$/, '') : null, website: t.website || t['contact:website'] || null,
-      osm_id: `osm-${e.type[0]}${e.id}`, key: `osm-${e.type[0]}${e.id}` });
+      osm_id: `osm-${e.type[0]}${e.id}`, key: `osm-${e.type[0]}${e.id}`, ...(page ? { source_url: page } : {}) });
   }
   return { list, partial };
 }
@@ -484,8 +486,9 @@ export async function stay(argv) {
         }
       }
       if (!got) {
+        // each place's own page in OpenStreetMap is its source (osmCandidates); the licence is the map's credit
         got = await osmCandidates(anchor.coord, radius, out);
-        srcLabel = 'OpenStreetMap'; srcUrl = 'https://www.openstreetmap.org/copyright'; attribution = '© OpenStreetMap contributors (ODbL)';
+        srcLabel = 'OpenStreetMap'; srcUrl = null; attribution = '© OpenStreetMap contributors (ODbL)';
       }
     });
   } catch (e) {
@@ -543,7 +546,7 @@ export async function stay(argv) {
       id, name: c.name, ...(c.name_en && c.name_en !== c.name ? { name_en: c.name_en } : {}), kind: stayKind(c),
       emoji: stayKind(c) === 'hotel' ? '🏨' : '🛏️', stop, rank: c.rank, why: c.why, note: c.why, how: c.how,
       walk_min: c.walk_min, walk_m: c.walk_m, walk_basis: c.walk_basis, walk_to: toName, near_ref: nearRef,
-      source: srcLabel, source_url: srcUrl, checked_at: now,
+      source: srcLabel, ...((c.source_url || srcUrl) ? { source_url: c.source_url || srcUrl } : {}), checked_at: now,
       ...(c.osm_id ? { osm_id: c.osm_id } : {}), ...(c.website ? { website: c.website } : {}), ...(c.address ? { address: c.address } : {}),
       ...(c.registered ? { tw_hotel_id: c.tw_hotel_id, ...(c.licence ? { licence_no: c.licence } : {}), tw_class: c.cls, ...(c.rooms ? { tw_rooms: c.rooms } : {}),
         ...(c.tw_price_min ? { tw_price_min: c.tw_price_min } : {}), ...(c.tw_price_max ? { tw_price_max: c.tw_price_max } : {}) } : {}),
