@@ -108,8 +108,9 @@ function checkLetterColors({ cfg, featuresByLayer, W, CFG }) {
   }
 }
 
-/** `turnLeftS`: seconds the turn clock leaves for tool work (uw.mjs; null: no clock, as when uw doctor checks a site). */
-export async function run(argv, { turnLeftS = null } = {}) {
+/** `turnLeftS`: seconds the turn clock leaves for tool work; `turnStartedMs`: when this turn started (uw.mjs; null: no
+ *  clock, as when uw doctor checks a site). */
+export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {}) {
   const args = parseArgs(argv, { strict: 'bool', signal: 'bool', expect: 'string' }, { positionals: [1, 1], command: 'validate' });
   if (args.help) return console.log(help);
   const askedStops = parseStops(args.expect);
@@ -531,21 +532,29 @@ export async function run(argv, { turnLeftS = null } = {}) {
       }
       const sightsAsked = Array.isArray(sightLayers) && sightLayers.length > 0;
       const bareDays = sightsAsked ? gaps.bare : [];
-      // a full day takes 2-3 sourced places (reference/itinerary.md Phase B step 1): one is not a day worth following,
-      // so it fails too while the turn clock leaves time to add places; with less, it is a warning and the reply says
-      // it (three sights for three days once passed with a warning and almost 7 minutes left)
+      // a full day takes 2-3 sourced places (reference/itinerary.md Phase B step 1), or one when the person asked for one
+      // a day (uw plan --per-day 1). One is not a day worth following, so in the turn that planned the days it fails
+      // while the clock leaves time to add places (three sights for three days once passed with a warning and almost 7
+      // minutes left). A later turn keeps the days the person changed (a place moved or dropped), and a turn with too
+      // little time left adds nothing: there it is a warning whose fix is what the reply says
       const oneDays = sightsAsked ? gaps.single : [];
+      const plannedAt = Date.parse(cfg.plan?.planned_at ?? '');
+      const plannedThisTurn = Number.isFinite(plannedAt) && (turnStartedMs == null || plannedAt >= turnStartedMs);
       const timeToAdd = turnLeftS == null || turnLeftS > REPLY_WITHIN_S;
       const days4 = (list) => `${list.slice(0, 4).join(', ')}${list.length > 4 ? ' …' : ''}`;
+      const notPinned = 'a place the lookup cannot pin goes on its day as {"text": "<name>", "url": "<its page>", "source": "<site>"}';
       if (bareDays.length)
         E(CFG, '$.plan.days', `${bareDays.length} of ${gaps.full} full days have nothing to see (no sourced place): ${days4(bareDays)}`,
-          `uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --force spreads the places already pinned over every day, the arrival day too: run it first when a stop has as many places as days. Else pin 2-3 places a page you read names for each of those days (reference/itinerary.md Phase B step 1: uw add-point ${args._[0]} --layer ${sightLayers[0]} … with {"stop":…,"source_url":…}), then run it; a place the lookup cannot pin goes on its day as {"text": "<name>", "url": "<its page>", "source": "<site>"}`);
-      if (oneDays.length && timeToAdd)
+          `uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --force spreads the places already pinned over every day, the arrival day too: run it first when a stop has as many places as days. Else pin 2-3 places a page you read names for each of those days (reference/itinerary.md Phase B step 1: uw add-point ${args._[0]} --layer ${sightLayers[0]} … with {"stop":…,"source_url":…}), then run it; ${notPinned}`);
+      if (oneDays.length && plannedThisTurn && timeToAdd)
         E(CFG, '$.plan.days', `${oneDays.length} of ${gaps.full} full days have one place to see (a full day takes 2-3 sourced places): ${days4(oneDays)}`,
-          `pin one or two more places a page you read names for each of those days, in that day's area (reference/itinerary.md Phase B step 1: uw add-point ${args._[0]} --layer ${sightLayers[0]} … with {"stop":…,"source_url":…}, one place per command), then uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --force`);
-      else if (!bareDays.length && gaps.full >= 2 && gaps.empty * 2 > gaps.full)
+          `pin one or two more places a page you read names for each of those days, in that day's area (reference/itinerary.md Phase B step 1: uw add-point ${args._[0]} --layer ${sightLayers[0]} … with {"stop":…,"source_url":…}, one place per command), then uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --force; ${notPinned}. One a day only when the person asked for it: uw plan … --per-day 1`);
+      else if (oneDays.length && !bareDays.length)
+        W(CFG, '$.plan.days', `${oneDays.length} of ${gaps.full} full days have one place to see: ${days4(oneDays)}`,
+          `${plannedThisTurn ? 'too little time is left to add places in this turn' : 'the days were planned in an earlier turn: keep what the person changed'}; the reply names these days and offers to add places to them`);
+      else if (!sightsAsked && gaps.full >= 2 && gaps.empty * 2 > gaps.full)
         W(CFG, '$.plan.days', `${gaps.empty} of ${gaps.full} full days are still empty ("Day in …", or only the arrival): a traveller gets nothing to do on them`, 'add 2-3 sourced sights a full day (reference/itinerary.md Phase B step 1), then uw plan … --sights sights --force and one short sourced text per day');
-      else if (!bareDays.length && (oneDays.length || (gaps.full >= 2 && gaps.thin * 2 > gaps.full)))
+      else if (!sightsAsked && gaps.full >= 2 && gaps.thin * 2 > gaps.full)
         W(CFG, '$.plan.days', `${gaps.thin} of ${gaps.full} full days have fewer than 2 sourced items: one sight a day is not a day worth following`, 'add sights until each full day has 2-3 with a source page (reference/itinerary.md Phase B step 1), then uw plan … --sights sights --force');
     }
   }

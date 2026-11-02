@@ -25,7 +25,9 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'uw-onebase-'));
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 const run = (args) => new Promise((resolve) => {
   const env = { ...process.env, UW_NO_CACHE: '1' };
-  delete env.INSTAFY_CACHE_DIR;
+  // the pack's own turn clock: never the clock of a turn that runs these tests (validate fails a day with one place
+  // only while that clock leaves time to add places)
+  for (const k of ['INSTAFY_CACHE_DIR', 'UW_TURN_BUDGET', 'UW_TURN_GAP', 'INSTAFY_TURN_STARTED_AT', 'INSTAFY_TURN_DEADLINE', 'INSTAFY_TURN_CONTINUE_FILE']) delete env[k];
   const p = spawn(process.execPath, [UW, ...args], { cwd: tmp, env });
   let out = '', err = '';
   p.stdout.on('data', (d) => { out += d; }); p.stderr.on('data', (d) => { err += d; });

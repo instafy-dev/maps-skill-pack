@@ -37,11 +37,13 @@ export const help = `plan <dir> --stops <layer> --start YYYY-MM-DD [--ids taipei
   true, "Leave <stop>."): nothing is planned on it. The map's first view then frames the trip (its stops, --stays,
   --legs and --sights layers) and every layer \`uw fit\` frames. Prints a warning for a place that is far from its day's other places or closer to another day's
   (plan-checks.json). Refuses to replace an existing plan without --force. Days with no sourced place keep "Day in …":
-  add places. --sights also says the trip is about what to see each day: the plan keeps those layers ("sights"), and
-  \`uw validate\` fails while a full day (the arrival day of the trip too) has fewer than two sourced places (one: only
-  while the turn clock shows more than about 3 minutes left), and while a place of those layers is in no day and not
-  one the plan lists as left out ("unplaced": no room, or far from every stop): it was pinned after the days were
-  planned. uw commands still running on the site (a place lookup whose command has not
+  add places. --sights also says the trip is about what to see each day: the plan keeps those layers ("sights") and
+  when it planned the days ("planned_at"), and \`uw validate\` fails while a full day (the arrival day of the trip too)
+  has no sourced place, and while a place of those layers is in no day and not one the plan lists as left out
+  ("unplaced": no room, or far from every stop): it was pinned after the days were planned. In the turn that planned
+  the days it also fails a full day with one sourced place while the turn clock shows more than about 3 minutes left;
+  a later turn only warns (it keeps the days the person changed), and --per-day 1 (kept as "per_day") is a person who
+  asked for one place a day. uw commands still running on the site (a place lookup whose command has not
   finished) are named, in the JSON too ("still_running"): what they find is not in the plan yet; wait until each has
   finished, then plan again with --force.`;
 
@@ -75,18 +77,20 @@ export function isPlanSkeletonText(text) {
 
 /** Full days (a day at a stop, not travel and not the departure; the trip's arrival day too: "3 days in Lisbon" is
  *  three days to fill, the first one the arrival) still as `uw plan` wrote them: nothing but the base and the skeleton
- *  text; and thin ones: fewer than two sourced items (a day with one sight is not "2-3 a full day" yet).
+ *  text; and thin ones: fewer than two sourced items (a day with one sight is not "2-3 a full day" yet), or none when
+ *  the plan was made for one place a day (`uw plan --per-day 1`: the person asked for it).
  *  Pure; used by validate and the turn clock to say "add sights" while there is time. */
 export function emptyPlanDays(plan) {
   const days = Array.isArray(plan?.days) ? plan.days : [];
+  const want = Number.isInteger(plan?.per_day) && plan.per_day < 2 ? 1 : 2;
   const full = days.filter((d) => !String(d?.title || '').includes('→') && !isDepartDay(d));
   const onlyBase = (d) => !Array.isArray(d.items) || d.items.every((it) => /^Base: /.test(String(it?.text || '')));
   const empty = full.filter((d) => onlyBase(d) && (SKELETON_DAY.test(String(d.text || '')) || ARRIVAL_DAY.test(String(d.text || ''))));
-  const thin = full.filter((d) => sourcedItems(d) < 2);
+  const thin = full.filter((d) => sourcedItems(d) < want);
   // nothing to see: not one sourced place (a pinned place with its page, or a place with only its page's link)
   const bare = full.filter((d) => sourcedItems(d) === 0).map((d) => String(d.title || ''));
   // one place to see: the day still needs one or two more
-  const single = full.filter((d) => sourcedItems(d) === 1).map((d) => String(d.title || ''));
+  const single = want > 1 ? full.filter((d) => sourcedItems(d) === 1).map((d) => String(d.title || '')) : [];
   return { empty: empty.length, thin: thin.length, full: full.length, days: days.length, bare, single };
 }
 /** A day's items that link to the page their facts came from (the base stay's own site is not a place to see). */
@@ -531,13 +535,16 @@ export async function run(argv) {
   const cfg = readJSON(site.cfgPath);
   if (cfg.plan && !args.force) throw new UserError('map.config.json already has a "plan"; pass --force to rebuild it (hand-written day texts are replaced)');
   const built = buildPlan({ stops: stopsIn, nights: nightsIn, start: args.start, legs, stays, sights, perDay, title: args.title || 'Plan' });
-  // --sights: the ask is what to see each day, so validate fails while a full day has fewer than two sourced places
+  // --sights: the ask is what to see each day, so validate fails while a full day has no sourced place, and in the turn
+  // that planned the days while one has only one ("planned_at": a later turn keeps the days the person changed). A
+  // --per-day of 1 is a person who asked for one place a day ("per_day")
   const sightLayers = parseList(args.sights || '');
   // the places of those layers on no day (no room on their stop's days, or far from every stop) are listed, so validate
   // tells them from a place pinned after the days were planned (a lookup still running then), which is on no day either
   const onPlan = new Set(built.days.flatMap((d) => d.items.map((it) => it.ref && `${it.ref.layer}:${it.ref.id}`)).filter(Boolean));
   const unplaced = sights.map((f) => `${f._layer}:${f.properties?.id}`).filter((r) => !onPlan.has(r));
-  const plan = sightLayers.length ? { title: built.title, sights: sightLayers, ...(unplaced.length ? { unplaced } : {}), days: built.days } : built;
+  const plan = sightLayers.length ? { title: built.title, sights: sightLayers, ...(args['per-day'] != null ? { per_day: perDay } : {}), ...(unplaced.length ? { unplaced } : {}),
+    planned_at: new Date().toISOString(), days: built.days } : built;
   cfg.plan = plan;
   // days in one place: the stop is the city the whole map shows, so the places list has no group for it (the Plan tab
   // names it), nor for the station `uw station` placed in it (a one-city map listed "Stations 1"); both stay on the

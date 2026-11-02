@@ -104,7 +104,7 @@ function withoutSite(rest, siteDir) {
 }
 function turnClock(dir, { touchOnly = false } = {}) {
   // the host's own clock beats the idle-gap guess
-  if (HOST_TURN && process.env.UW_TURN_BUDGET == null) return { elapsedS: Math.max(0, Math.round((Date.now() - HOST_TURN.started) / 1000)), host: true };
+  if (HOST_TURN && process.env.UW_TURN_BUDGET == null) return { elapsedS: Math.max(0, Math.round((Date.now() - HOST_TURN.started) / 1000)), startedMs: HOST_TURN.started, host: true };
   if (!dir) return null;
   const f = path.join(stateDirOf(dir), 'turn.json');
   const now = Date.now();
@@ -114,7 +114,7 @@ function turnClock(dir, { touchOnly = false } = {}) {
   if (!t || !(t.started > 0) || !(t.last > 0) || (!touchOnly && now - t.last > TURN_GAP_S * 1000)) t = { started: now, last: now };
   t.last = now;
   try { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, JSON.stringify(t)); } catch {}
-  return { elapsedS: Math.round((now - t.started) / 1000) };
+  return { elapsedS: Math.round((now - t.started) / 1000), startedMs: t.started };
 }
 const mmss = (s) => `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s`;
 // "retry later with" line: the same command with a longer limit
@@ -258,10 +258,11 @@ async function main() {
       setTimeout(hardStop, (limit + 15) * 1000).unref();
     }
   }
-  // validate is told what the turn clock has left: a day with one place to see fails while there is time to add places
+  // validate is told when this turn started and what its clock has left (nothing with the turn budget off: no limit): a
+  // day with one place to see fails in the turn that planned the days, while there is time to add places
   // (lib/turn-advice.mjs REPLY_WITHIN_S)
-  const turnLeftS = cmd === 'validate' && clock ? (await import('./lib/turn-advice.mjs')).secondsLeft(clock.elapsedS, TURN_BUDGET_S) : null;
-  const code = cmd === 'validate' ? await mod[entry[1]](rest, { turnLeftS }) : await mod[entry[1]](rest);
+  const turnLeftS = cmd === 'validate' && clock && TURN_BUDGET_S > 0 ? (await import('./lib/turn-advice.mjs')).secondsLeft(clock.elapsedS, TURN_BUDGET_S) : null;
+  const code = cmd === 'validate' ? await mod[entry[1]](rest, { turnLeftS, turnStartedMs: clock?.startedMs ?? null }) : await mod[entry[1]](rest);
   if (typeof code === 'number') process.exitCode = code;
   if (siteDir || cmd === 'new') turnClock(siteDir || siteDirOf(rest), { touchOnly: true });
   if (clock && (cmd === 'question' || cmd === 'validate') && !argv.includes('--json')) {
