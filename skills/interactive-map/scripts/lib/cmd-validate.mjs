@@ -10,6 +10,7 @@ import { checkV2, V2_TOP_KEYS, V2_LAYER_KEYS } from './validate-v2.mjs';
 import { STARTER_DIR } from './site.mjs';
 import { parseStops, expectOf, mergeExpect, uncovered, describeItems, featureNames } from './expect.mjs';
 import { stillRunning, runningList } from './running.mjs';
+import { REPLY_WITHIN_S } from './turn-advice.mjs';
 
 export const help = `validate <dir> [--signal] [--strict] [--expect "<stop>:<nights>,…"] [--json]
   Checks map.config.json (schema, enums, refs), every layer file (exists, valid GeoJSON, geometry fits the layer type,
@@ -107,7 +108,8 @@ function checkLetterColors({ cfg, featuresByLayer, W, CFG }) {
   }
 }
 
-export async function run(argv) {
+/** `turnLeftS`: seconds the turn clock leaves for tool work (uw.mjs; null: no clock, as when uw doctor checks a site). */
+export async function run(argv, { turnLeftS = null } = {}) {
   const args = parseArgs(argv, { strict: 'bool', signal: 'bool', expect: 'string' }, { positionals: [1, 1], command: 'validate' });
   if (args.help) return console.log(help);
   const askedStops = parseStops(args.expect);
@@ -527,14 +529,24 @@ export async function run(argv) {
             `uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --force: the days take every place pinned (it names one that fits no day)`);
         }
       }
-      const bareDays = Array.isArray(sightLayers) && sightLayers.length ? gaps.bare : [];
+      const sightsAsked = Array.isArray(sightLayers) && sightLayers.length > 0;
+      const bareDays = sightsAsked ? gaps.bare : [];
+      // a full day takes 2-3 sourced places (reference/itinerary.md Phase B step 1): one is not a day worth following,
+      // so it fails too while the turn clock leaves time to add places; with less, it is a warning and the reply says
+      // it (three sights for three days once passed with a warning and almost 7 minutes left)
+      const oneDays = sightsAsked ? gaps.single : [];
+      const timeToAdd = turnLeftS == null || turnLeftS > REPLY_WITHIN_S;
+      const days4 = (list) => `${list.slice(0, 4).join(', ')}${list.length > 4 ? ' …' : ''}`;
       if (bareDays.length)
-        E(CFG, '$.plan.days', `${bareDays.length} of ${gaps.full} full days have nothing to see (no sourced place): ${bareDays.slice(0, 4).join(', ')}${bareDays.length > 4 ? ' …' : ''}`,
+        E(CFG, '$.plan.days', `${bareDays.length} of ${gaps.full} full days have nothing to see (no sourced place): ${days4(bareDays)}`,
           `uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --force spreads the places already pinned over every day, the arrival day too: run it first when a stop has as many places as days. Else pin 2-3 places a page you read names for each of those days (reference/itinerary.md Phase B step 1: uw add-point ${args._[0]} --layer ${sightLayers[0]} … with {"stop":…,"source_url":…}), then run it; a place the lookup cannot pin goes on its day as {"text": "<name>", "url": "<its page>", "source": "<site>"}`);
-      else if (gaps.full >= 2 && gaps.empty * 2 > gaps.full)
-        W(CFG, '$.plan.days', `${gaps.empty} of ${gaps.full} full days are still empty ("Day in …", or only the arrival): a traveller gets nothing to do on them`, 'add 2-3 sourced sights per stop (reference/itinerary.md Phase B step 1), then uw plan … --sights sights --force and one short sourced text per day');
-      else if (gaps.full >= 2 && gaps.thin * 2 > gaps.full)
-        W(CFG, '$.plan.days', `${gaps.thin} of ${gaps.full} full days have fewer than 2 sourced items: one sight per stop is not a day worth following`, 'add sights until each stop has 2-3 with a source page (reference/itinerary.md Phase B step 1), then uw plan … --sights sights --force');
+      if (oneDays.length && timeToAdd)
+        E(CFG, '$.plan.days', `${oneDays.length} of ${gaps.full} full days have one place to see (a full day takes 2-3 sourced places): ${days4(oneDays)}`,
+          `pin one or two more places a page you read names for each of those days, in that day's area (reference/itinerary.md Phase B step 1: uw add-point ${args._[0]} --layer ${sightLayers[0]} … with {"stop":…,"source_url":…}, one place per command), then uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --force`);
+      else if (!bareDays.length && gaps.full >= 2 && gaps.empty * 2 > gaps.full)
+        W(CFG, '$.plan.days', `${gaps.empty} of ${gaps.full} full days are still empty ("Day in …", or only the arrival): a traveller gets nothing to do on them`, 'add 2-3 sourced sights a full day (reference/itinerary.md Phase B step 1), then uw plan … --sights sights --force and one short sourced text per day');
+      else if (!bareDays.length && (oneDays.length || (gaps.full >= 2 && gaps.thin * 2 > gaps.full)))
+        W(CFG, '$.plan.days', `${gaps.thin} of ${gaps.full} full days have fewer than 2 sourced items: one sight a day is not a day worth following`, 'add sights until each full day has 2-3 with a source page (reference/itinerary.md Phase B step 1), then uw plan … --sights sights --force');
     }
   }
   // --- expect: the trip's stops (each with its nights) are all on the map, and in the plan

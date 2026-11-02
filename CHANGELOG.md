@@ -3,6 +3,33 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.26 (2026-11-02)
+
+Fixes from a "Plan 3 days in Seville for a first visit: where to stay, what to see each day, on a map" run that
+planned one sight a day, each citing its encyclopedia article.
+
+- **A full day takes 2-3 places.** The trip guide asked for "2-3 per city", which three sights in one city meet, and
+  `uw validate` only warned about days with one place, with a fix that asked to add sights "until each stop has 2-3":
+  the run replied with almost seven minutes left. The guide now asks for 2-3 sourced places a full day. With
+  `--sights`, `uw validate` fails a full day with one place, as it fails one with none, while the turn clock shows more
+  than about 3 minutes left; with less it is a warning that asks for sights "until each full day has 2-3", and the
+  reply says it. A day with none still fails whatever the time.
+- **A sight cites the venue's own site where the turn found one.** The guide's step said each place's source is "its
+  own page", which its encyclopedia article is too. The command and the template now name the venue's own site, and
+  the article is only for a venue whose own site the turn did not find or could not read. At most about 2 pages a
+  sight, in place of 8 a city.
+- **A square stays a square.** The place search listed a square first and an artwork of the same name on it, and
+  `uw add-point` took the artwork for the square mapped twice, so the map called the square "Artwork". A place in its
+  own right (a square, a quarter, a town) keeps the kind it is; a locality, which only names a spot, still gives way
+  to the place of its name there.
+- **A place to stay cites its own record.** Each stay from OpenStreetMap linked OpenStreetMap's licence page as its
+  source, and so did the plan's base line. It now links the place's own page in OpenStreetMap (what is mapped there:
+  its name and kind); the licence stays in the map's credits.
+- **Tests:** a 3-day plan with one sight a full day fails `uw validate` with `--sights` while the turn has time, and
+  passes with two a day; with under 3 minutes left it is a warning, with "each full day" in its fix, and a day with
+  none still fails; a stay's source is its own OpenStreetMap page, also on the plan's base line; a square found first
+  stays the square, with its own kind; the trip guide's words. Each fails without its change.
+
 ## 0.1.25 (2026-11-01)
 
 Fixes to 0.1.24.
