@@ -1026,7 +1026,7 @@ const PART_TYPE = /^(railway=(subway_entrance|entrance|train_station_entrance|pl
 // What only stands in a place and takes its name (a playground in a park or on a square, a car park under it, a toilet
 // block): never the place a query names unless the query or --kind names that kind ("Metropol Parasol" took the
 // playground "Parque Metropol Parasol" over the Setas themselves). --pick still takes one
-const STANDS_IN = /^(leisure=(playground|picnic_table|fitness_station|outdoor_seating|bleachers)|amenity=(parking|parking_space|parking_entrance|bicycle_parking|motorcycle_parking|bench|toilets|drinking_water|waste_basket|waste_disposal|recycling|shelter|telephone|post_box|vending_machine|charging_station|atm|bicycle_rental|clock|lounger)|tourism=information)$/;
+const STANDS_IN = /^(leisure=(playground|picnic_table|fitness_station|outdoor_seating|bleachers)|amenity=(parking|parking_space|parking_entrance|bicycle_parking|motorcycle_parking|bench|toilets|drinking_water|waste_basket|waste_disposal|recycling|telephone|post_box|vending_machine|charging_station|atm|lounger)|tourism=information)$/;
 /** Does the query or --kind name the kind a candidate is ("Retiro playground", --kind parking)? Each word of its
  *  OpenStreetMap value ("bicycle_parking": bicycle, parking), a plural's s aside. */
 function kindAsked(c, ...said) {
