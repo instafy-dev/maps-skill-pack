@@ -155,7 +155,7 @@ test('a 3-day trip with one sight a day fails uw validate with --sights while th
   const text = await uw(['validate', site, '--signal']);
   assert.equal(text.code, 1);
   assert.match(text.out, /^ERROR map\.config\.json \$\.plan\.days: 3 of 3 full days have one place to see/m);
-  assert.match(text.err, /time: 0m\d\ds used, about 7m\d\ds left for tool work this turn\. 3 of 3 full days have fewer than 2 sourced sights\./);
+  assert.match(text.err, /time: 0m\d\ds used, about (7m\d\d|8m00)s left for tool work this turn\. 3 of 3 full days have fewer than 2 sourced sights\./);
 
   // two a day: each full day has 2 sourced places, and validate passes
   for (const s of SIGHTS.slice(3)) assert.equal((await pin(site, s)).code, 0);
