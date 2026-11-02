@@ -8,6 +8,7 @@ import { emojiFor } from './kinds.mjs';
 import { fitView } from './cmd-site.mjs';
 import { isLodging, registrySearch, acceptable, fmtRegistryCand, registryProps, queryLabel, slugFor } from './registry-geo.mjs';
 import { adapterFor, adapterNamedIn, adapterForArea } from '../adapters/lib/areas.mjs';
+import { unnamedSource, unnamedSourceLine } from './cmd-cite.mjs';
 
 export const helps = {
   geocode: `geocode "<query>" [--near lng,lat] [--country <name|code>] [--limit 5] [--lang en|de|fr|default] [--source auto|osm|registry] [--json]
@@ -43,6 +44,7 @@ add-point <dir> --layer <id> --at lng,lat --name "Label" [...]     (only for coo
   check the list, then --pick N or --allow-mismatch. Query words that only name the area (the city, region or country
   the candidates are in) do not count as a name match. --strict-name: refuse unless a candidate's own name carries the
   query's name (use it for a researched place: a wrong hotel with the right reason is worse than "not found").
+  A source_url (in --props) that \`uw cite\` read and that does not name the place is said at once: not its source.
   --country: only candidates in that country (an ISO code like JP, or its name).
   Taiwan lodging (a hotel/hostel/旅館/飯店/民宿 query, --kind hotel, or a layer like "hotels", in Taiwan by --near or the
   view): when the search's match is missing, far or unsure, Taiwan's lodging registers are searched by name (registered name,
@@ -75,12 +77,28 @@ const TYPE_WORDS = [
   { word: /\b(train |railway |rail |mrt |metro |subway |hsr |bus )?station\b|車站|火車站|捷運站|駅/i, ok: /^(railway=(station|halt|stop)|public_transport=station|building=(train_station|transportation)|amenity=bus_station)$/,
     tags: ['railway:station', 'railway:halt', 'public_transport:station', 'amenity:bus_station'] },
   { word: /\bairport\b|機場|空港/i, ok: /^aeroway=/, tags: ['aeroway:aerodrome', 'aeroway:terminal'] },
+  // An open place: a garden, a park or a square is that kind of place, never a museum, a shop or a street named after
+  // it ("Murillo Gardens" found the Casa de Murillo museum first and the gardens third). The kind is the name's last
+  // word in English and German ("Hyde Park", "Murillo Gardens", "Trafalgar Square") and its first in the Romance
+  // languages ("Jardines de Murillo", "Parque do Ibirapuera", "Piazza Navona"), so "Park Lane" and "Park Hyatt" name no
+  // park. A zoo, a theme park, an arena or a sight of that name is that place too ("Jardim Zoológico" is the zoo, a
+  // "plaza de toros" a bullring). After a hotel, a station or an airport ("Plaza Hotel"), before the kinds a garden or a
+  // square is named after ("Museum Gardens", "Square du Temple"). Never for a place to stay, nor with --kind: they say
+  // what the place is ("open")
+  { open: true, word: /^\s*(jard[ií]n(es)?|jardim|jardins|giardin[oi]|parque|parc|parco)\b|\b(gardens?|(?<!\bcar[\s-])park|garten)\s*(?=[,，]|$)|(公園|公园|庭園|花園|花园)\s*(?=[,，]|$)/i,
+    ok: /^(leisure=(park|garden|nature_reserve|common|recreation_ground|dog_park|water_park|stadium)|tourism=(attraction|zoo|theme_park|aquarium)|boundary=(national_park|protected_area)|landuse=(recreation_ground|village_green|grass|meadow|forest|cemetery))$|^natural=/,
+    tags: ['leisure:park', 'leisure:garden'] },
+  { open: true, word: /^\s*(plaza|pra[cç]a|piazza|piazzale|largo|square)\b|\b(square|platz)\s*(?=[,，]|$)|(廣場|广场)\s*(?=[,，]|$)/i,
+    ok: /^(place=(square|locality)|highway=(pedestrian|footway|living_street)|leisure=(park|garden|common|stadium)|tourism=(attraction|viewpoint)|amenity=marketplace|landuse=(village_green|recreation_ground))$|^area:highway=/,
+    tags: ['place:square', 'highway:pedestrian'] },
   { word: /\b(museum|gallery)\b|博物館|美術館/i, ok: /^(tourism=(museum|gallery|attraction)|building=museum|amenity=arts_centre)$/, tags: ['tourism:museum', 'tourism:gallery'] },
   { word: /\b(temple|shrine)\b/i, ok: /^(amenity=place_of_worship|historic=|building=(temple|shrine|religious)|tourism=attraction)/, tags: ['amenity:place_of_worship'] },
   { word: /\buniversity\b|大學/i, ok: /^(amenity=(university|college)|building=university)$/, tags: ['amenity:university'] },
   { word: /\bhospital\b|醫院/i, ok: /^(amenity=(hospital|clinic)|building=hospital|healthcare=)/, tags: ['amenity:hospital'] },
 ];
-export function queryType(q) { return TYPE_WORDS.find((t) => t.word.test(q)) || null; }
+/** The kind of place a query names ("… Station", "Murillo Gardens"), or null. `open: false` leaves out the open places
+ *  (a garden, a park, a square): a place to stay or a --kind says what the place is. */
+export function queryType(q, { open = true } = {}) { return TYPE_WORDS.find((t) => (open || !t.open) && t.word.test(q)) || null; }
 function stripType(q, t) { return q.replace(new RegExp(t.word.source, 'gi'), ' ').replace(/\s+/g, ' ').trim(); }
 
 /** Does a candidate's name plausibly match the query? `area`: place names of where the candidates are (their city,
@@ -617,7 +635,9 @@ async function addPointRun(argv, ctx) {
       }
       cands = inCountry;
     }
-    const qType = queryType(args.query);
+    // the kind of place the query names; a garden, a park or a square only when neither --kind nor a place to stay
+    // says what it is ("Park Plaza" is a hotel in a stays layer)
+    const qType = queryType(args.query, { open: !(args.kind || extra.kind) && !isLodging({ query: args.query, layer }) });
     // the area is where the place can be: the hits in range. A far-off hit's town never turns the query's own words
     // into area words ("Real Alcázar de Sevilla" also found streets in Alcázar de San Juan, Ciudad Real)
     const inRange = cands.filter((c) => !tooFar(c));
@@ -625,7 +645,12 @@ async function addPointRun(argv, ctx) {
     // --kind city|town|village|place: a place object, never a shop or a station that carries the city's name
     // ("Tokyo Shoes Retailing Center" for Tokyo)
     const placeKind = /^(city|town|village|place)$/i.test(String(args.kind || '')) ? /^place[=:]/ : null;
-    const annotate = (list, q) => { for (const c of list) { c.name_match ??= nameMatchFor(q, [c.name, c.name_en], area); c.type_ok = qType ? qType.ok.test(c.type || '') : placeKind ? placeKind.test(c.type || '') : null; } };
+    const annotate = (list, q) => { for (const c of list) {
+      c.name_match ??= nameMatchFor(q, [c.name, c.name_en], area);
+      c.type_ok = qType ? qType.ok.test(c.type || '') : placeKind ? placeKind.test(c.type || '') : null;
+      // a playground, a car park … in the place the query names is not that place, unless the query asks for one
+      if (STANDS_IN.test(c.type || '') && !kindAsked(c, args.query, args.kind, extra.kind)) { c.type_ok = false; c.stands_in = true; }
+    } };
     annotate(cands, args.query);
     // --allow-far: distance never decides (a stop far from the map's first view is still that stop)
     const good = (c) => (args['allow-far'] || !tooFar(c)) && c.name_match !== false && c.type_ok !== false;
@@ -776,8 +801,11 @@ async function addPointRun(argv, ctx) {
       // a researched place with a sourced reason must not land on another place of the same kind
       const unsure = args['strict-name'] && args.pick === undefined && (chosen.name_match !== true || chosen.via === 'type search');
       const mismatch = chosen.name_match === false || unsure ? 'name' : chosen.type_ok === false ? 'type' : null;
+      // the only ones named like the query stand in that place (a playground there takes its name): that is why
+      const standing = !mismatch || cands.some(good) ? null : chosen.stands_in ? chosen : cands.find((c) => c.stands_in && c.name_match !== false && !tooFar(c)) || null;
       if (mismatch && args.pick === undefined && !args['allow-mismatch']) {
-        const what = mismatch === 'name' ? `no candidate's name looks like "${args.query}"` : `no candidate nearby is the kind of place "${args.query}" names`;
+        const what = standing ? `"${standing.name}" [${standing.type}] only stands in the place "${args.query}" names and takes its name; no other candidate is named like it`
+          : mismatch === 'name' ? `no candidate's name looks like "${args.query}"` : `no candidate nearby is the kind of place "${args.query}" names`;
         // the search does not index old / alternative names; OSM often keeps them (disused:name=亞士都飯店 on the renamed hotel)
         const alt = near && mismatch === 'name' ? await altNameSearch(args.query, near).catch(() => []) : [];
         if (near && mismatch === 'name') tried.push('OpenStreetMap old/alternative names (Overpass)');
@@ -786,7 +814,7 @@ async function addPointRun(argv, ctx) {
           'Nothing was written. The place may be missing from OpenStreetMap or named differently. Try the local-language or official name,',
           'or geocode its street address (from the user or the official listing): --query "<street address>" --name "<name>" --props \'{"source":"…"}\'.',
           'If one candidate IS the place, re-run with --pick N. (--allow-mismatch accepts the best one as is.)'],
-        { ok: false, refused: mismatch + '_mismatch', query: args.query, candidates: cands, registry: reg?.candidates || [] });
+        { ok: false, refused: standing ? 'stands_in' : mismatch + '_mismatch', query: args.query, candidates: cands, registry: reg?.candidates || [] });
       }
       // a street address that resolved to a whole district or city is not the place (the search falls back to the area)
       const looksAddress = /\d+\s*(號|号|番地?)|\bno\.?\s*\d+|^\s*\d+[A-Za-z]?\s+\S+|\S+\s+\d+[A-Za-z]?\s*(,|$)/i.test(args.query);
@@ -852,6 +880,10 @@ async function addPointRun(argv, ctx) {
   Object.assign(props, extra);
   props.id = id; // --props cannot change the id silently
   const feature = { type: 'Feature', geometry: { type: 'Point', coordinates: chosen.coord.map(round6) }, properties: props };
+  // its source_url is a page uw cite read that does not name it (by its name, or the name it was looked up by): that page
+  // is not its source, said now while the turn can cite the place's own page
+  const sourceMiss = unnamedSource(props, [args.query ? String(args.query).split(/[,，]/)[0] : null, args.name]);
+  if (sourceMiss) warnings.push(unnamedSourceLine(sourceMiss, args._[0], `${layer}:${id}`));
 
   // the register's licence credit is loaded before the write lock is taken (no waiting inside it)
   const { ATTRIBUTION } = regUsed ? await import('../adapters/tw-hotels.mjs') : {};
@@ -926,7 +958,7 @@ async function addPointRun(argv, ctx) {
   const altList = regUsed ? cands : cands.filter((c) => c !== chosen);
   out.result({ ok: true, ...(partialNote ? { status: 'partial', partial: partialNote } : { status: 'ok' }), layer, file: rel, id, replaced, source: regUsed ? 'registry' : args.at ? 'user' : args.osm ? 'osm' : chosen.provider || 'search',
     chosen: { ...chosen, name, id }, alternatives: altList, registry_alternatives: reg ? reg.candidates.filter((c) => c !== chosen) : [],
-    warnings, config: cfgChanges, view }, [
+    warnings, config: cfgChanges, view, ...(sourceMiss ? { source_not_named: sourceMiss } : {}) }, [
     `${replaced ? 'Replaced' : 'Added'} ${layer}:${id} — ${props.emoji} ${name}${props.name_en && props.name_en !== name ? ` (${props.name_en})` : ''}` +
       (regUsed ? ` [registry: ${chosen.name}${chosen.name_local ? ' / ' + chosen.name_local : ''} · licence ${chosen.registry.licence_id || '—'} · match ${chosen.confidence} on ${chosen.by.join('+')}]`
         : ` [${chosen.type || 'user point'}]`) +
@@ -991,6 +1023,17 @@ function clearMissing(cfg, { layer, id, name, query }) {
 
 // Parts of a place (entrances, platforms, stops): never the thing a person asked for by name.
 const PART_TYPE = /^(railway=(subway_entrance|entrance|train_station_entrance|platform|stop|stop_position|halt_position)|public_transport=(platform|stop_position|stop_area|entrance)|highway=(bus_stop|platform)|entrance=)/;
+// What only stands in a place and takes its name (a playground in a park or on a square, a car park under it, a toilet
+// block): never the place a query names unless the query or --kind names that kind ("Metropol Parasol" took the
+// playground "Parque Metropol Parasol" over the Setas themselves). --pick still takes one
+const STANDS_IN = /^(leisure=(playground|picnic_table|fitness_station|outdoor_seating|bleachers)|amenity=(parking|parking_space|parking_entrance|bicycle_parking|motorcycle_parking|bench|toilets|drinking_water|waste_basket|waste_disposal|recycling|telephone|post_box|vending_machine|charging_station|atm|lounger)|tourism=information)$/;
+/** Does the query or --kind name the kind a candidate is ("Retiro playground", --kind parking)? Each word of its
+ *  OpenStreetMap value ("bicycle_parking": bicycle, parking), a plural's s aside. */
+function kindAsked(c, ...said) {
+  const text = ` ${said.filter(Boolean).join(' ').toLowerCase().replace(/[_-]+/g, ' ')} `;
+  const words = String(c.type || '').split('=')[1]?.split('_').filter(Boolean) || [];
+  return words.length > 0 && words.every((w) => text.includes(w.replace(/s$/, '')));
+}
 const TRANSPORT_TYPE = /^(highway=bus_stop|amenity=(bus_station|taxi|ferry_terminal)|public_transport=|railway=(halt|stop|tram_stop))/;
 // Every transit object (stations included): named after the place it serves, never that place.
 const TRANSIT_TYPE = /^(railway=(station|halt|stop|tram_stop|subway_entrance|platform)|public_transport=|highway=(bus_stop|platform)|amenity=(bus_station|ferry_terminal|taxi)|aeroway=)/;

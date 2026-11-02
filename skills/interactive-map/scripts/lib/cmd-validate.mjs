@@ -501,8 +501,11 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       const sightLayers = cfg.plan?.sights;
       if (sightLayers !== undefined && !(Array.isArray(sightLayers) && sightLayers.every((x) => typeof x === 'string')))
         E(CFG, '$.plan.sights', 'sights must be the layer ids uw plan --sights was given', 'rebuild: uw plan … --sights sights,food --force');
+      // the turn has time to add or cite places: more than about 3 minutes left on its clock (none: no limit)
+      const timeToAdd = turnLeftS == null || turnLeftS > REPLY_WITHIN_S;
       // each place's source is its own page: places that share one cite a city or listing page, which only says which
-      // places are worth it (three sights once all cited one city guide page)
+      // places are worth it (three sights once all cited one city guide page; two cited a routes page that named
+      // neither, and the reply vouched for it). While the turn has time it fails; its fix cites each place's own page
       if (Array.isArray(sightLayers)) {
         const byPage = new Map();
         for (const id of sightLayers) for (const f of featuresByLayer.get(id) || []) {
@@ -513,8 +516,9 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
           byPage.get(page).push(String(f.properties.name_en || f.properties.name || f.properties.id));
         }
         for (const [page, names] of byPage) if (names.length > 1)
-          W(CFG, '$.plan.sights', `${names.length} places cite one page (${page}): ${names.slice(0, 4).join(', ')}${names.length > 4 ? ' …' : ''}. A page about a whole city or a list of places says which are worth it; it is not their source`,
-            `cite each place's own page (its own site, else its Wikipedia article): uw cite <that page> --grep "<its name>", then uw set ${args._[0]} <layer>:<id> --props-file - with {"source_url":"<that page>","source":"<site>"}, then uw plan … --force`);
+          (timeToAdd ? E : W)(CFG, '$.plan.sights', `${names.length} places cite one page (${page}): ${names.slice(0, 4).join(', ')}${names.length > 4 ? ' …' : ''}. A page about a whole city or a list of places says which are worth it; it is not their source`,
+            timeToAdd ? `cite each place's own page (its own site, else its Wikipedia article): uw cite <that page> --grep "<its name>", then uw set ${args._[0]} <layer>:<id> --props-file - with {"source_url":"<that page>","source":"<site>"}, then uw plan … --force`
+              : 'too little time is left to cite their own pages in this turn; the reply names these places as not checked on a page of their own');
       }
       // a place of those layers in no day, and not one the plan left out itself ("unplaced": no room, or far from every
       // stop), was pinned after the days were planned: a lookup still running then finished later (uw plan named it)
@@ -540,15 +544,21 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       const oneDays = sightsAsked ? gaps.single : [];
       const plannedAt = Date.parse(cfg.plan?.planned_at ?? '');
       const plannedThisTurn = Number.isFinite(plannedAt) && (turnStartedMs == null || plannedAt >= turnStartedMs);
-      const timeToAdd = turnLeftS == null || turnLeftS > REPLY_WITHIN_S;
       const days4 = (list) => `${list.slice(0, 4).join(', ')}${list.length > 4 ? ' …' : ''}`;
       const notPinned = 'a place the lookup cannot pin goes on its day as {"text": "<name>", "url": "<its page>", "source": "<site>"}';
+      // the fix names the reader: uw cite on each place's own page, in this turn. "A page you read" named none, and a
+      // turn asked for the browser instead (3 turns for one map), or cited a page a browser card had listed
+      const citeOwn = 'each from its own page (its own site, else its Wikipedia article): uw cite <page> --grep "<its name>", never a browser card';
+      const pinTo = `uw add-point ${args._[0]} --layer ${sightsAsked ? sightLayers[0] : 'sights'} … with {"stop":…,"source_url":…}`;
+      // places pinned with no page count on no day: each gets its own page where it is
+      const unsourced = sightsAsked ? sightLayers.flatMap((id) => (featuresByLayer.get(id) || []).filter((f) => !/^https?:\/\//i.test(String(f?.properties?.source_url ?? '')))).length : 0;
+      const giveOwn = unsourced ? `; ${unsourced === 1 ? 'the place' : `the ${unsourced} places`} pinned with no page: uw set ${args._[0]} <layer>:<id> --props-file - with {"source_url":…,"source":…}` : '';
       if (bareDays.length)
         E(CFG, '$.plan.days', `${bareDays.length} of ${gaps.full} full days have nothing to see (no sourced place): ${days4(bareDays)}`,
-          `uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --force spreads the places already pinned over every day, the arrival day too: run it first when a stop has as many places as days. Else pin 2-3 places a page you read names for each of those days (reference/itinerary.md Phase B step 1: uw add-point ${args._[0]} --layer ${sightLayers[0]} … with {"stop":…,"source_url":…}), then run it; ${notPinned}`);
+          `uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --force spreads the places already pinned over every day, the arrival day too: run it first when a stop has as many places as days. Else cite 2-3 places for each of those days in this turn, ${citeOwn}; then ${pinTo}${giveOwn} (reference/itinerary.md Phase B step 1), then run it; ${notPinned}`);
       if (oneDays.length && plannedThisTurn && timeToAdd)
         E(CFG, '$.plan.days', `${oneDays.length} of ${gaps.full} full days have one place to see (a full day takes 2-3 sourced places): ${days4(oneDays)}`,
-          `pin one or two more places a page you read names for each of those days, in that day's area (reference/itinerary.md Phase B step 1: uw add-point ${args._[0]} --layer ${sightLayers[0]} … with {"stop":…,"source_url":…}, one place per command), then uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --force; ${notPinned}. One a day only when the person asked for it: uw plan … --per-day 1`);
+          `cite one or two more places for each of those days in this turn, in that day's area, ${citeOwn}; then ${pinTo}, one place per command${giveOwn} (reference/itinerary.md Phase B step 1), then uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --force; ${notPinned}. One a day only when the person asked for it: uw plan … --per-day 1`);
       else if (oneDays.length && !bareDays.length)
         W(CFG, '$.plan.days', `${oneDays.length} of ${gaps.full} full days have one place to see: ${days4(oneDays)}`,
           `${plannedThisTurn ? 'too little time is left to add places in this turn' : 'the days were planned in an earlier turn: keep what the person changed'}; the reply names these days and offers to add places to them`);

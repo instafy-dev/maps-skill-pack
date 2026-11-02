@@ -169,9 +169,10 @@ test('a 3-day trip with one sight a day fails uw validate with --sights while th
   assert.equal(v.code, 1, v.out);
   const days = v.json.errors.filter((e) => e.path === '$.plan.days');
   assert.deepEqual(days.map((e) => e.message), ['3 of 3 full days have one place to see (a full day takes 2-3 sourced places): Mon 2 Nov · Seville, Tue 3 Nov · Seville, Wed 4 Nov · Seville']);
-  // its fix pins more places, then plans again; a place the lookup cannot pin goes on its day as a link (the fix of a
-  // day with nothing to see says the same); one a day is the person's call, never the way out of the check
-  assert.equal(days[0].fix, 'pin one or two more places a page you read names for each of those days, in that day\'s area (reference/itinerary.md Phase B step 1: uw add-point sv --layer sights … with {"stop":…,"source_url":…}, one place per command), then uw plan sv … --sights sights --force; a place the lookup cannot pin goes on its day as {"text": "<name>", "url": "<its page>", "source": "<site>"}. One a day only when the person asked for it: uw plan … --per-day 1');
+  // its fix cites more places in this turn, each from its own page with uw cite (never a browser card), pins them, then
+  // plans again; a place the lookup cannot pin goes on its day as a link (the fix of a day with nothing to see says the
+  // same); one a day is the person's call, never the way out of the check
+  assert.equal(days[0].fix, 'cite one or two more places for each of those days in this turn, in that day\'s area, each from its own page (its own site, else its Wikipedia article): uw cite <page> --grep "<its name>", never a browser card; then uw add-point sv --layer sights … with {"stop":…,"source_url":…}, one place per command (reference/itinerary.md Phase B step 1), then uw plan sv … --sights sights --force; a place the lookup cannot pin goes on its day as {"text": "<name>", "url": "<its page>", "source": "<site>"}. One a day only when the person asked for it: uw plan … --per-day 1');
   assert.equal(v.json.warnings.filter((w) => w.path === '$.plan.days').length, 0, 'an error, not also a warning');
   // the text form names the time left on the clock line, after the error
   const text = await uw(['validate', site, '--signal']);

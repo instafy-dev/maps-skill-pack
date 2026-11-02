@@ -23,11 +23,12 @@ const { pageDescription } = await import(pathToFileURL(path.join(SKILL, 'starter
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'uw-onebase-'));
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
-const run = (args) => new Promise((resolve) => {
+const run = (args, extra = {}) => new Promise((resolve) => {
   const env = { ...process.env, UW_NO_CACHE: '1' };
   // the pack's own turn clock: never the clock of a turn that runs these tests (validate fails a day with one place
-  // only while that clock leaves time to add places)
+  // only while that clock leaves time to add places); `extra` may set a host's
   for (const k of ['INSTAFY_CACHE_DIR', 'UW_TURN_BUDGET', 'UW_TURN_GAP', 'INSTAFY_TURN_STARTED_AT', 'INSTAFY_TURN_DEADLINE', 'INSTAFY_TURN_CONTINUE_FILE']) delete env[k];
+  Object.assign(env, extra);
   const p = spawn(process.execPath, [UW, ...args], { cwd: tmp, env });
   let out = '', err = '';
   p.stdout.on('data', (d) => { out += d; }); p.stderr.on('data', (d) => { err += d; });
@@ -35,7 +36,8 @@ const run = (args) => new Promise((resolve) => {
 });
 
 const point = (id, coord, props = {}) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: coord }, properties: { id, ...props } });
-const src = (p) => ({ source_url: `https://en.wikivoyage.org/wiki/Lisbon#${p.id}`, source: 'Wikivoyage' });
+// each place cites its own page (places that share one fail uw validate while the turn has time)
+const src = (p) => ({ source_url: `https://en.wikipedia.org/wiki/${encodeURIComponent(p.name.replace(/ /g, '_'))}`, source: 'Wikipedia' });
 const sightFeats = (list = LISBON.places) => list.map((p) => Object.assign(point(p.id, p.coord, { name: p.name, stop: 'lisbon', ...src(p) }), { _layer: 'sights' }));
 const lisbonStop = { id: 'lisbon', layer: 'stops', coord: LISBON.centre, props: { id: 'lisbon', name: 'Lisbon', kind: 'city' } };
 const baseStay = Object.assign(point(LISBON.base.id, LISBON.base.coord, { name: LISBON.base.name, stop: 'lisbon', rank: 1, walk_min: 3, walk_to: 'Baixa' }), { _layer: 'stays' });
@@ -329,9 +331,11 @@ test('validate: a plan made with --sights fails while the arrival day has nothin
   assert.doesNotMatch(ok.out + ok.err, /nothing to see|one place to see/);
 });
 
-// Three sights all cited one city guide page ("Source: Wikivoyage" on each, the same Lisbon page): each place's
-// source is its own page, and validate says when places share one.
-test('validate: places that cite one page are named; each with its own page passes', async () => {
+// Three sights all cited one city guide page ("Source: Wikivoyage" on each, the same Lisbon page), and two once cited a
+// routes page that named neither while the reply vouched for them: each place's source is its own page. Places that
+// share one fail validate while the turn has time to cite their own; with under ~3 minutes left it is a warning whose
+// fix is what the reply says.
+test('validate: places that cite one page fail while the turn has time, and warn when it has none; each with its own page passes', async () => {
   const { dir } = await makeSite('lx-src');
   // two a day, in three areas
   const six = LISBON.places.filter((p) => ['castelo', 'se', 'torre', 'jeronimos', 'jardim-estrela', 'basilica-estrela'].includes(p.id));
@@ -342,12 +346,19 @@ test('validate: places that cite one page are named; each with its own page pass
   assert.equal((await run(plan)).code, 0);
   assert.equal((await run(['fit', 'lx-src'])).code, 0);
   const shared = await run(['validate', 'lx-src']);
-  assert.equal(shared.code, 0, 'a warning, not an error');
-  assert.match(shared.out + shared.err, /6 places cite one page \(https:\/\/en\.wikivoyage\.org\/wiki\/Lisbon\): Castelo de São Jorge, Sé de Lisboa, Mosteiro dos Jerónimos, Torre de Belém …\. A page about a whole city or a list of places says which are worth it; it is not their source/);
-  assert.match(shared.out + shared.err, /uw cite <that page> --grep "<its name>"/);
+  assert.equal(shared.code, 1, 'an error while the turn has time');
+  assert.match(shared.out + shared.err, /ERROR map\.config\.json \$\.plan\.sights: 6 places cite one page \(https:\/\/en\.wikivoyage\.org\/wiki\/Lisbon\): Castelo de São Jorge, Sé de Lisboa, Mosteiro dos Jerónimos, Torre de Belém …\. A page about a whole city or a list of places says which are worth it; it is not their source/);
+  assert.match(shared.out + shared.err, /fix: cite each place's own page \(its own site, else its Wikipedia article\): uw cite <that page> --grep "<its name>"/);
   // anchors on one page are still one page
   write((p) => `https://en.wikivoyage.org/wiki/Lisbon#${p.id}`);
-  assert.match((await run(['validate', 'lx-src'])).out, /6 places cite one page \(https:\/\/en\.wikivoyage\.org\/wiki\/Lisbon\)/);
+  const anchors = await run(['validate', 'lx-src']);
+  assert.equal(anchors.code, 1);
+  assert.match(anchors.out, /6 places cite one page \(https:\/\/en\.wikivoyage\.org\/wiki\/Lisbon\)/);
+  // 7 min 30 s of a ten-minute turn used: no time to cite six pages, so the reply says it
+  const late = await run(['validate', 'lx-src'], { INSTAFY_TURN_STARTED_AT: new Date(Date.now() - 450e3).toISOString(), INSTAFY_TURN_DEADLINE: new Date(Date.now() + 150e3).toISOString() });
+  assert.equal(late.code, 0, late.out + late.err);
+  assert.match(late.out, /warn {2}map\.config\.json \$\.plan\.sights: 6 places cite one page/);
+  assert.match(late.out, /fix: too little time is left to cite their own pages in this turn; the reply names these places as not checked on a page of their own/);
   write((p) => `https://en.wikipedia.org/wiki/${encodeURIComponent(p.name.replace(/ /g, '_'))}`);
   assert.equal((await run(plan)).code, 0);
   const own = await run(['validate', 'lx-src']);
