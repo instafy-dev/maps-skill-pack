@@ -3,9 +3,10 @@
 // one stop: days in one place, each day a loop from the same base. The agent then adds one sourced line of text per
 // day; it never has to type the skeleton (or a date) by hand.
 import fs from 'node:fs';
-import { parseArgs, makeOut, parseList, readJSON, writeJSON, writeGeoJSON, haversine, representativePoint, clipWords, UsageError, UserError } from './util.mjs';
+import { parseArgs, makeOut, parseList, readJSON, writeJSON, writeGeoJSON, haversine, representativePoint, clipWords, slugify, UsageError, UserError } from './util.mjs';
 import { openSite, loadLayer, layerPath, checkLayerId } from './site.mjs';
 import { expectOf, featureNames } from './expect.mjs';
+import { isLodging } from './registry-geo.mjs';
 import { stillRunning, runningList } from './running.mjs';
 
 export const help = `plan <dir> --stops <layer> --start YYYY-MM-DD [--ids taipei,hualien,…,taipei] [--nights 3,2,2,3,2,2]
@@ -19,7 +20,9 @@ export const help = `plan <dir> --stops <layer> --start YYYY-MM-DD [--ids taipei
   closer than about 15 km are places in one city, not a trip: refused (plan one stop, the city; its sights are
   grouped into days by area). A place of its own (a city, town, village or island, a station or an airport, by the
   stop's "kind") is not in one city with another: two of them are a trip (not two stations of one city), and so is
-  one beside another stop when the map's "expect" names both (uw new --expect "Zermatt:2,Hörnli Hut:1").
+  one beside another stop when the map's "expect" names both (uw new --expect "Zermatt:2,Hörnli Hut:1"). A place to
+  stay (a hotel, a hostel …, or a place \`uw stay\` picked) is refused as a stop unless the map's "expect" names it:
+  the city is the stop and the hotel its stay, so the days read the city's name.
   --nights: one number per --ids entry (the last stop of a loop may be 0 = fly out the day you arrive; a first stop
   with 0 nights is left the day you arrive; one stop with 0 nights is a single day there); default: each stop feature's "nights". With --nights the stop features' "nights"
   become the total per stop (dots under the name).
@@ -510,6 +513,20 @@ export async function run(argv) {
     return { id, layer: stopLayer, props: f.properties, coord: representativePoint(f.geometry) };
   });
   if (!stopsIn.length) throw new UsageError(`a plan needs at least one stop: layer ${stopLayer} has none (--ids <stop id>)`);
+  // a place to stay is never a trip's stop: the city is the stop and the hotel its stay, so each day reads the city's
+  // name (a hotel made the stop titled every day after it, "Arrive in <hotel>", and left it off the places list). A
+  // stay the map's "expect" names itself (a mountain hut asked for by name) is a stop
+  const expected = expectOf(site.config);
+  const askedFor = (p) => expected.some((e) => [p?.name, p?.name_en, p?.osm_name_en].some((n) => n && slugify(n) === slugify(e.name)));
+  const stayStop = stopsIn.find((s) => (isLodging({ kind: s.props?.kind }) || sfc.uw?.cmd === 'stay') && !askedFor(s.props));
+  if (stayStop) {
+    const city = expected.length === 1 ? expected[0] : null;
+    const slug = (city && slugify(city.name)) || '<city slug>';
+    const name = label(stayStop.props);
+    throw new UserError(`"${name}" is a place to stay, not a trip's stop: ${city ? `the city (${city.name})` : 'the city or town'} is the stop and "${name}" its stay, so each day reads ${city ? `"${city.name}"` : 'its name'}. `
+      + `Pin the city: uw add-point ${args._[0]} --layer stops --query "${city ? city.name : '<City>'}" --kind city --id ${slug} --props '{"nights":${city?.nights ?? 'N'}}'; `
+      + `give the stay that stop: uw set ${args._[0]} ${stopLayer}:${stayStop.id} --props '${JSON.stringify({ stop: slug })}'; then uw plan ${args._[0]} --stops stops --ids ${slug} … --stays ${stopLayer} (reference/itinerary.md "One base").`);
+  }
   let nightsIn;
   if (args.nights) {
     nightsIn = parseList(args.nights).map(Number);

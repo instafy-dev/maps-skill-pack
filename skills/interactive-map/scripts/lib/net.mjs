@@ -63,12 +63,12 @@ function cachePut(key, value, dir) {
       fs.renameSync(tmp, path.join(d, key + '.json'));
     } catch { /* cache is best effort */ }
   }
-  if (Math.random() < 0.02) pruneAnswers();
+  if (Math.random() < 0.02) pruneShared(answersDir());
 }
-/** Drop shared answers older than two weeks (no cached answer is used past a week). */
-function pruneAnswers(maxAgeMs = 14 * 864e5) {
+/** Drop entries older than two weeks from a folder of the shared cache (no cached answer or kept page is used past a
+ *  week). */
+function pruneShared(d, maxAgeMs = 14 * 864e5) {
   try {
-    const d = answersDir();
     for (const f of fs.readdirSync(d)) {
       const p = path.join(d, f);
       try { if (Date.now() - fs.statSync(p).mtimeMs > maxAgeMs) fs.unlinkSync(p); } catch {}
@@ -78,7 +78,11 @@ function pruneAnswers(maxAgeMs = 14 * 864e5) {
 /** A value kept in the shared cache under `sub` (pages re-read by handoff's source check, say): null when absent or
  *  older than maxAgeMs. */
 export function readShared(sub, parts, maxAgeMs) { return cacheGet(cacheKey(parts), maxAgeMs, sharedCacheDir(sub)); }
-export function writeShared(sub, parts, value) { cachePut(cacheKey(parts), value, sharedCacheDir(sub)); }
+export function writeShared(sub, parts, value) {
+  cachePut(cacheKey(parts), value, sharedCacheDir(sub));
+  // pages kept for hours (handoff's source check, what uw cite read) are not left to pile up
+  if (Math.random() < 0.02) pruneShared(sharedCacheDir(sub));
+}
 /** The cache every site on this machine shares: data that changes slowly (rail track tiles) is fetched once, not once
  *  per site. UW_CACHE, else the runtime's stable per-space folder (INSTAFY_CACHE_DIR: a hosted tool turn's HOME is new
  *  every turn), else ~/.cache/uw. */

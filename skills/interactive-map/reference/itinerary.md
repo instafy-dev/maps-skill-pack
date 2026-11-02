@@ -115,10 +115,10 @@ rather than reply. Sights come from `uw cite` in this turn, never from a browser
    (skill `instafy-web-research` ranks sources so, in its "Sources by need"): one you know, or the one `instafy web
    search "<its name>" --chain reference-search --json` lists. Its Wikipedia article only where the turn found no such
    site that names it and can be read. Checked for being current (closures, renovations, seasonal
-   hours); that page is its `source_url` (`uw validate` warns when places share one). A refused site (it bans agents,
-   robots.txt, a bot check) is a plain link, never fetched another way. At most about 2 pages a sight. Then each
-   sight in a command of its own, one `uw add-point` per command (chained, one slow lookup held back the sights after
-   it and the plan):
+   hours); that page is its `source_url` (`uw validate` fails while places share one; `uw set` and `uw add-point` say
+   at once when a page `uw cite` read does not name the place). A refused site (it bans agents, robots.txt, a bot
+   check) is a plain link, never fetched another way. At most about 2 pages a sight. Then each sight in a command of
+   its own, one `uw add-point` per command (chained, one slow lookup held back the sights after it and the plan):
    ```
    uw add-point <site> --layer sights --query "<local-language name>" --country "<Country>" --strict-name --near <that station's lng,lat> --id <slug> --props-file - <<'JSON'
    {"stop":"<station id>","source_url":"<its own site's page>","source":"<site name>","why":"<what the page says to do there>"}
@@ -148,9 +148,10 @@ rather than reply. Sights come from `uw cite` in this turn, never from a browser
 "3 days in Lisbon", "a weekend in Kyoto", "a day in Porto": one stop and no trains. Step 0 (parse, defaults, the
 `Assumed:` line), step 1, step 6 and Phase B stay; instead of steps 2-5:
 
-1. **The stop** is the city: `uw add-point <site> --layer stops --query "<City>" --country "<Country>" --kind city --id <slug>
-   --props '{"nights":N}'`. "N days" is N nights unless the user gave dates; one day is 0. The plan has a dated day
-   per night and no departure day: they leave the day after, which the stay line's dates end on.
+1. **The stop** is the city, never the hotel (`uw plan` refuses a place to stay as a stop): `uw add-point <site>
+   --layer stops --query "<City>" --country "<Country>" --kind city --id <slug> --props '{"nights":N}'`. "N days" is
+   N nights unless the user gave dates; one day is 0. The plan has a dated day per night and no departure day: they
+   leave the day after, which the stay line's dates end on.
 2. **Stays** in the area you recommend staying in (a page you read says why): `uw geocode "<area>, <City>"`, then
    `uw stay <site> --near <its lng,lat> --near-label "<area>" --stop <slug>` (step 3's rules: hotels unless asked,
    a reason each). The base is the rank-1 stay; each day starts and ends there. Never the area itself as a hotel. No

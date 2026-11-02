@@ -54,8 +54,9 @@ after(() => { server?.close(); fs.rmSync(tmp, { recursive: true, force: true });
 
 function uw(args, env = {}) {
   return new Promise((resolve) => {
-    // the mock web is on 127.0.0.1, which cite refuses unless UW_ALLOW_LOCAL=1
-    const p = spawn(process.execPath, [UW, ...args], { cwd: tmp, env: { ...process.env, UW_CACHE_DIR: path.join(tmp, 'cache'), UW_TRANSIT_URL: '', UW_ALLOW_LOCAL: '1', ...env } });
+    // the mock web is on 127.0.0.1, which cite refuses unless UW_ALLOW_LOCAL=1; what cite read is kept in the test's
+    // own shared cache
+    const p = spawn(process.execPath, [UW, ...args], { cwd: tmp, env: { ...process.env, UW_CACHE: path.join(tmp, 'cache'), UW_TRANSIT_URL: '', UW_ALLOW_LOCAL: '1', ...env } });
     let out = '', err = '';
     p.stdout.on('data', (d) => (out += d));
     p.stderr.on('data', (d) => (err += d));

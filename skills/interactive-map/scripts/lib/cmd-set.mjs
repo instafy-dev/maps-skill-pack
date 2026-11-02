@@ -1,11 +1,14 @@
 // `set`: edit a feature's properties (note, name, metrics…) or remove it, without geocoding or re-fetching anything.
 import { parseArgs, makeOut, writeGeoJSON, propsArg, UsageError, UserError } from './util.mjs';
 import { openSite, loadLayer, layerPath } from './site.mjs';
+import { unnamedSource, unnamedSourceLine } from './cmd-cite.mjs';
 
 export const help = `set <dir> <layer>:<id> [--note "…"] [--name "…"] [--emoji 🏨] [--props '{"price":120}' | --props-file <file|->] [--unset key1,key2] [--remove] [--json]
   Changes properties of one feature in data/<layer>.geojson in place (other properties, metrics and geometry stay), or
   removes it (--remove). No network. Use it to fix a note, label or prop after add-point / enrich instead of re-running them.
   Geometry and "id" cannot be changed here (re-run add-point for a different place).
+  A source_url that \`uw cite\` read (in the last hours) and that does not name the place is said at once: that page is
+  not its source; cite the place's own page.
   Text with an apostrophe or quotes: --props-file - <<'JSON', the object on the next line, then JSON (no shell quoting).`;
 
 export async function run(argv) {
@@ -46,8 +49,12 @@ export async function run(argv) {
     if (!changed.length) { out.result({ ok: true, layer, id, changed: [] }, [`Nothing changed on ${layer}:${id}.`]); return 0; }
   }
   writeGeoJSON(layerPath(site, layer), fc);
-  out.result({ ok: true, layer, id, changed, removed: !!args.remove }, [
+  // a page uw cite read that does not name the place is not its source: said now, while the turn can cite its own page
+  // (two places once cited a routes page that named neither, and the reply vouched for it)
+  const miss = !args.remove && changed.some((k) => k === 'source_url' || /^name/.test(k)) ? unnamedSource(f.properties) : null;
+  out.result({ ok: true, layer, id, changed, removed: !!args.remove, ...(miss ? { source_not_named: miss } : {}) }, [
     args.remove ? `Removed ${layer}:${id} (${f.properties.name || ''}). Re-run enrich / legs / routes that used it.` : `Updated ${layer}:${id}: ${changed.join(', ')}.`,
   ]);
+  if (miss) out.warn(unnamedSourceLine(miss, args._[0], `${layer}:${id}`));
   return 0;
 }

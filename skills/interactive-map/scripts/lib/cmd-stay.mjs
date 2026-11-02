@@ -11,6 +11,7 @@ import { geocodeSearch, countryMatches, forgetMissing, partialProps } from './cm
 import { placesSearch } from './osm-places.mjs';
 import { walkTable } from './route-lookups.mjs';
 import { adapterFor } from '../adapters/lib/areas.mjs';
+import { expectOf } from './expect.mjs';
 
 export const helps = {
   station: `station <dir> --city "<city>" [--country <name|code>] [--near lng,lat] [--layer stations] [--id <slug>] [--kind rail|hsr]
@@ -38,8 +39,9 @@ export const helps = {
   min away); --prefer any ranks by walk alone, --prefer bnb puts B&Bs first. --kinds hotel (default hotel,hostel; bnb
   is added when fewer than --max hotels are in range). With hotels asked for, a hotel in range is always a pick (the
   closest replaces the last hostel, or the last pick), and only none in range is said: "No hotel within <radius> m of
-  <place>", in the Tell the user line too (JSON no_hotel). A lng,lat --near is named by --near-label in the walk texts
-  ("6 min walk to the centre of Hualien"), and --stop says which stop the picks belong to (default: the --near id).
+  <place>", in the Tell the user line too (JSON no_hotel). A lng,lat --near needs --near-label, which names it in the
+  walk texts ("6 min walk to the centre of Hualien"; without it: exit 2, nothing looked up), and --stop says which stop
+  the picks belong to (default: the --near id).
   Each point gets: rank, why in plain words ("6 min walk to Hualien Station · registered hotel, 120 rooms"; "about 6
   min walk" when estimated), how (the walk's basis and metres, the OpenStreetMap tags: the card's "How we know"), stop
   (the --near id), walk_min, walk_m, walk_basis, and in Taiwan licence + tw_* (rooms, class, FILED rates: not prices).
@@ -447,6 +449,13 @@ export async function stay(argv) {
   const site = openSite(args._[0]);
   if (!args.near) throw new UsageError('stay needs --near <layer:id> (a station from `uw station`) or lng,lat from geocode');
   const anchor = resolvePoint(site, args.near, 'near');
+  // a coordinate is named for the traveller, never by its numbers or as "the chosen point" (each stay's line reads
+  // "2 min walk to <it>"): asked for before anything is looked up
+  if (!anchor.layer && !String(args['near-label'] || '').trim()) {
+    const stops = expectOf(site.config);
+    throw new UsageError(`--near ${args.near} is a point: name it with --near-label as the traveller would ("the centre of ${stops.length === 1 ? stops[0].name : '<City>'}", or the area's name), `
+      + 'since each stay reads "4 min walk to <it>". Or --near <layer>:<id> for a place on the map (its name is used).');
+  }
   const layer = checkLayerId(args.layer || 'stays');
   const radius = args.radius ?? 800;
   if (!(radius >= 100 && radius <= 3000)) throw new UsageError('--radius must be 100-3000 m');
@@ -460,7 +469,7 @@ export async function stay(argv) {
   const tw = source === 'tw' || (source === 'auto' && !!adapterFor('lodging-register', anchor.coord));
   // a coordinate anchor is named by --near-label ("the centre of Hualien"), never by its numbers: walk texts are read
   // by people
-  const toName = args['near-label'] || anchor.feature?.properties?.name_en || (anchor.id ? anchor.name : null) || 'the chosen point';
+  const toName = args['near-label'] || anchor.feature?.properties?.name_en || anchor.name;
   const stop = slugify(args.stop || '') || anchor.id || slugify(args['near-label'] || '') || 'here';
   const nearRef = String(args.near).trim();
   const prefer = (args.prefer || 'hotel').toLowerCase();

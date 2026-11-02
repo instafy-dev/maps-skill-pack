@@ -3,6 +3,51 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.28 (2026-11-03)
+
+Fixes from a "Plan 3 days in Seville for a first visit: where to stay, what to see each day, on a map" run that asked
+for the browser to source its sights, and then cited a page for two places that named neither.
+
+- **A place cites a page that names it.** Plaza de España and Casa de Murillo cited a city routes page that listed
+  three themed routes and named neither. `uw validate` only warned, and only because the two shared that page, and the
+  reply vouched for the source. Places that cite one page now fail `uw validate` while the turn has time to cite their
+  own (more than about 3 minutes left on its clock); with less it is a warning whose fix is what the reply says. `uw
+  cite` keeps the text it read for a few hours, and `uw set` and `uw add-point` say at once when a place's
+  `source_url` is a page it read that does not name the place (by its name, its English name or the name it was looked
+  up by, accents aside): one place alone on such a page too, with no second request. A page read another way is not
+  judged.
+- **A map is one building turn.** The fix of a full day with nothing to see asked for places "a page you read names"
+  and named no reader: a turn that had pinned its sights with no page asked for the browser, and the map took three
+  turns. It now says to cite 2-3 places for each of those days in this turn, each from its own page (its own site,
+  else its Wikipedia article) with `uw cite`, never a browser card, then pin them, and it counts the places pinned
+  with no page, which `uw set` gives theirs. The fix of a day with one place says the same.
+- **A place is the kind its name says.** `uw add-point` took the kind of place a query names for hotels, stations,
+  airports, museums, temples, universities and hospitals only: "Murillo Gardens" took the Casa de Murillo museum, the
+  search's first answer (the gardens were its third). A garden, a park or a square now counts too: the name's last
+  word in English and German ("Hyde Park", "Trafalgar Square"), its first in the Romance languages ("Jardines de
+  Murillo", "Piazza Navona"), so "Park Lane" and "Park Hyatt" name no park, and never for a place to stay or with
+  `--kind`. A candidate of that kind is taken; with none, `add-point` exits 2 with the alternatives. A playground, a
+  car park, a bench … only stands in the place a query names and takes its name ("Parque Metropol Parasol", a
+  playground on the square of the Setas): it is never that place unless the query or `--kind` asks for one, and the
+  refusal names it; `--pick` takes another.
+- **The city is the stop.** `uw plan` took a hotel as a trip's stop, so every day read "Mon 2 Nov · Hotel Alfonso
+  XIII", the first "Arrive in Hotel Alfonso XIII", and the hotel left the places list. A place to stay (a hotel, a
+  hostel …, or a place `uw stay` picked) is now refused as a stop unless the map's `expect` names it, with the commands
+  that pin the city and keep the hotel as its stay.
+- **A point is named.** `uw stay` with a point for `--near` and no `--near-label` wrote "2 min walk to the chosen
+  point" on each stay. It now exits 2 before any lookup and asks for a name ("the centre of Seville").
+- Pages kept for hours in the shared cache (`uw handoff`'s source check, what `uw cite` read) are dropped after two
+  weeks, as answers are.
+- **Tests:** two places on a page that names neither fail `uw validate` while the turn has time and warn when it has
+  none, and pass each with its own page; `uw add-point` and `uw set` say when a page `uw cite` read does not name the
+  place, one place alone on it too, with no second request, and say nothing for a page that names it or one uw cite
+  did not read; the fix of a day with nothing to see names `uw cite`, never a browser card, and the places pinned with
+  no page; a garden query takes the garden, none of that kind exits 2 with the alternatives, a playground named after
+  the place exits 2 and `--pick` takes the place, a hotel named like a square is that hotel among places to stay; a
+  hotel as the stop is refused and the city's days read "Seville"; a point with no label exits 2 with nothing looked
+  up. Each fails without its change. Fixtures that cited one city page for every place now give each its own, and the
+  source tests keep what `uw cite` read in their own folder.
+
 ## 0.1.27 (2026-11-02)
 
 Fixes to 0.1.26.

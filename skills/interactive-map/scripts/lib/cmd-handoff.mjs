@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs, makeOut, slugify, readJSON, writeJSON, writeGeoJSON, exists, haversine, clipWords, UsageError, UserError } from './util.mjs';
 import { expectOf, mergeExpect, describeItems } from './expect.mjs';
 import { openSite, layerPath, withSiteLock } from './site.mjs';
-import { politeFetch, pageText } from './cmd-cite.mjs';
+import { politeFetch, pageText, pageNamesPlace } from './cmd-cite.mjs';
 import { forgetMissing } from './cmd-geocode.mjs';
 import { FAR_FROM_CENTRE_KM, prefetchLodging } from './cmd-stay.mjs';
 import { isSkip, readShared, writeShared, setDeadline, withCap, partialLine } from './net.mjs';
@@ -131,36 +131,8 @@ const sq = (o) => `'${JSON.stringify(o).replace(/'/g, "'\\''")}'`;
 
 const fmtMin = (m) => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? String(m % 60).padStart(2, '0') : ''}` : `${m}m`);
 
-const GENERIC = new Set(['hotel', 'hotels', 'hostel', 'inn', 'the', 'and', 'resort', 'city', 'station', 'guesthouse', 'guest', 'house', 'house', 'b&b', 'bnb', 'suites', 'apartment', 'apartments', 'museum', 'park', 'market', 'night', 'temple', 'street', 'old', 'new']);
-const norm = (t) => String(t || '').normalize('NFKC').toLowerCase().replace(/[’'`]/g, "'").replace(/\s+/g, ' ');
-
-/** Does a cited page name this place? A variant of the name (the whole name, the parts in and out of brackets, the
- *  query's first part) appears in the text, or every distinctive word of a Latin variant does (generic words such as
- *  "hotel" and the city's own name do not count). Pure; exported for the tests. */
-export function pageNamesPlace(text, { name, query, city }) {
-  const page = norm(text);
-  const cityWords = new Set(norm(city).split(/[^\p{L}\p{N}]+/u).filter(Boolean));
-  const raw = [name, String(query || '').split(',')[0]];
-  const variants = new Set();
-  for (const v of raw) {
-    const n = norm(v).trim();
-    if (!n) continue;
-    variants.add(n);
-    for (const m of n.matchAll(/\(([^)]+)\)/g)) variants.add(m[1].trim());
-    variants.add(n.replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim());
-    for (const part of n.split(/\s+\/\s+/)) variants.add(part.trim());
-  }
-  for (const v of variants) {
-    if (!v) continue;
-    const cjk = /\p{Script=Han}|\p{Script=Hiragana}|\p{Script=Katakana}|\p{Script=Hangul}/u.test(v);
-    if ((cjk ? v.length >= 2 : v.length >= 4) && page.includes(v)) return true;
-    if (!cjk) {
-      const words = v.split(/[^\p{L}\p{N}&]+/u).filter((w) => w.length >= 3 && !GENERIC.has(w) && !cityWords.has(w));
-      if (words.length && words.every((w) => new RegExp(`(^|[^\\p{L}\\p{N}])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^\\p{L}\\p{N}]|$)`, 'u').test(page))) return true;
-    }
-  }
-  return false;
-}
+// pageNamesPlace (does a cited page name this place?) lives with uw cite, which `uw set` and `uw add-point` share
+export { pageNamesPlace };
 
 /** Does a page's text (or its raw HTML, where a schema.org offer says "price":"150.00") show this amount? 150 matches
  *  "150", "$150.00", "150,00 kr"; 1299 also "1,299" and "1 299". Pure; exported for the tests. */
