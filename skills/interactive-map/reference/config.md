@@ -418,7 +418,7 @@ UI-only intents. `"bind": { "parentOrigins": ["https://instafy.dev"], "results":
 An item's `text` is its name; `note` (≤ 120 characters) is one line under it ("ask about trail status"), as on the
 timeline page. An item's `time` sets the map's hour when the day opens; it is not shown as a clock column.
 An item's `url` (https only) is the page its facts came from: shown as "Wikipedia ↗" (`source`, ≤ 40 characters, else
-the host name) under the item. An item's `check` (≤ 80 characters) is what is not checked about it, said as on the
+the host name) under the item; `uw set` on a place's `source_url` or `source` gives its items that page too (no new plan). An item's `check` (≤ 80 characters) is what is not checked about it, said as on the
 pages: "Not checked · which trails are open · where to check ↗" (`check_url`, https). A trip's plan is written by
 `uw plan` (dates, nights, legs, stays, sights; see itinerary.md); add one short `text` per day by hand.
 `"sights": ["sights", "food"]` (written by `uw plan --sights`, with `"planned_at"`, when it planned the days, and

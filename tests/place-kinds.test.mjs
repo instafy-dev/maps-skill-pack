@@ -5,8 +5,12 @@
 //  - `uw add-point` takes the kind of place the query names (a garden, a park, a square), and exits 2 with its
 //    alternatives when no candidate is that kind; a playground, a car park … that only stands in the place a query
 //    names is never that place unless the query asks for one;
+//  - that kind decides only between places named like the query, never by its kind word alone ("Covent Garden" is
+//    not Phoenix Garden), and a place whose own name is the query's is that place (the quarter, the district, a
+//    visitor centre, a car park asked for by its name), but a station or a hotel named after it;
 //  - `uw plan` refuses a place to stay as a trip's stop: the city is the stop and the hotel its stay;
-//  - `uw stay` with a point for --near and no --near-label exits 2 and asks for one, before any lookup.
+//  - `uw stay` with a point for --near and no --near-label exits 2 and asks for one, before any lookup; the wider
+//    search it offers when none is in range runs as printed.
 // Offline: the place search, the lodging search and the walking router are a local mock in this file.
 // Run: node --test tests/place-kinds.test.mjs
 import { test, before, after } from 'node:test';
@@ -49,6 +53,19 @@ const ANSWERS = {
     hit([-5.991853, 37.393119], ['W', 138602581, 'building', 'yes'], 'Setas de Sevilla', { street: 'Calle Imagen' }),
     hit([-5.991921, 37.393403], ['N', 3141651338, 'leisure', 'playground'], 'Parque Metropol Parasol', { street: 'Plaza de la Encarnación' }),
   ],
+  // the gardens only in the search for gardens
+  'Ensayo Gardens, Seville': [
+    hit([-5.9851, 37.3911], ['N', 9919, 'tourism', 'museum'], 'Casa de Ensayo'),
+  ],
+  // a street and the square, both with the square's name, the street first
+  'Plaza del Ensayo, Seville': [
+    hit([-5.9831, 37.3931], ['W', 9920, 'highway', 'residential'], 'Plaza del Ensayo'),
+    hit([-5.9832, 37.3932], ['W', 9929, 'place', 'square'], 'Plaza del Ensayo'),
+  ],
+  // a restaurant with a garden's name: asked for by its name
+  'Jardín Ensayo, Seville': [
+    hit([-5.9821, 37.3941], ['N', 9930, 'amenity', 'restaurant'], 'Jardín Ensayo'),
+  ],
   // no garden of that name at all: a museum and a street
   'Prueba Gardens, Seville': [
     hit([-5.9851, 37.3901], ['N', 9911, 'tourism', 'museum'], 'Casa de Prueba'),
@@ -61,9 +78,53 @@ const ANSWERS = {
   'Playground Prueba, Seville': [
     hit([-5.9881, 37.3871], ['N', 9914, 'leisure', 'playground'], 'Playground Prueba'),
   ],
+  // a street named after the square and its car park, neither of them the square
+  'Plaza Nueva, Seville': [
+    hit([-5.9951, 37.3891], ['W', 9915, 'highway', 'residential'], 'Calle Plaza Nueva'),
+    hit([-5.9953, 37.3893], ['N', 9916, 'amenity', 'parking'], 'Parking Plaza Nueva'),
+  ],
+  // a car park asked for by its own name
+  'Aparcamiento Prueba, Seville': [
+    hit([-5.9891, 37.3861], ['N', 9917, 'amenity', 'parking'], 'Aparcamiento Prueba'),
+  ],
 };
-// answers to a search with osm_tag filters (the search for the kind itself): none for these places
-const TAGGED = {};
+// places elsewhere, as the place search answers them (positions and kinds as OpenStreetMap has them)
+const at = (props) => (c, osm, name, more = {}) => {
+  const [osm_type, osm_id, osm_key, osm_value] = osm;
+  return { type: 'Feature', geometry: { type: 'Point', coordinates: c }, properties: { osm_type, osm_id, osm_key, osm_value, name, ...props, ...more } };
+};
+const LONDON = [-0.1246, 51.5118], LISBON = [-9.0938, 38.7681], ZION = [-112.9873, 37.2002];
+const ldn = at({ city: 'London', county: 'Greater London', state: 'England', country: 'United Kingdom', countrycode: 'GB', district: 'St Giles' });
+const lis = at({ city: 'Lisboa', county: 'Lisboa', state: 'Lisboa', country: 'Portugal', countrycode: 'PT' });
+const utah = at({ city: 'Springdale', county: 'Washington County', state: 'Utah', country: 'United States', countrycode: 'US' });
+Object.assign(ANSWERS, {
+  // the quarter named in the query, and a garden that only shares the word "Garden"
+  'Covent Garden, London': [
+    ldn([-0.1229, 51.5117], ['R', 9921, 'place', 'quarter'], 'Covent Garden'),
+    ldn([-0.12427, 51.51308], ['N', 9922, 'railway', 'station'], 'Covent Garden'),
+    ldn([-0.12265, 51.51193], ['W', 9923, 'amenity', 'marketplace'], 'Covent Garden Market'),
+    ldn([-0.12923, 51.51434], ['W', 9924, 'leisure', 'garden'], 'Phoenix Garden'),
+  ],
+  // a park in the district the query names, listed before the district
+  'Parque das Nações, Lisboa': [
+    lis([-9.0918, 38.7836], ['W', 9925, 'leisure', 'park'], 'Parque Tejo', { district: 'Parque das Nações' }),
+    lis([-9.0947, 38.7681], ['R', 9926, 'place', 'suburb'], 'Parque das Nações'),
+  ],
+  // the district alone
+  'Parque das Nações, Portugal': [
+    lis([-9.0947, 38.7681], ['R', 9926, 'place', 'suburb'], 'Parque das Nações'),
+  ],
+  // a visitor centre is a place people go to (OpenStreetMap maps it as tourism=information), beside the canyon it is
+  // named after
+  'Zion Canyon Visitor Center': [
+    utah([-112.98577, 37.20003], ['N', 9927, 'tourism', 'information'], 'Zion Canyon Visitor Center'),
+    utah([-112.9781, 37.2163], ['N', 9928, 'natural', 'valley'], 'Zion Canyon'),
+  ],
+});
+// answers to a search with osm_tag filters (the search for the kind itself, by the name without its kind word)
+const TAGGED = {
+  'Ensayo , Seville': [hit([-5.9841, 37.3921], ['W', 9918, 'leisure', 'garden'], 'Jardines de Ensayo')],
+};
 const off = (c, dx, dy) => [Math.round((c[0] + dx / 88400) * 1e6) / 1e6, Math.round((c[1] + dy / 111000) * 1e6) / 1e6];
 // the lodging search's answer around the centre
 const LODGING = [
@@ -129,7 +190,7 @@ const uw = (args, { input = null } = {}) => new Promise((resolve) => {
 const cfgOf = (site) => JSON.parse(fs.readFileSync(path.join(tmp, site, 'map.config.json'), 'utf8'));
 const layerOf = (site, id) => { try { return JSON.parse(fs.readFileSync(path.join(tmp, site, 'data', `${id}.geojson`), 'utf8')).features; } catch { return []; } };
 const newSite = async (site, more = []) => assert.equal((await uw(['new', site, '--title', '3 days in Seville', '--center', CITY.join(','), '--zoom', '13', ...more])).code, 0);
-const sight = (site, id, q, more = []) => uw(['add-point', site, '--layer', 'sights', '--query', q, '--near', CITY.join(','), '--id', id, ...more, '--json']);
+const sight = (site, id, q, more = [], near = CITY) => uw(['add-point', site, '--layer', 'sights', '--query', q, '--near', near.join(','), '--id', id, ...more, '--json']);
 
 // ---------------------------------------------------------------------------
 test('add-point: a query that names a garden takes the garden, not the museum the search listed first', async () => {
@@ -139,6 +200,11 @@ test('add-point: a query that names a garden takes the garden, not the museum th
   assert.deepEqual([r.json.chosen.name, r.json.chosen.type], ['Jardines de Murillo', 'leisure=park']);
   assert.ok(r.json.alternatives.some((c) => c.name === 'Casa de Murillo'), 'the museum stays an alternative (--pick)');
   assert.equal(layerOf('kinds', 'sights').find((f) => f.properties.id === 'murillo').properties.kind, 'park');
+  // gardens the search lists only when asked for gardens by name: found that way, and said so
+  const e = await sight('kinds', 'ensayo', 'Ensayo Gardens, Seville');
+  assert.equal(e.code, 0, e.out + e.err);
+  assert.equal(e.json.chosen.name, 'Jardines de Ensayo');
+  assert.match(e.json.warnings.join('\n'), /found by a leisure=park search near --near, not by name: check it is the right one/);
 });
 
 test('add-point: no candidate is the kind of place the query names: exit 2 with the alternatives, nothing written', async () => {
@@ -171,6 +237,60 @@ test('add-point: a playground named after the place is not that place: exit 2 na
   const g = await sight('kinds-stand', 'playground', 'Playground Prueba, Seville');
   assert.equal(g.code, 0, g.out + g.err);
   assert.equal(g.json.chosen.type, 'leisure=playground');
+});
+
+// The kind a name's head word suggests decides only between places named like the query: "Covent Garden" is the
+// quarter, not a garden that shares the word "Garden" (picked silently, even with --strict-name), and "Parque das Nações"
+// is the district, not a park in it; a place whose own name is the query's is that place, whatever its kind.
+test('add-point: a garden or park that only shares the kind word is not the place; the place of that very name is', async () => {
+  await newSite('kinds-word');
+  const cg = await sight('kinds-word', 'covent', 'Covent Garden, London', ['--country', 'GB', '--strict-name'], LONDON);
+  assert.equal(cg.code, 0, cg.out + cg.err);
+  assert.deepEqual([cg.json.chosen.name, cg.json.chosen.type], ['Covent Garden', 'place=quarter']);
+  assert.deepEqual(cg.json.warnings, []);
+  const pn = await sight('kinds-word', 'nacoes', 'Parque das Nações, Lisboa', ['--country', 'PT', '--strict-name'], LISBON);
+  assert.equal(pn.code, 0, pn.out + pn.err);
+  assert.deepEqual([pn.json.chosen.name, pn.json.chosen.type], ['Parque das Nações', 'place=suburb']);
+  // the district alone: pinned, as uw handoff --apply pins a researched sight (--strict-name), not refused
+  const only = await sight('kinds-word', 'nacoes2', 'Parque das Nações, Portugal', ['--country', 'PT', '--strict-name'], LISBON);
+  assert.equal(only.code, 0, only.out + only.err);
+  assert.deepEqual([only.json.chosen.name, only.json.chosen.type], ['Parque das Nações', 'place=suburb']);
+  // a query that names the kind still takes the place of that kind whose name carries the query's own words, and of
+  // two places with the query's very name, the one of that kind
+  await newSite('kinds-word2');
+  const sq = await sight('kinds-word2', 'ensayo', 'Plaza del Ensayo, Seville', ['--strict-name']);
+  assert.equal(sq.code, 0, sq.out + sq.err);
+  assert.equal(sq.json.chosen.type, 'place=square');
+  // a restaurant asked for by its own name is that restaurant (a hotel of that name is not: see below)
+  const eat = await uw(['add-point', 'kinds-word2', '--layer', 'food', '--query', 'Jardín Ensayo, Seville', '--near', CITY.join(','), '--id', 'jardin', '--strict-name', '--json']);
+  assert.equal(eat.code, 0, eat.out + eat.err);
+  assert.equal(eat.json.chosen.type, 'amenity=restaurant');
+  const mg = await sight('kinds-word2', 'murillo', 'Murillo Gardens, Seville', ['--strict-name']);
+  assert.equal(mg.code, 0, mg.out + mg.err);
+  assert.equal(mg.json.chosen.name, 'Jardines de Murillo');
+});
+
+test('add-point: a place asked for by its own name is that place: a visitor centre, a car park', async () => {
+  await newSite('kinds-own');
+  const vc = await sight('kinds-own', 'vc', 'Zion Canyon Visitor Center', [], ZION);
+  assert.equal(vc.code, 0, vc.out + vc.err);
+  assert.deepEqual([vc.json.chosen.name, vc.json.chosen.type], ['Zion Canyon Visitor Center', 'tourism=information']);
+  const kind = await sight('kinds-own', 'vc2', 'Zion Canyon Visitor Center', ['--kind', 'visitor_centre'], ZION);
+  assert.equal(kind.code, 0, kind.out + kind.err);
+  assert.equal(kind.json.chosen.type, 'tourism=information');
+  await newSite('kinds-own2');
+  const carPark = await sight('kinds-own2', 'car-park', 'Aparcamiento Prueba, Seville');
+  assert.equal(carPark.code, 0, carPark.out + carPark.err);
+  assert.equal(carPark.json.chosen.type, 'amenity=parking');
+});
+
+test('add-point: a refusal blames a stand-in only when nothing else is named like the query', async () => {
+  await newSite('kinds-blame');
+  const r = await sight('kinds-blame', 'nueva', 'Plaza Nueva, Seville');
+  assert.equal(r.code, 2, r.out + r.err);
+  assert.equal(r.json.refused, 'type_mismatch');
+  assert.match(r.err, /REFUSED: no candidate nearby is the kind of place "Plaza Nueva, Seville" names \(best in range: "Calle Plaza Nueva" \[highway=residential\]\)/);
+  assert.doesNotMatch(r.err, /stands in/);
 });
 
 test('the kind is the name\'s head word, and a place to stay or --kind says what the place is', async () => {
@@ -242,4 +362,35 @@ test('stay: a point for --near needs --near-label (exit 2, nothing looked up); w
   assert.equal(stays.length, 3);
   for (const f of stays) assert.match(f.properties.why, /^\d+ min walk to the centre of Seville · hotel$/);
   assert.doesNotMatch(JSON.stringify(stays), /chosen point/);
+});
+
+// A point with nothing to stay in range: the command to widen the search keeps what names the point (--near-label), the
+// stop, the kinds and the layer, so running it as printed widens the search instead of stopping at the missing label.
+test('stay: the command that widens the search keeps the label, the stop, the kinds and the layer', async () => {
+  const site = 'widen';
+  await newSite(site, ['--expect', 'Seville:3']);
+  const far = off(CITY, 1000, 0);
+  const r = await uw(['stay', site, '--near', far.join(','), '--near-label', "the Alameda's south end", '--stop', 'seville', '--kinds', 'hotel', '--layer', 'lodging', '--json']);
+  assert.equal(r.code, 2, r.out + r.err);
+  assert.ok(Array.isArray(r.json.widen), r.out);
+  assert.deepEqual(r.json.widen.slice(0, 2), ['stay', site]);
+  const flag = (k) => r.json.widen[r.json.widen.indexOf(k) + 1];
+  assert.deepEqual([flag('--near'), flag('--near-label'), flag('--stop'), flag('--kinds'), flag('--layer'), flag('--radius')],
+    [far.join(','), "the Alameda's south end", 'seville', 'hotel', 'lodging', '1600']);
+  assert.ok(!r.json.widen.includes('--json'));
+  const text = await uw(['stay', site, '--near', far.join(','), '--near-label', "the Alameda's south end", '--stop', 'seville', '--kinds', 'hotel', '--layer', 'lodging']);
+  assert.ok(text.out.includes(`Widen it: uw stay ${site} --near ${far.join(',')} --near-label 'the Alameda'\\''s south end' --stop seville --kinds hotel --layer lodging --radius 1600`), text.out);
+  // run as printed: the wider search finds the hotels, each named by its walk to the point's label
+  const wide = await uw([...r.json.widen, '--json']);
+  assert.equal(wide.code, 0, wide.out + wide.err);
+  const stays = layerOf(site, 'lodging');
+  assert.ok(stays.length >= 1, wide.out);
+  for (const f of stays) assert.match(f.properties.why, /min walk to the Alameda's south end/);
+  // at the widest radius there is nothing wider to offer
+  const widest = await uw(['stay', site, '--near', off(CITY, 10000, 0).join(','), '--near-label', 'the old mill', '--stop', 'seville', '--radius', '3000', '--layer', 'far', '--json']);
+  assert.equal(widest.code, 2, widest.out + widest.err);
+  assert.equal(widest.json.widen, undefined);
+  const said = await uw(['stay', site, '--near', off(CITY, 10000, 0).join(','), '--near-label', 'the old mill', '--stop', 'seville', '--radius', '3000', '--layer', 'far']);
+  assert.match(said.out, /No lodging within 3000 m of the old mill in OpenStreetMap\./);
+  assert.doesNotMatch(said.out, /Widen it/);
 });
