@@ -2,7 +2,9 @@
 // listed three themed routes and named neither, `uw validate` only warned (two places shared that page), and the reply
 // said "Checked … Visita Sevilla". Its first turn had pinned its sights with no page; validate's fix asked for places "a
 // page you read names", named no reader, and the turn asked for the browser (three turns for one map). Now:
-//  - places that cite one page fail `uw validate` while the turn has time to cite their own;
+//  - places that cite one page fail `uw validate` while the turn has time to cite their own, a later turn's too; the
+//    fix ends at `uw set`, which gives each place's own page to its items in the days, so the days the person changed
+//    stay (a new plan groups them by area again);
 //  - `uw set` and `uw add-point` say at once when a source_url is a page `uw cite` read that does not name the place
 //    (one place alone on such a page too), from what uw cite kept: no second request;
 //  - a day with nothing to see names the reader: uw cite on each place's own page in this turn, never a browser card.
@@ -59,10 +61,12 @@ after(() => {
 
 // the shared cache is on (what uw cite read is kept there), in this test's own folder; the mock web is on 127.0.0.1,
 // which uw cite reads only with UW_ALLOW_LOCAL=1
-const uw = (args, { input = null } = {}) => new Promise((resolve) => {
+// `clock`: a host turn's clock (when it started and its deadline); none: the pack's own
+const uw = (args, { input = null, clock = null } = {}) => new Promise((resolve) => {
   const env = { ...process.env, ...NO_WIKIPEDIA, UW_CACHE: path.join(tmp, 'cache'), UW_PHOTON: mock.url, UW_OVERPASS: `${mock.url}/api/interpreter`, UW_OSRM: mock.url,
     UW_ALLOW_LOCAL: '1', INSTAFY_LOOKUP_STATE: path.join(tmp, 'lookups.json'), UW_RETRY_PAUSE_MS: '0' };
   for (const k of ['UW_NO_CACHE', 'UW_TURN_BUDGET', 'UW_TURN_GAP', 'INSTAFY_CACHE_DIR', 'INSTAFY_TURN_STARTED_AT', 'INSTAFY_TURN_DEADLINE', 'INSTAFY_TURN_CONTINUE_FILE', 'INSTAFY_STEP_TIMINGS_FILE', 'INSTAFY_JOB_DEADLINE', 'UW_RUN_ID']) delete env[k];
+  if (clock) Object.assign(env, { INSTAFY_TURN_STARTED_AT: clock.started, INSTAFY_TURN_DEADLINE: clock.deadline });
   const p = spawn(process.execPath, [UW, ...args], { cwd: tmp, env });
   let out = '', err = '';
   p.stdout.on('data', (d) => { out += d; }); p.stderr.on('data', (d) => { err += d; });
@@ -76,7 +80,13 @@ const newTrip = async (site) => {
 };
 const pin = (site, s) => uw(['add-point', site, '--layer', 'sights', '--at', s.at.join(','), '--name', s.name, '--id', s.id, '--props-file', '-'],
   { input: JSON.stringify({ stop: 'seville', ...(s.page ? { source_url: s.page, source: new URL(s.page).hostname.replace(/^www\./, '') } : {}) }) });
-const plan = (site) => uw(['plan', site, '--stops', 'stops', '--ids', 'seville', '--nights', '3', '--start', '2026-11-02', '--sights', 'sights', '--force']);
+const plan = (site, opts = {}) => uw(['plan', site, '--stops', 'stops', '--ids', 'seville', '--nights', '3', '--start', '2026-11-02', '--sights', 'sights', '--force'], opts);
+const cfgOf = (site) => JSON.parse(fs.readFileSync(path.join(tmp, site, 'map.config.json'), 'utf8'));
+/** A host turn of ten minutes with `usedS` seconds used (the pack keeps two minutes of it for the reply). */
+const hostClock = (usedS) => ({ started: new Date(Date.now() - usedS * 1000).toISOString(), deadline: new Date(Date.now() + (600 - usedS) * 1000).toISOString() });
+/** Each day's items, as layer:id → [url, source], and which day each place is on. */
+const itemOf = (site, id) => cfgOf(site).plan.days.flatMap((d) => d.items || []).find((it) => it.ref?.id === id);
+const dayOf = (site, id) => cfgOf(site).plan.days.findIndex((d) => (d.items || []).some((it) => it.ref?.id === id));
 
 const ROUTES = 'https://www.visitasevilla.es/en/city-routes/';
 const SIGHTS = [
@@ -97,14 +107,56 @@ test('validate: two places that cite a page naming neither fail while the turn h
   assert.equal(v.code, 1, v.out);
   const shared = v.json.errors.filter((e) => e.path === '$.plan.sights');
   assert.deepEqual(shared.map((e) => e.message), [`2 places cite one page (${ROUTES}): Plaza de España, Casa de Murillo. A page about a whole city or a list of places says which are worth it; it is not their source`]);
-  assert.equal(shared[0].fix, 'cite each place\'s own page (its own site, else its Wikipedia article): uw cite <that page> --grep "<its name>", then uw set own <layer>:<id> --props-file - with {"source_url":"<that page>","source":"<site>"}, then uw plan … --force');
-  // each with its own page
-  for (const [id, page] of [['plaza-espana', 'https://en.wikipedia.org/wiki/Plaza_de_Espa%C3%B1a,_Seville'], ['murillo', 'https://en.wikipedia.org/wiki/Casa_de_Murillo']])
-    assert.equal((await uw(['set', site, `sights:${id}`, '--props-file', '-'], { input: JSON.stringify({ source_url: page, source: 'Wikipedia' }) })).code, 0);
-  assert.equal((await plan(site)).code, 0);
+  assert.equal(shared[0].fix, 'cite each place\'s own page (its own site, else its Wikipedia article): uw cite <that page> --grep "<its name>", then uw set own <layer>:<id> --props-file - with {"source_url":"<that page>","source":"<site>"}; it gives the place\'s item in the days that page too, so the days stay as they are');
+  // each with its own page, as the fix says: no new plan, and each place's item in the days links its own page
+  const days = cfgOf(site).plan.days.map((d) => (d.items || []).map((it) => it.ref?.id));
+  for (const [id, page] of [['plaza-espana', 'https://en.wikipedia.org/wiki/Plaza_de_Espa%C3%B1a,_Seville'], ['murillo', 'https://en.wikipedia.org/wiki/Casa_de_Murillo']]) {
+    const s = await uw(['set', site, `sights:${id}`, '--props-file', '-', '--json'], { input: JSON.stringify({ source_url: page, source: 'Wikipedia' }) });
+    assert.equal(s.code, 0, s.out + s.err);
+    assert.equal(s.json.day_items, 1, 'its item in the days links the new page');
+    assert.deepEqual([itemOf(site, id).url, itemOf(site, id).source], [page, 'Wikipedia']);
+  }
+  assert.deepEqual(cfgOf(site).plan.days.map((d) => (d.items || []).map((it) => it.ref?.id)), days, 'the days are as they were');
   const ok = await uw(['validate', site, '--json']);
   assert.equal(ok.code, 0, JSON.stringify(ok.json?.errors ?? ok.out, null, 1));
   assert.deepEqual(ok.json.warnings.filter((w) => w.path === '$.plan.sights'), []);
+});
+
+// A later turn: the first turn ran out of time with two places on one page (a warning), and the person then moved a
+// place to another day. Places on one page still fail while the turn has time, but the fix keeps the days: uw set gives
+// each place's own page to its item in the days too, so no new plan (`uw plan --force` groups the days by area again,
+// which put the moved place back), and the Plan tab links the page that names each place.
+test('a later turn: places on one page fail while it has time, and the fix keeps the days the person changed', async () => {
+  const site = 'own-later';
+  await newTrip(site);
+  for (const s of SIGHTS) assert.equal((await pin(site, s)).code, 0);
+  const turn1 = hostClock(450);
+  assert.equal((await plan(site, { clock: turn1 })).code, 0);
+  const late = await uw(['validate', site, '--json'], { clock: turn1 });
+  assert.equal(late.code, 0, JSON.stringify(late.json?.errors ?? late.out, null, 1));
+  assert.match(late.json.warnings.find((w) => w.path === '$.plan.sights')?.fix ?? '', /^too little time is left/);
+  // the next turn: the person moves the archive to the day after its own (itinerary.md "Later changes")
+  const cfg = cfgOf(site);
+  const from = dayOf(site, 'indies');
+  const to = (from + 1) % cfg.plan.days.length;
+  const [moved] = cfg.plan.days[from].items.splice(cfg.plan.days[from].items.findIndex((it) => it.ref?.id === 'indies'), 1);
+  cfg.plan.days[to].items.push(moved);
+  fs.writeFileSync(path.join(tmp, site, 'map.config.json'), JSON.stringify(cfg, null, 2));
+  const turn2 = hostClock(0);
+  const v = await uw(['validate', site, '--json'], { clock: turn2 });
+  assert.equal(v.code, 1, v.out);
+  const e = v.json.errors.find((x) => x.path === '$.plan.sights');
+  assert.ok(e, JSON.stringify(v.json.errors));
+  assert.doesNotMatch(e.fix, /uw plan|--force/, 'the fix never plans the days again');
+  // as the fix says
+  const pages = { 'plaza-espana': 'https://en.wikipedia.org/wiki/Plaza_de_Espa%C3%B1a,_Seville', murillo: 'https://en.wikipedia.org/wiki/Casa_de_Murillo' };
+  for (const [id, page] of Object.entries(pages))
+    assert.equal((await uw(['set', site, `sights:${id}`, '--props-file', '-'], { input: JSON.stringify({ source_url: page, source: 'Wikipedia' }), clock: turn2 })).code, 0);
+  const ok = await uw(['validate', site, '--json'], { clock: turn2 });
+  assert.equal(ok.code, 0, JSON.stringify(ok.json?.errors ?? ok.out, null, 1));
+  assert.equal(dayOf(site, 'indies'), to, 'the move stays');
+  for (const [id, page] of Object.entries(pages)) assert.deepEqual([itemOf(site, id).url, itemOf(site, id).source], [page, 'Wikipedia'], `${id}'s item links its own page`);
+  assert.doesNotMatch(JSON.stringify(cfgOf(site).plan), /city-routes/);
 });
 
 test('add-point and set say at once when a page uw cite read does not name the place, one place alone on it too; no second request', async () => {

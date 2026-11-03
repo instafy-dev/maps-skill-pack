@@ -505,7 +505,9 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       const timeToAdd = turnLeftS == null || turnLeftS > REPLY_WITHIN_S;
       // each place's source is its own page: places that share one cite a city or listing page, which only says which
       // places are worth it (three sights once all cited one city guide page; two cited a routes page that named
-      // neither, and the reply vouched for it). While the turn has time it fails; its fix cites each place's own page
+      // neither, and the reply vouched for it). While the turn has time it fails, a later turn's too; its fix cites
+      // each place's own page with uw set, which gives the place's items in the days that page too: no new plan, which
+      // would group the days by area again and undo what the person moved
       if (Array.isArray(sightLayers)) {
         const byPage = new Map();
         for (const id of sightLayers) for (const f of featuresByLayer.get(id) || []) {
@@ -517,7 +519,7 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
         }
         for (const [page, names] of byPage) if (names.length > 1)
           (timeToAdd ? E : W)(CFG, '$.plan.sights', `${names.length} places cite one page (${page}): ${names.slice(0, 4).join(', ')}${names.length > 4 ? ' …' : ''}. A page about a whole city or a list of places says which are worth it; it is not their source`,
-            timeToAdd ? `cite each place's own page (its own site, else its Wikipedia article): uw cite <that page> --grep "<its name>", then uw set ${args._[0]} <layer>:<id> --props-file - with {"source_url":"<that page>","source":"<site>"}, then uw plan … --force`
+            timeToAdd ? `cite each place's own page (its own site, else its Wikipedia article): uw cite <that page> --grep "<its name>", then uw set ${args._[0]} <layer>:<id> --props-file - with {"source_url":"<that page>","source":"<site>"}; it gives the place's item in the days that page too, so the days stay as they are`
               : 'too little time is left to cite their own pages in this turn; the reply names these places as not checked on a page of their own');
       }
       // a place of those layers in no day, and not one the plan left out itself ("unplaced": no room, or far from every

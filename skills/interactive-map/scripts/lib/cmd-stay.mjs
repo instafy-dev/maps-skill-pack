@@ -521,8 +521,11 @@ export async function stay(argv) {
   // B&Bs and guest houses are the fallback when fewer than --max hotels (distinct buildings) are in range
   const spare = kinds.has('bnb') ? [] : byDist(got.list.filter((c) => c.group === 'bnb')).slice(0, 4);
   if (!pool.length && !spare.length) {
-    out.result({ ok: false, layer, near: args.near, radius, source: srcLabel, picks: [] },
-      [`No lodging within ${radius} m of ${toName} in ${srcLabel}. Widen it: uw stay ${args._[0]} --near ${args.near} --radius ${Math.min(3000, radius * 2)}`]);
+    // the same command with a wider radius (up to the widest, 3000 m): what names the point (--near-label), the stop,
+    // the kinds and the layer stay, so it runs as printed (without the label a point is refused)
+    const widen = radius < 3000 ? ['stay', ...argv.filter((a, i) => a !== '--json' && a !== '--radius' && argv[i - 1] !== '--radius' && !a.startsWith('--radius=')), '--radius', String(Math.min(3000, radius * 2))] : null;
+    out.result({ ok: false, layer, near: args.near, radius, source: srcLabel, picks: [], ...(widen ? { widen } : {}) },
+      [`No lodging within ${radius} m of ${toName} in ${srcLabel}.${widen ? ` Widen it: uw ${widen.map(shq).join(' ')}` : ''}`]);
     return 2;
   }
   // route the closest by straight line (one OSRM table request for all of them)

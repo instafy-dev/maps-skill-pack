@@ -645,17 +645,27 @@ async function addPointRun(argv, ctx) {
     // --kind city|town|village|place: a place object, never a shop or a station that carries the city's name
     // ("Tokyo Shoes Retailing Center" for Tokyo)
     const placeKind = /^(city|town|village|place)$/i.test(String(args.kind || '')) ? /^place[=:]/ : null;
+    // how closely a candidate's own name is the place the query names (3: that very name)
+    const closeness = (c) => nameCloseness(args.query, [c.name, c.name_en], area);
+    // A garden, a park or a square the name's head word suggests ("open") decides between the places named like the
+    // query, never what is named like it: its kind word is not part of the name ("Phoenix Garden" shares only "Garden"
+    // with "Covent Garden", and was taken for it), and a place whose own name is the query's matches whatever its kind
+    const nameOf = (q, c) => (qType?.open
+      ? (closeness(c) === 3 ? true : nameMatches(stripType(q, qType), [c.name, c.name_en], area))
+      : nameMatchFor(q, [c.name, c.name_en], area));
     const annotate = (list, q) => { for (const c of list) {
-      c.name_match ??= nameMatchFor(q, [c.name, c.name_en], area);
-      c.type_ok = qType ? qType.ok.test(c.type || '') : placeKind ? placeKind.test(c.type || '') : null;
+      c.name_match ??= nameOf(q, c);
+      if (qType?.open) { c.kind_ok = qType.ok.test(c.type || ''); c.type_ok = null; }
+      else c.type_ok = qType ? qType.ok.test(c.type || '') : placeKind ? placeKind.test(c.type || '') : null;
       // a playground, a car park … in the place the query names is not that place, unless the query asks for one
       if (STANDS_IN.test(c.type || '') && !kindAsked(c, args.query, args.kind, extra.kind)) { c.type_ok = false; c.stands_in = true; }
     } };
     annotate(cands, args.query);
     // --allow-far: distance never decides (a stop far from the map's first view is still that stop)
-    const good = (c) => (args['allow-far'] || !tooFar(c)) && c.name_match !== false && c.type_ok !== false;
+    const reachable = (c) => args['allow-far'] || !tooFar(c);
+    const good = (c) => reachable(c) && c.name_match !== false && c.type_ok !== false;
     // (also with --pick, so the numbers in a refusal and in --pick always mean the same list)
-    if (cands.length && qType && !cands.some(good)) {
+    if (cands.length && qType && !cands.some((c) => good(c) && (!qType.open || c.kind_ok))) {
       // e.g. "Hualien Station" finds a weather station; search again for the type itself near the same place.
       const q2 = stripType(args.query, qType);
       if (q2) {
@@ -684,6 +694,12 @@ async function addPointRun(argv, ctx) {
     } else if (cands.length) {
       // First candidate in range whose name (and type, when the query names one) matches; else first in range.
       let idx = cands.findIndex(good);
+      // nothing else fits: a place asked for by its own name is that place, even of a kind that usually only stands in
+      // another and takes its name (a car park asked for by its name), unless the query or --kind names another kind
+      if (idx < 0 && !qType && !placeKind) {
+        idx = cands.findIndex((c) => c.stands_in && reachable(c) && !PART_TYPE.test(c.type || '') && closeness(c) === 3);
+        if (idx >= 0) { cands[idx].type_ok = null; delete cands[idx].stands_in; }
+      }
       if (idx < 0) idx = cands.findIndex((c) => !tooFar(c));
       if (idx > 0) skipped = cands.slice(0, idx).filter((c) => tooFar(c));
       chosen = idx >= 0 ? cands[idx] : cands[0];
@@ -691,7 +707,6 @@ async function addPointRun(argv, ctx) {
       // is the monument, not "Miradouro do Padrão dos Descobrimentos" (the viewpoint on it). Only a candidate that is
       // the same name (or every word of it and no other) wins over one that merely contains it; a station or stop
       // never wins this way unless the query asks for one ("Sagrada Família" is the church, not its metro station).
-      const closeness = (c) => nameCloseness(args.query, [c.name, c.name_en], area);
       // the query (or --kind) asks for a kind of transit: a station may be the place asked for
       const transitAsked = (qType?.tags || []).some((t) => /^(railway|public_transport|aeroway|amenity:bus_station)/.test(t)) ||
         /station|stop|airport|terminal|metro|mrt|subway|rail|hsr/i.test(String(args.kind || ''));
@@ -719,6 +734,22 @@ async function addPointRun(argv, ctx) {
       if (PART_TYPE.test(chosen.type || '')) {
         const main = cands.find((c) => c !== chosen && !tooFar(c) && c.name_match !== false && !PART_TYPE.test(c.type || '') && haversine(c.coord, chosen.coord) < 400);
         if (main) chosen = main;
+      }
+      // The kind the name's head word suggests (a garden, a park, a square), when the pick is not of it: the place of
+      // that kind with the query's very name; else another place with that very name, whatever its kind (the quarter
+      // "Covent Garden", the district "Parque das Nações", a street, a market or a hall of that name; never a station,
+      // a hotel or a car park named after it); else the place of that kind whose name carries the query's own words
+      // ("Murillo Gardens": the Jardines de Murillo, not the Casa de Murillo museum the search listed first); else
+      // nothing fits: refused below with the alternatives
+      if (qType?.open && !chosen.kind_ok) {
+        const fits = (c) => reachable(c) && !PART_TYPE.test(c.type || '');
+        const same = (c) => closeness(c) === 3;
+        const namedAfter = (c) => c.stands_in || (TRANSIT_TYPE.test(c.type || '') && !transitAsked) || isLodging({ kind: c.kind });
+        const next = cands.find((c) => fits(c) && c.kind_ok && same(c))
+          || [chosen, ...cands].find((c) => fits(c) && !namedAfter(c) && same(c))
+          || cands.find((c) => fits(c) && c.kind_ok && c.name_match === true);
+        if (next) chosen = next;
+        else chosen.type_ok = false;
       }
       // A station is named after the place it serves, so it is never that place unless the query asks for transit:
       // "Rossio" is the square, and the station by it is "Rossio" too. The square is often mapped under another name
@@ -801,8 +832,11 @@ async function addPointRun(argv, ctx) {
       // a researched place with a sourced reason must not land on another place of the same kind
       const unsure = args['strict-name'] && args.pick === undefined && (chosen.name_match !== true || chosen.via === 'type search');
       const mismatch = chosen.name_match === false || unsure ? 'name' : chosen.type_ok === false ? 'type' : null;
-      // the only ones named like the query stand in that place (a playground there takes its name): that is why
-      const standing = !mismatch || cands.some(good) ? null : chosen.stands_in ? chosen : cands.find((c) => c.stands_in && c.name_match !== false && !tooFar(c)) || null;
+      // the only ones named like the query stand in that place (a playground there takes its name): that is why. A
+      // street or a shop named like it is not one: then the name or the kind is why
+      const namedLike = cands.filter((c) => c.name_match === true && !tooFar(c));
+      const standing = !mismatch || cands.some(good) ? null : chosen.stands_in ? chosen
+        : namedLike.length && namedLike.every((c) => c.stands_in) ? namedLike[0] : null;
       if (mismatch && args.pick === undefined && !args['allow-mismatch']) {
         const what = standing ? `"${standing.name}" [${standing.type}] only stands in the place "${args.query}" names and takes its name; no other candidate is named like it`
           : mismatch === 'name' ? `no candidate's name looks like "${args.query}"` : `no candidate nearby is the kind of place "${args.query}" names`;
@@ -1024,9 +1058,10 @@ function clearMissing(cfg, { layer, id, name, query }) {
 // Parts of a place (entrances, platforms, stops): never the thing a person asked for by name.
 const PART_TYPE = /^(railway=(subway_entrance|entrance|train_station_entrance|platform|stop|stop_position|halt_position)|public_transport=(platform|stop_position|stop_area|entrance)|highway=(bus_stop|platform)|entrance=)/;
 // What only stands in a place and takes its name (a playground in a park or on a square, a car park under it, a toilet
-// block): never the place a query names unless the query or --kind names that kind ("Metropol Parasol" took the
-// playground "Parque Metropol Parasol" over the Setas themselves). --pick still takes one
-const STANDS_IN = /^(leisure=(playground|picnic_table|fitness_station|outdoor_seating|bleachers)|amenity=(parking|parking_space|parking_entrance|bicycle_parking|motorcycle_parking|bench|toilets|drinking_water|waste_basket|waste_disposal|recycling|telephone|post_box|vending_machine|charging_station|atm|lounger)|tourism=information)$/;
+// block): never the place a query names unless the query or --kind names that kind, or the query is its own name and
+// nothing else fits ("Metropol Parasol" took the playground "Parque Metropol Parasol" over the Setas themselves).
+// --pick still takes one. A visitor centre or a tourist office (tourism=information) is a place people go to: not one
+const STANDS_IN = /^(leisure=(playground|picnic_table|fitness_station|outdoor_seating|bleachers)|amenity=(parking|parking_space|parking_entrance|bicycle_parking|motorcycle_parking|bench|toilets|drinking_water|waste_basket|waste_disposal|recycling|telephone|post_box|vending_machine|charging_station|atm|lounger))$/;
 /** Does the query or --kind name the kind a candidate is ("Retiro playground", --kind parking)? Each word of its
  *  OpenStreetMap value ("bicycle_parking": bicycle, parking), a plural's s aside. */
 function kindAsked(c, ...said) {

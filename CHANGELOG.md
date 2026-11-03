@@ -3,6 +3,45 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.29 (2026-11-03)
+
+Fixes to 0.1.28.
+
+- **Citing a place's own page keeps the days.** Places that share one page fail `uw validate` while the turn has time,
+  in a later turn too, and the fix ended with `uw plan --force`, which groups the days by area again: a place the
+  person had moved to another day went back. `uw set` now gives a place's new `source_url` and `source` to its items
+  in the plan's days (an item that links another page keeps it), so the fix ends at `uw set` and the days stay as they
+  are. Before, the place cited its own page while the Plan tab still linked the page that did not name it.
+- **The kind a name suggests decides only between places named like it.** A garden, a park or a square guessed from
+  a name's head word made any place of that kind a match by the kind word alone: "Covent Garden, London" took Phoenix
+  Garden, a garden that shares only the word "Garden", even with `--strict-name` and with no warning, and "Parque das
+  Nações, Lisboa" took a park in that district. The kind word is no longer part of the name. When the pick is not of
+  that kind, `uw add-point` takes the place of that kind with the query's very name, else another place with that very
+  name, whatever its kind (the quarter "Covent Garden", the district "Parque das Nações", a street, a market or a
+  restaurant of that name; never a station or a hotel named after it), else the place of that kind whose name carries
+  the query's own words ("Murillo Gardens": the Jardines de Murillo); else it exits 2 with the alternatives. A district
+  or a restaurant named like a park or a garden was refused, and `uw handoff --apply` left the researched sight off the
+  map.
+- **A place asked for by its own name is that place.** A visitor centre or a tourist office (tourism=information in
+  OpenStreetMap) was refused as only standing in the place it is named after, with a refusal that named the same
+  place twice, and the map listed it as not found: it is a place people go to again. A car park, a playground or a
+  bench asked for by its very name is taken when nothing else fits. A refusal blames a place that only stands in
+  another (a playground on a square) when every candidate named like the query is one, never when a street or a shop
+  of that name is listed.
+- **Widening the search for places to stay runs as printed.** With nothing in range, `uw stay` printed a wider
+  command that left out `--near-label`, which a point now needs, and `--stop`, `--kinds` and `--layer`, so running it
+  exited 2. The command is now the one given, with the radius doubled (`"widen"` in `--json`), and none is offered at
+  the widest radius (3000 m).
+- **Tests:** a later turn's places on one page fail, `uw set` gives each its own page in the days, and the move
+  stays; the fix line ends at `uw set`; "Covent Garden" is the quarter, not Phoenix Garden, with `--strict-name`;
+  "Parque das Nações" is the district with a park listed first and alone; of a street and a square with the query's
+  name, the square; a restaurant asked for by its name is that restaurant; gardens found only by a search for gardens
+  still count; a visitor centre beside the canyon it is
+  named after is the visitor centre, with `--kind` too, and a car park asked for by its name is taken; a street named
+  like the square makes the refusal about the kind, not the car park; the printed wider command keeps the label, the
+  stop, the kinds and the layer and finds the hotels when run, and the widest radius offers none. Each fails without
+  its change.
+
 ## 0.1.28 (2026-11-03)
 
 Fixes from a "Plan 3 days in Seville for a first visit: where to stay, what to see each day, on a map" run that asked
