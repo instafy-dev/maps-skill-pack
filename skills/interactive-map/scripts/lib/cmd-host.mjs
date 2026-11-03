@@ -40,10 +40,11 @@ export const help = `host <site|gallery-dir> [--port 4173] [--host 127.0.0.1|0.0
   prov.source in the intent's "sources" and lanes open/official/local, stamps prov.intent + prov.job, merges into
   target.records (kept under 180 KB: the oldest results go first, an item with its claims) and bumps
   data/version.json (jobs[id] = { state, name, ref, error, summary }), then broadcasts results + done.
-  A gallery folder (e.g. examples/) serves each site at <sub>/ (its own address answers 404 without an index.html) and
-  gets <sub>/__uw/* for every subfolder with a bound.json. A folder with no map (map.config.json) or bound site
-  (bound.json) in it or in a subfolder is refused (exit 2), naming the map's own folder below it: serving it would put
-  every file in it on the web (a space's top folder, every chat's files).
+  A gallery folder (e.g. examples/) serves each site at <sub>/ and nothing else of the folder (its own address, its
+  other files and folders answer 404, as instafy bind serve's gallery does), and gets <sub>/__uw/* for every subfolder
+  with a bound.json. A folder with no map (map.config.json) or bound site (bound.json) in it or in a subfolder is
+  refused (exit 2), naming the maps' own folders below it: serving it would put every file in it on the web (a space's
+  top folder, every chat's files).
   --confirm  each job waits for "y" on this terminal first (simulates the Instafy confirm tray; ack needs_confirm).
   --log      log every request.
   --no-warm  skip warming handler datasets at start (handlers that support UW_WARM=1 download them in the background).
@@ -388,13 +389,16 @@ export async function host(argv) {
   if (args.stop) return stop(args, root);
   // a folder that is no map and holds none would put every file in it on the web: a card command run in a space's top
   // folder served every chat's files, AGENTS.md included, under a card the chat no longer showed. Refused, naming the
-  // map's own folder (a gallery of sites is served as before)
+  // map's own folder (a gallery of sites serves its sites, and nothing else of it: below)
   if (!isSite(root) && !siteFolders(root).length) {
-    const maps = mapsBelow(root);
+    const maps = mapsBelow(root, { max: 4 });
     const shown = (d) => { const r = path.relative(process.cwd(), d); return r && !r.startsWith('..') && !path.isAbsolute(r) ? r : d; };
+    // one map: its command. Several (other chats' maps too): which one the card is for is the turn's own folder, never
+    // the first one listed
+    const dir = maps.length === 1 ? shown(maps[0]) : '<its folder>';
     throw new UserError(`${args._[0]} holds no map (map.config.json) or bound site (bound.json), so uw host would put every file in it on the web. `
       + (maps.length
-        ? `${maps.length === 1 ? "The map's own folder" : "The maps' own folders"}: ${maps.map(shown).join(', ')}. Serve ${maps.length === 1 ? 'that one' : 'the one the card is for'}, from its folder: (cd ${shown(maps[0])} && instafy preview open --title "<title>" --serve-cmd "uw host . --port {port}" --start --json), or uw host ${shown(maps[0])} --detach.`
+        ? `${maps.length === 1 ? "The map's own folder" : "The maps' own folders"}: ${maps.slice(0, 3).map(shown).join(', ')}${maps.length > 3 ? ', …' : ''}. Serve ${maps.length === 1 ? 'that one' : 'the one the card is for (the folder uw new made)'}, from its folder: (cd ${dir} && instafy preview open --title "<title>" --serve-cmd "uw host . --port {port}" --start --json), or uw host ${dir} --detach.`
         : 'There is no map below it: make one with uw new <dir>, then serve that folder.'), 2);
   }
   if (args.detach) {
@@ -414,7 +418,14 @@ export async function host(argv) {
     console.error(`\n[confirm] ${p.job.name} ${p.job.ref ? 'on ' + p.job.ref + ' ' : ''}${JSON.stringify(p.job.params).slice(0, 160)} — run it? [y/N]`);
   };
   const opts = { confirm: !!args.confirm, log: !!args.log, askConfirm, port: null, publicHosts: publicHostnames(args['public-url']) };
-  if (isSite(root)) sites.push(new SiteHost(root, '/', opts));
+  const rootIsSite = isSite(root);
+  /** A path inside one of a gallery's sites (its first folder is a map or a bound site of this folder). */
+  const inGallerySite = (pathname) => {
+    let seg;
+    try { seg = decodeURIComponent(String(pathname).split('/')[1] || ''); } catch { return false; }
+    return !!seg && !seg.startsWith('.') && !/[\\/]/.test(seg) && isSite(path.join(root, seg));
+  };
+  if (rootIsSite) sites.push(new SiteHost(root, '/', opts));
   else for (const e of fs.readdirSync(root, { withFileTypes: true })) {
     if (e.isDirectory() && !e.name.startsWith('.') && exists(path.join(root, e.name, 'bound.json'))) sites.push(new SiteHost(path.join(root, e.name), `/${e.name}/`, opts));
   }
@@ -449,6 +460,13 @@ export async function host(argv) {
       return res.end(m ? JSON.stringify({ ok: false, status: 'rejected', reason: badHost }) : `refused: ${badHost}`);
     }
     if (!m) {
+      // a folder of sites serves its sites and nothing else of the folder: started on a space's top folder with a map
+      // right inside it, it served AGENTS.md and every chat's files next to the map
+      if (!rootIsSite && !inGallerySite(url.pathname)) {
+        if (args.log) console.error(`  404 ${url.pathname} (not in a site of this folder)`);
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-cache' });
+        return res.end(req.method === 'HEAD' ? undefined : 'There is no page here.');
+      }
       // mark responses of bound sites: the engine only probes __uw/health when it sees this header
       const owner = sites.filter((s) => url.pathname.startsWith(s.prefix)).sort((a, b) => b.prefix.length - a.prefix.length)[0];
       if (owner) {
@@ -487,6 +505,7 @@ export async function host(argv) {
   else {
     console.log(`uw host: serving ${path.relative(process.cwd(), root) || '.'} at ${local}`);
     for (const u of lan) console.log(`  on your network: ${u}  (phones on the same Wi-Fi; every viewer gets live results)`);
+    if (!rootIsSite) console.log(`  a folder of sites: only its sites are served (${siteFolders(root).map((d) => `/${path.basename(d)}/`).join(', ')}), nothing else of the folder`);
     for (const s of info) console.log(`  ${s.prefix}__uw/*  ${s.bound ? `intents: ${s.intents.join(', ') || '(none runnable)'}` : 'no bound.json (static only; no intent buttons)'}`);
     if (!info.length) console.log('  no site with bound.json found: serving files only');
     if (args.confirm) console.log('  --confirm: each job waits for y/N here');
@@ -521,7 +540,7 @@ const isSite = (d) => exists(path.join(d, 'map.config.json')) || exists(path.joi
 /** The subfolders of a gallery folder that are sites. */
 const siteFolders = (root) => fs.readdirSync(root, { withFileTypes: true })
   .filter((e) => e.isDirectory() && !e.name.startsWith('.') && isSite(path.join(root, e.name))).map((e) => path.join(root, e.name));
-/** Site folders below `root` (a few levels down; dot folders and node_modules skipped), nearest first, at most 3. */
+/** Site folders below `root` (a few levels down; dot folders and node_modules skipped), nearest first, at most `max`. */
 function mapsBelow(root, { depth = 4, max = 3, budget = 2000 } = {}) {
   const found = [];
   let level = [root], seen = 0;

@@ -1,7 +1,7 @@
 // `set`: edit a feature's properties (note, name, metrics…) or remove it, without geocoding or re-fetching anything.
 import { parseArgs, makeOut, readJSON, writeJSON, writeGeoJSON, propsArg, UsageError, UserError } from './util.mjs';
 import { openSite, loadLayer, layerPath, withSiteLock } from './site.mjs';
-import { unnamedSource, unnamedSourceLine } from './cmd-cite.mjs';
+import { unnamedSource, unnamedSourceLine, sourceStamp } from './cmd-cite.mjs';
 
 export const help = `set <dir> <layer>:<id> [--note "…"] [--name "…"] [--emoji 🏨] [--props '{"price":120}' | --props-file <file|->] [--unset key1,key2] [--remove] [--json]
   Changes properties of one feature in data/<layer>.geojson in place (other properties, metrics and geometry stay), or
@@ -53,6 +53,8 @@ export async function run(argv) {
         if (k in f.properties) { delete f.properties[k]; changed.push('-' + k); }
       }
       if (!changed.length) return { f, changed, dayItems: 0 };
+      // a new page: when it was set (uw validate judges a page no uw cite read for a place this turn gave a source)
+      if (changed.includes('source_url') || changed.includes('-source_url')) sourceStamp(f.properties, before);
     }
     writeGeoJSON(layerPath(site, layer), fc);
     // the place's items in the days link the page it cites (uw plan copied it there): a new page goes to them too

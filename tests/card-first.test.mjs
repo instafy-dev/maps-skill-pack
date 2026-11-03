@@ -193,15 +193,33 @@ test('the card\'s command, chained after `uw new` from the space\'s folder, serv
     const port = await freePort();
     const whole = spawnSync(process.execPath, [UW, 'host', '.', '--port', String(port), ...extra], { cwd: space, encoding: 'utf8', timeout: 20000, env: { ...process.env, UW_NO_CACHE: '1' } });
     assert.equal(whole.status, 2, `${extra}: ${whole.stdout}${whole.stderr}`);
+    // two maps (another chat's too): which one the card is for is the turn's own folder, never the first one listed
     assert.equal(whole.stderr.trim(), 'error: . holds no map (map.config.json) or bound site (bound.json), so uw host would put every file in it on the web. '
-      + 'The maps\' own folders: sites/lisbon, sites/seville. Serve the one the card is for, from its folder: (cd sites/lisbon && instafy preview open --title "<title>" --serve-cmd "uw host . --port {port}" --start --json), or uw host sites/lisbon --detach.');
+      + 'The maps\' own folders: sites/lisbon, sites/seville. Serve the one the card is for (the folder uw new made), from its folder: (cd <its folder> && instafy preview open --title "<title>" --serve-cmd "uw host . --port {port}" --start --json), or uw host <its folder> --detach.');
     assert.equal(await fetch(`http://127.0.0.1:${port}/AGENTS.md`).then(() => true, () => false), false, 'nothing answers');
   }
-  // a folder of sites is served as before: each at its own folder, and the folder itself is no page
+  // one map below: its own command
+  const one = fs.realpathSync(fs.mkdtempSync(path.join(tmp, 'space-one-')));
+  fs.writeFileSync(path.join(one, 'AGENTS.md'), 'AGENTS.md\n');
+  assert.equal(spawnSync(process.execPath, [UW, 'new', 'sites/porto', '--title', 'Porto', '--center', '-8.6291,41.1579', '--zoom', '13'], { cwd: one, encoding: 'utf8' }).status, 0);
+  const single = spawnSync(process.execPath, [UW, 'host', '.', '--port', String(await freePort())], { cwd: one, encoding: 'utf8', timeout: 20000, env: { ...process.env, UW_NO_CACHE: '1' } });
+  assert.equal(single.status, 2, single.stdout + single.stderr);
+  assert.match(single.stderr, /The map's own folder: sites\/porto\. Serve that one, from its folder: \(cd sites\/porto && instafy preview open --title "<title>" --serve-cmd "uw host \. --port \{port\}" --start --json\), or uw host sites\/porto --detach\.$/m);
+  // a folder of sites serves its sites and nothing else of it: each site at its own folder; the folder itself, its
+  // files and its other folders (another chat's page) are no page
   const gallery = await serve('uw host . --port {port}', path.join(space, 'sites'));
   assert.equal((await get(gallery.port, '/seville/')).status, 200);
-  assert.equal((await get(gallery.port, '/')).status, 404);
+  assert.equal(JSON.parse((await get(gallery.port, '/lisbon/map.config.json')).body).title, 'Lisbon in 3 days');
+  for (const p of ['/', '/other-page/notes.txt', '/other-page/', '/sites/seville/', '/%2E%2E/AGENTS.md', '/seville%2F..%2F..%2FAGENTS.md']) assert.equal((await get(gallery.port, p)).status, 404, p);
+  assert.match(gallery.log(), /a folder of sites: only its sites are served \(\/lisbon\/, \/seville\/\), nothing else of the folder/);
   gallery.stop();
+  // the same for a space's top folder with a map right inside it: the map, never AGENTS.md or another chat's files
+  fs.renameSync(path.join(space, 'sites', 'seville'), path.join(space, 'seville'));
+  const top = await serve('uw host . --port {port}', space);
+  assert.equal((await get(top.port, '/seville/')).status, 200);
+  for (const p of ['/AGENTS.md', '/CLAUDE.md', '/sites/other-page/notes.txt', '/sites/lisbon/', '/']) assert.equal((await get(top.port, p)).status, 404, p);
+  top.stop();
+  fs.renameSync(path.join(space, 'seville'), path.join(space, 'sites', 'seville'));
 
   // `uw serve` is the same server: a folder is its index.html or a 404, and it says so when it starts on one
   const plain = await serve('uw serve . --port {port}', space);

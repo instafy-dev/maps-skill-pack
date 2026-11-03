@@ -3,12 +3,12 @@
 // answer); add-point appends/replaces a point in a layer file.
 import { parseArgs, makeOut, parseLngLat, haversine, round6, slugify, readJSON, writeJSON, writeGeoJSON, exists, bboxAround, propsArg, UsageError, UserError } from './util.mjs';
 import { fetchJSON, overpass, isSkip, withCap, ask, lookupState, cacheFor, partialLine } from './net.mjs';
-import { openSite, checkLayerId, layerPath, layerRelPath, configLayer, titleCase, viewCenter, viewBounds, withSiteLock } from './site.mjs';
+import { openSite, checkLayerId, layerPath, layerRelPath, configLayer, titleCase, viewCenter, viewBounds, withSiteLock, pinOf, samePlace, TRANSIT_KIND } from './site.mjs';
 import { emojiFor } from './kinds.mjs';
 import { fitView } from './cmd-site.mjs';
 import { isLodging, registrySearch, acceptable, fmtRegistryCand, registryProps, queryLabel, slugFor } from './registry-geo.mjs';
 import { adapterFor, adapterNamedIn, adapterForArea } from '../adapters/lib/areas.mjs';
-import { unnamedSource, unnamedSourceLine } from './cmd-cite.mjs';
+import { unnamedSource, unnamedSourceLine, sourceStamp } from './cmd-cite.mjs';
 import { withDayItems } from './cmd-set.mjs';
 
 export const helps = {
@@ -38,9 +38,11 @@ add-point <dir> --layer <id> --at lng,lat --name "Label" [...]     (only for coo
   Geocodes with the place search and appends (or replaces, same id) a point in data/<layer>.geojson. Prints the chosen match and
   the alternatives: check them. --pick N chooses candidate N (1-based) instead.
   One place, one pin: a place already in the layer under another id (the same OpenStreetMap object or register
-  listing) is refused (exit 2, naming that pin; nothing written): a day that needs another place takes a different
-  place. --replace replaces that pin instead, which keeps its id, so the days and notes that name it still do. A
-  replaced place's items in the plan's days link its new source_url, as \`uw set\` does. A station is never the place it is named
+  listing, or another object of it: the same name within 150 m) is refused (exit 2 "already pinned", naming that pin;
+  nothing added, and its "not found yet" entry goes): it is on the map, so a day that needs another place takes a
+  different place, never another --pick of it. --replace replaces that pin instead, which keeps its id, so the days and
+  notes that name it still do. Under a pin's own id it replaces that pin. A replaced place's items in the plan's days
+  link its new source_url, as \`uw set\` does. A station is never the place it is named
   after unless the query (or --kind) asks for transit: a square or place within 600 m of it that has that name (its own,
   or another OpenStreetMap name: "Rossio" is "Praça Dom Pedro IV") is taken, shown as "Rossio" with its own name under
   it; none, or none that could be checked, keeps the station (said). A match farther than --max-km (default 8)
@@ -932,20 +934,37 @@ async function addPointRun(argv, ctx) {
   const { ATTRIBUTION } = regUsed ? await import('../adapters/tw-hotels.mjs') : {};
   // read, change and write the layer and map.config.json under the site's write lock: another command (another stop
   // of handoff --apply) may write them at the same time
-  const { rel, replaced, cfgChanges, def, cfg, pinned, dayItems } = withSiteLock(site, () => {
+  const { rel, replaced, cfgChanges, def, cfg, pinned, unlisted, dayItems } = withSiteLock(site, () => {
     const p = layerPath(site, layer);
     let fc = { type: 'FeatureCollection', features: [] };
     if (exists(p)) {
       try { fc = readJSON(p); } catch (e) { throw new UserError(`${p} is not valid JSON (${e.message}); fix or delete it first`); }
       if (fc.type !== 'FeatureCollection' || !Array.isArray(fc.features)) throw new UserError(`${p} is not a FeatureCollection`);
     }
-    // one place, one pin: the same OpenStreetMap object or register listing already in this layer under another id is
-    // that place's pin (Plaza de España was pinned again under a new id to fill a third day, and the map listed it twice).
-    // Refused, naming that pin; --replace replaces that pin, keeping its id (the days and notes name it)
-    const pinned = fc.features.find((f) => String(f?.properties?.id) !== id
-      && ((chosen.osm_id && f?.properties?.osm_id === chosen.osm_id) || (props.tw_hotel_id && f?.properties?.tw_hotel_id === props.tw_hotel_id)));
-    if (pinned && !args.replace) return { pinned };
-    if (pinned) { id = String(pinned.properties.id); props.id = id; }
+    // one place, one pin: a pin of this place under another id (the same OpenStreetMap object or register listing, or
+    // the same name a few steps away: another object of it) is that place's pin. Plaza de España was pinned again under
+    // a new id to fill a third day, and a retry with --pick 2 could take its pedestrian way 97 m away. Refused, naming
+    // that pin; --replace replaces that pin, keeping its id (the days and notes name it). This id's own pin comes first:
+    // on a map that already holds the place twice, pinning it again under its own id replaces that pin
+    const me = pinOf(feature, [chosen.name, chosen.name_en], { transit: TRANSIT_TYPE.test(chosen.type || '') || TRANSIT_KIND.test(String(props.kind ?? '')) });
+    const own = fc.features.find((f) => String(f?.properties?.id) === id);
+    const others = fc.features.filter((f) => f !== own && samePlace(pinOf(f), me));
+    const ownIsIt = !!own && samePlace(pinOf(own), me);
+    if (others.length && !ownIsIt && !args.replace) {
+      // it is on the map: an earlier try of it under this id or name ("not found yet") is not missing any more
+      const cfgNow = readJSON(site.cfgPath);
+      const before = (cfgNow.missing || []).length;
+      clearMissing(cfgNow, { layer, id: args.id ? String(args.id) : null, name, query: args.query });
+      const unlisted = (cfgNow.missing || []).length < before;
+      if (unlisted) {
+        if (!cfgNow.missing.length) delete cfgNow.missing;
+        writeJSON(site.cfgPath, cfgNow, { pretty: true });
+        site.config = cfgNow;
+      }
+      return { pinned: others[0], unlisted };
+    }
+    if (others.length && !ownIsIt) { id = String(others[0].properties.id); props.id = id; }
+    else if (others.length) warnings.push(`the same place is also pinned in this layer as ${others.map((f) => `${layer}:${f.properties.id}`).join(', ')}: one place, one pin: ${others.map((f) => `uw set ${args._[0]} ${layer}:${f.properties.id} --remove`).join('; ')}`);
     const i = fc.features.findIndex((f) => String(f?.properties?.id) === id);
     const replaced = i >= 0;
     const prev = replaced ? fc.features[i] : null;
@@ -956,8 +975,10 @@ async function addPointRun(argv, ctx) {
       else if (Object.keys(prev?.properties || {}).length > Object.keys(feature.properties).length) warnings.push(`${id} moved; its old metrics were dropped. Re-run enrich for ${layer}.`);
       fc.features[i] = feature;
     } else fc.features.push(feature);
-    // the same spot under another id? (a renamed hotel listed twice, say)
-    const close = fc.features.find((f) => f !== feature && f?.geometry?.type === 'Point' && haversine(f.geometry.coordinates, feature.geometry.coordinates) < 30);
+    // when its source was set: a page no uw cite read is judged only for a place whose source this turn set (uw validate)
+    sourceStamp(feature.properties, prev?.properties);
+    // the same spot under another id? (a renamed hotel listed twice, say; a pin of this place is named above)
+    const close = fc.features.find((f) => f !== feature && !others.includes(f) && f?.geometry?.type === 'Point' && haversine(f.geometry.coordinates, feature.geometry.coordinates) < 30);
     if (close) warnings.push(`"${close.properties.id}" (${close.properties.name}) is within 30 m: same building? A place can be listed twice under an old and a new name.`);
     fc.uw = { ...(fc.uw || {}), cmd: fc.uw?.cmd || 'add-point', updated_at: new Date().toISOString() };
     writeGeoJSON(p, fc);
@@ -996,11 +1017,11 @@ async function addPointRun(argv, ctx) {
     const ref = `${layer}:${pinned.properties.id}`;
     const theirs = pinned.properties.name_en || pinned.properties.name;
     const json = { ok: false, refused: 'already_pinned', query: args.query || null, layer, id: args.id || null,
-      pinned: { id: String(pinned.properties.id), name: theirs || null }, osm_id: chosen.osm_id || null };
+      pinned: { id: String(pinned.properties.id), name: theirs || null }, osm_id: chosen.osm_id || null, ...(unlisted ? { missing_removed: true } : {}) };
     if (out.json) process.stdout.write(JSON.stringify(json, null, 2) + '\n');
     console.error([
       `REFUSED: "${name}"${chosen.type ? ` [${chosen.type}]` : ''}${chosen.osm_id ? ` (${chosen.osm_id})` : ''} is already pinned in this layer as ${ref}${theirs && theirs !== name ? ` ("${theirs}")` : ''}: one place, one pin.`,
-      'Nothing was written. A day that needs another place takes a different place, from its own page.',
+      `${unlisted ? 'Nothing was added; its "not found yet" entry is gone: it is on the map.' : 'Nothing was written.'} A day that needs another place takes a different place, from its own page.`,
       `To change that pin (its page, its reason): uw set ${args._[0]} ${ref} --props-file - with {"source_url":…,"source":…,"why":…}.`,
       `To pin it again from what this command found: the same command with --replace (it replaces ${ref} and keeps that id, so the days that name it still do).`,
     ].join('\n'));

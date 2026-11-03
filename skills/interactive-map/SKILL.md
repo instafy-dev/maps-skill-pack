@@ -17,8 +17,9 @@ Every command has `--help` and `--json`. Exit 0 ok, 1 error, 2 not found / needs
 ## Hard rules
 
 1. Never type coordinates or invent places. Points, lines and areas come from commands; `--near`/`--center` from `geocode`.
-2. Check what `add-point` chose. On exit 2 retry once (better `--query`, `--pick N`, `--osm <id>`). Still not found:
-   keep going; the map shows it as "Not found yet". Never stop early or leave an empty map.
+2. Check what `add-point` chose. On exit 2 retry once (better `--query`, `--pick N`, `--osm <id>`), unless "already
+   pinned": it is on the map, never pin it again. Still not found: keep going; the map shows it as "Not found yet".
+   Never stop early or leave an empty map.
 3. Never write verdict, why or area text by hand without `cites`; every number comes from a metric or record.
    Estimates say "est.". Never call a place unsafe, dirty, illegal or unlicensed (a miss is "not found").
 4. Keep credits (`attribution`, photo and open-data credits).

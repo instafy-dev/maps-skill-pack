@@ -7,11 +7,11 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parseArgs, makeOut, exists, fmtBytes } from './util.mjs';
 import { checkV2, V2_TOP_KEYS, V2_LAYER_KEYS } from './validate-v2.mjs';
-import { STARTER_DIR } from './site.mjs';
+import { STARTER_DIR, placeIndex } from './site.mjs';
 import { parseStops, expectOf, mergeExpect, uncovered, describeItems, featureNames } from './expect.mjs';
 import { stillRunning, runningList } from './running.mjs';
 import { REPLY_WITHIN_S } from './turn-advice.mjs';
-import { readPage, unnamedSource } from './cmd-cite.mjs';
+import { readPage, unnamedSource, sourceSetSince } from './cmd-cite.mjs';
 import { cacheOff } from './net.mjs';
 
 export const help = `validate <dir> [--signal] [--strict] [--expect "<stop>:<nights>,…"] [--json]
@@ -354,18 +354,18 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
     if (l.type === 'heat' && l.weight && !feats.some((f) => typeof f?.properties?.[l.weight] === 'number')) W(CFG, `${p}.weight`, `weight "${l.weight}" is not a numeric property in ${l.id}`, 'remove weight or fix the property name');
   });
 
-  // one place, one pin: the same OpenStreetMap object or register listing twice in a layer of picked places. A square
-  // pinned again under a new id to fill a third day showed twice on the map and on two days, and the only error was
-  // "places cite one page", whose fix (cite each one's own page) could not clear it: the reply went out with it standing
+  // one place, one pin: one place twice in a layer of picked places (the same OpenStreetMap object or register listing,
+  // or the same name a few steps away: another object of it, as add-point judges it). A square pinned again under a
+  // new id to fill a third day showed twice on the map and on two days, and the only error was "places cite one page",
+  // whose fix (cite each one's own page) could not clear it: the reply went out with it standing
   for (const lid of pinLayers) {
     const same = new Map();
-    for (const f of featuresByLayer.get(lid) || []) {
-      const pr = f?.properties || {};
-      const k = placeKey(lid, pr);
-      if (pr.id == null || k === `${lid}:${pr.id}`) continue;
-      if (!same.has(k)) same.set(k, []);
-      same.get(k).push(pr);
-    }
+    const feats = (featuresByLayer.get(lid) || []).filter((f) => f?.properties?.id != null);
+    const place = placeIndex(feats);
+    feats.forEach((f, i) => {
+      if (!same.has(place[i])) same.set(place[i], []);
+      same.get(place[i]).push(f.properties);
+    });
     const inDays = new Set((Array.isArray(cfg.plan?.days) ? cfg.plan.days : []).flatMap((d) => [d?.focus, ...(Array.isArray(d?.items) ? d.items : []).map((it) => it?.ref)])
       .filter((r) => r && r.layer === lid).map((r) => String(r.id)));
     for (const pins of same.values()) if (pins.length > 1) {
@@ -532,6 +532,10 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       const timeToAdd = turnLeftS == null || turnLeftS > REPLY_WITHIN_S;
       const plannedAt = Date.parse(cfg.plan?.planned_at ?? '');
       const plannedThisTurn = Number.isFinite(plannedAt) && (turnStartedMs == null || plannedAt >= turnStartedMs);
+      // places, not pins (one place pinned twice is its own error above): each place of the plan's layers, as add-point
+      // judges one place
+      const sightFeats = Array.isArray(sightLayers) ? sightLayers.flatMap((lid) => (featuresByLayer.get(lid) || []).map((f) => ({ lid, f }))) : [];
+      const sightPlace = placeIndex(sightFeats.map((x) => x.f));
       const ownPageFix = (ref) => `cite each place's own page (its own site, else its Wikipedia article): uw cite <that page> --grep "<its name>", then uw set ${args._[0]} ${ref} --props-file - with {"source_url":"<that page>","source":"<site>"}; it gives the place's item in the days that page too, so the days stay as they are`;
       const noTimeToCite = 'too little time is left to cite their own pages in this turn; the reply names these places as not checked on a page of their own';
       // each place's source is its own page: places that share one cite a city or listing page, which only says which
@@ -543,14 +547,14 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       const sharedPages = new Set();
       if (Array.isArray(sightLayers)) {
         const byPage = new Map();
-        for (const id of sightLayers) for (const f of featuresByLayer.get(id) || []) {
+        sightFeats.forEach(({ f }, i) => {
           const pr = f?.properties || {};
           const u = pr.source_url;
-          if (typeof u !== 'string' || !/^https?:\/\//i.test(u)) continue;
+          if (typeof u !== 'string' || !/^https?:\/\//i.test(u)) return;
           const page = u.replace(/#.*$/, '');
           if (!byPage.has(page)) byPage.set(page, new Map());
-          byPage.get(page).set(placeKey(id, pr), String(pr.name_en || pr.name || pr.id));
-        }
+          if (!byPage.get(page).has(sightPlace[i])) byPage.get(page).set(sightPlace[i], String(pr.name_en || pr.name || pr.id));
+        });
         for (const [page, places] of byPage) if (places.size > 1) {
           sharedPages.add(page);
           const names = [...places.values()];
@@ -561,9 +565,10 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       // each sight's page names it, judged from what uw cite (or uw handoff's source check) read there in the last hours,
       // with no request: a park once cited an address that led to a photo, and two sights cited pages the turn never
       // read, while the reply vouched for them. A page read that does not name its place (or is not a page) fails while
-      // the turn has time, in any turn; a page nobody read fails in the turn that planned the days, which cites them (a
-      // later turn's pages may have been read before these hours, or on another machine). A page places share is the
-      // error above; with every cache off (UW_NO_CACHE) nothing read is kept, so nothing is judged
+      // the turn has time, in any turn; a page nobody read fails for a place whose source this turn set (source_set_at:
+      // an earlier turn's pages were read hours ago, or on another machine, and a later turn that planned the days again
+      // failed every sight it never touched). A page places share is the error above; with every cache off
+      // (UW_NO_CACHE) nothing read is kept, so nothing is judged
       if (Array.isArray(sightLayers) && !cacheOff()) {
         const unread = [], unnamed = [];
         for (const lid of sightLayers) for (const f of featuresByLayer.get(lid) || []) {
@@ -571,7 +576,7 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
           if (typeof pr.source_url !== 'string' || !/^https?:\/\//i.test(pr.source_url) || pr.id == null || sharedPages.has(pr.source_url.replace(/#.*$/, ''))) continue;
           const place = { ref: `${lid}:${pr.id}`, name: String(pr.name_en || pr.name || pr.id), url: pr.source_url, props: pr };
           const read = readPage(pr.source_url);
-          if (!read) { unread.push(place); continue; }
+          if (!read) { if (sourceSetSince(pr, turnStartedMs)) unread.push(place); continue; }
           const miss = unnamedSource(pr, [], read);
           if (miss) unnamed.push({ ...place, miss });
         }
@@ -579,7 +584,7 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
         if (unnamed.length)
           (timeToAdd ? E : W)(CFG, '$.plan.sights', `${unnamed.length === 1 ? '1 place cites a page that does not name it' : `${unnamed.length} places cite a page that does not name them`}: ${list(unnamed, (x) => (x.miss.not_page ? ` is ${x.miss.not_page}, not a page` : ''))}`,
             timeToAdd ? ownPageFix(unnamed.length === 1 ? unnamed[0].ref : '<layer>:<id>') : noTimeToCite);
-        if (unread.length && plannedThisTurn) {
+        if (unread.length) {
           const greps = unread.slice(0, 4).map((x) => `uw cite "${shellWord(x.url)}" --grep "${shellWord(namesPattern(x.props))}"`);
           (timeToAdd ? E : W)(CFG, '$.plan.sights', `${unread.length === 1 ? '1 place cites a page' : `${unread.length} places cite pages`} no uw cite read: ${list(unread, () => '')}`,
             timeToAdd ? `read ${unread.length === 1 ? 'it' : 'each'}: ${greps.join('; ')}${unread.length > 4 ? '; …' : ''}; then validate again: a page that names its place passes. A page that does not, or that cannot be read, is not its source: ${ownPageFix(unread.length === 1 ? unread[0].ref : '<layer>:<id>')}`
@@ -807,8 +812,6 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
   }
 }
 
-/** One place, whatever pin it is under: its OpenStreetMap object or register listing, else the pin itself. */
-function placeKey(layerId, p) { return p?.osm_id ? `osm:${p.osm_id}` : p?.tw_hotel_id ? `tw:${p.tw_hotel_id}` : `${layerId}:${p?.id}`; }
 /** Text inside a double-quoted shell word. */
 const shellWord = (s) => String(s).replace(/(["\\$`])/g, '\\$1');
 /** uw cite's --grep for any of a place's names ("Maria Luisa Park|Parque de María Luisa"). */
