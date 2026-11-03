@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readJSON, writeJSON, writeGeoJSON, exists, UserError, UsageError, parseLngLat, fmtBytes, representativePoint, geomBBox, round6 } from './util.mjs';
+import { readJSON, writeJSON, writeGeoJSON, exists, UserError, UsageError, parseLngLat, fmtBytes, representativePoint, geomBBox, round6, haversine } from './util.mjs';
 import { setCacheDir } from './net.mjs';
 import { withSiteLock } from './site-lock.mjs';
 import { stateDirOf, stateInSpace } from './state-dir.mjs';
@@ -234,4 +234,42 @@ export function viewCenter(site) {
   if (viewUnset(site)) return null;
   if (Array.isArray(c) && c.length === 2 && c.every(Number.isFinite) && !(c[0] === 0 && c[1] === 0)) return c;
   return null;
+}
+
+// One place, one pin. A place is one place whatever pin it is under: the same OpenStreetMap object, the same register
+// listing, or a pin of the same name a few steps away (another object of it: a square was pinned again as its own
+// pedestrian way, 97 m from it, when its first pin was refused). A namesake kilometres away is another place, and so
+// is a station, stop or airport named after the place it serves.
+/** How near two pins of one name are one place (a big square's other objects lie within it). */
+export const SAME_PLACE_M = 150;
+/** The kinds (OpenStreetMap values, or --kind) of a station, a stop or an airport. */
+export const TRANSIT_KIND = /^(station|halt|stop|tram_stop|subway_entrance|platform|stop_position|stop_area|bus_stop|bus_station|ferry_terminal|taxi|aerodrome|terminal|train_station|mrt_station)$/;
+const foldName = (t) => String(t ?? '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+/** A pin as the one-place rule sees it: { osm_id, tw_hotel_id, names (folded), coord, transit }. `also`: more names (a
+ *  candidate's own OpenStreetMap names, when --name labels it otherwise); `transit`: it is a station or stop (default:
+ *  by its kind). */
+export function pinOf(f, also = [], { transit } = {}) {
+  const p = f?.properties || {};
+  const coord = f?.geometry?.type === 'Point' && Array.isArray(f.geometry.coordinates) ? f.geometry.coordinates : null;
+  const names = new Set([p.name, p.name_en, p.osm_name_en, ...also].map(foldName).filter((n) => n.length >= 2));
+  return { osm_id: p.osm_id || null, tw_hotel_id: p.tw_hotel_id || null, names, coord, transit: transit ?? TRANSIT_KIND.test(String(p.kind ?? '')) };
+}
+/** Do two pins (pinOf) stand for one place? */
+export function samePlace(a, b) {
+  if (a.osm_id && a.osm_id === b.osm_id) return true;
+  if (a.tw_hotel_id && a.tw_hotel_id === b.tw_hotel_id) return true;
+  if (!a.coord || !b.coord || !!a.transit !== !!b.transit || haversine(a.coord, b.coord) > SAME_PLACE_M) return false;
+  for (const n of a.names) if (b.names.has(n)) return true;
+  return false;
+}
+/** Which place each feature is: the index of the first feature of its place (features of one place share it). */
+export function placeIndex(features) {
+  const pins = features.map((f) => pinOf(f));
+  const up = pins.map((_, i) => i);
+  const root = (i) => { while (up[i] !== i) i = up[i] = up[up[i]]; return i; };
+  for (let i = 0; i < pins.length; i++) for (let j = i + 1; j < pins.length; j++) {
+    const a = root(i), b = root(j);
+    if (a !== b && samePlace(pins[i], pins[j])) up[Math.max(a, b)] = Math.min(a, b);
+  }
+  return pins.map((_, i) => root(i));
 }

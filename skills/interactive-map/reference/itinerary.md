@@ -127,8 +127,9 @@ rather than reply. Sights come from `uw cite` in this turn, never from a browser
    JSON
    ```
    (props with words in them always go on stdin like this: an apostrophe in single-quoted JSON breaks the command;
-   exit 2 = no hit carries the name: retry once with the local name, else list it as unverified; food spots go on
-   `--layer food`, day trips on `--layer daytrips --max-km 80`).
+   exit 2 = no hit carries the name: retry once with the local name, else list it as unverified; exit 2 "already
+   pinned" = it is on the map: never pin it again, the day takes another place; food spots go on `--layer food`, day
+   trips on `--layer daytrips --max-km 80`).
    Once each has finished (an exit code, not still running: wait on one that is, never start it again; `uw plan`
    and `uw validate` name any still running), `uw plan … --sights sights,food,daytrips --force` with the sights that
    landed (the layers that exist; one not found stays out, in the reply's unverified line): places land on the
