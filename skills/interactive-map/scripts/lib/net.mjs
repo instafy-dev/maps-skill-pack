@@ -29,6 +29,8 @@ let cacheDir = null; // set per site: <dir>/.uwcache
 let noCache = !!process.env.UW_NO_CACHE;
 export function setCacheDir(dir) { cacheDir = dir; }
 export function setNoCache(v) { noCache = !!v; }
+/** UW_NO_CACHE: nothing is kept, not even what uw cite read. */
+export const cacheOff = () => noCache;
 
 function cacheKey(parts) {
   return crypto.createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 24);

@@ -17,12 +17,17 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { NO_WIKIPEDIA } from './fixtures.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const UW = path.join(HERE, '..', 'skills', 'interactive-map', 'scripts', 'uw.mjs');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'uw-own-page-'));
+// what uw cite read, kept the way it keeps it (this test's own shared cache): a sight's page is one uw cite read
+delete process.env.UW_NO_CACHE;
+process.env.UW_CACHE = path.join(tmp, 'cache');
+const { rememberCited } = await import(pathToFileURL(path.join(HERE, '..', 'skills', 'interactive-map', 'scripts', 'lib', 'cmd-cite.mjs')).href);
+const read = (url, text) => rememberCited([url], { url, title: '', retrieved_at: new Date().toISOString(), text });
 
 const CITY = [-5.99534, 37.38863];
 const SEV = { city: 'Sevilla', county: 'Sevilla', state: 'Andalucía', country: 'España', countrycode: 'ES', district: 'Distrito Sur' };
@@ -101,6 +106,10 @@ const SIGHTS = [
 test('validate: two places that cite a page naming neither fail while the turn has time; each with its own page passes', async () => {
   const site = 'own';
   await newTrip(site);
+  // the pages this turn read: each sight's own (it names it), and the routes page, which names none
+  for (const s of SIGHTS) read(s.page, s.page === ROUTES ? 'City routes\nRoute of the water' : `${s.name}\nOpening hours and tickets.`);
+  read('https://en.wikipedia.org/wiki/Plaza_de_Espa%C3%B1a,_Seville', 'Plaza de España\nA square in the Parque de María Luisa.');
+  read('https://en.wikipedia.org/wiki/Casa_de_Murillo', 'Casa de Murillo\nThe house where Murillo lived.');
   for (const s of SIGHTS) assert.equal((await pin(site, s)).code, 0);
   assert.equal((await plan(site)).code, 0);
   const v = await uw(['validate', site, '--json']);
@@ -164,7 +173,7 @@ test('add-point and set say at once when a page uw cite read does not name the p
   assert.equal((await uw(['new', site, '--title', 'Seville', '--center', CITY.join(','), '--zoom', '13'])).code, 0);
   const routes = `${mock.url}/en/city-routes/`, own = `${mock.url}/en/plaza-de-espana`;
   const c = await uw(['cite', routes, '--grep', 'Plaza de España']);
-  assert.equal(c.code, 0, c.out + c.err);
+  assert.equal(c.code, 2, c.out + c.err);
   assert.match(c.out, /no line matches/);
   const pages = () => hits.filter((p) => p.startsWith('/en/')).length;
   const read = pages();

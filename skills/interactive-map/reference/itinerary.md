@@ -115,10 +115,12 @@ rather than reply. Sights come from `uw cite` in this turn, never from a browser
    (skill `instafy-web-research` ranks sources so, in its "Sources by need"): one you know, or the one `instafy web
    search "<its name>" --chain reference-search --json` lists. Its Wikipedia article only where the turn found no such
    site that names it and can be read. Checked for being current (closures, renovations, seasonal
-   hours); that page is its `source_url` (`uw validate` fails while places share one; `uw set` and `uw add-point` say
-   at once when a page `uw cite` read does not name the place). A refused site (it bans agents, robots.txt, a bot
-   check) is a plain link, never fetched another way. At most about 2 pages a sight. Then each sight in a command of
-   its own, one `uw add-point` per command (chained, one slow lookup held back the sights after it and the plan):
+   hours); that page is its `source_url`, read in this turn (`uw validate` fails while places share one, or while one
+   cites a page `uw cite` did not read or that does not name it; `uw set` and `uw add-point` say at once when a page
+   `uw cite` read does not name the place; an image is no page). A refused site (it bans agents, robots.txt, a bot
+   check) is a plain link, never fetched another way. At most about 2 pages a sight. One place, one pin: a day short of
+   places takes another place (`uw add-point` refuses one already pinned, naming its pin). Then each sight in a command
+   of its own, one `uw add-point` per command (chained, one slow lookup held back the sights after it and the plan):
    ```
    uw add-point <site> --layer sights --query "<local-language name>" --country "<Country>" --strict-name --near <that station's lng,lat> --id <slug> --props-file - <<'JSON'
    {"stop":"<station id>","source_url":"<its own site's page>","source":"<site name>","why":"<what the page says to do there>"}

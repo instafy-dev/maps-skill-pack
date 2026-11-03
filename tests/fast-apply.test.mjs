@@ -57,7 +57,8 @@ function photon(q, lang, tags) {
   const city = Object.keys(CITIES).find((c) => q === c || q === `${c}, Japan` || q === CITIES[c].local);
   if (city && tags.includes('place:city')) return [feat(CITIES[city].local, CITIES[city].centre, { id: 100 + Object.keys(CITIES).indexOf(city), en: en ? city : null })];
   if (city && tags.includes('railway:station')) return [feat(CITIES[city].local, CITIES[city].station, { key: 'railway', value: 'station', id: 200 + Object.keys(CITIES).indexOf(city), en: en ? city : null })];
-  const name = Object.keys(PLACES).find((n) => q.split(',')[0].trim() === n);
+  // a sight a second lane researched under a longer name ("Senso-ji Temple") is the same OpenStreetMap object
+  const name = Object.keys(PLACES).find((n) => q.split(',')[0].trim() === n || q.split(',')[0].trim() === `${n} Temple`);
   if (name && !tags.length) return [feat(name, PLACES[name], { key: name.startsWith('Hotel') ? 'tourism' : 'tourism', value: name.startsWith('Hotel') ? 'hotel' : 'attraction', id: 300 + Object.keys(PLACES).indexOf(name) })];
   return [];
 }
@@ -189,6 +190,24 @@ test('handoff --apply works on the stops side by side: same map, much less time 
   assert.ok(rail.start_ms < three.json.timings.phases.stays.from + 200, JSON.stringify(three.json.timings.phases));
 });
 
+test('handoff --apply: one place researched under two names is one pin with one source, never "not placed"', async () => {
+  const dir = path.join(tmp, 'handoff', 'twice');
+  fs.mkdirSync(dir, { recursive: true });
+  const base = { schema: 'instafy.research@1', kind: 'city', country: 'Japan', facts: [], legs: [], unknowns: [] };
+  fs.writeFileSync(path.join(dir, 'tokyo.json'), JSON.stringify({ ...base, item: 'Tokyo', places: [
+    { name: 'Senso-ji', query: 'Senso-ji, Tokyo', kind: 'sight', why: 'a classic', source_url: 'https://example.org/Tokyo/sight' },
+    { name: 'Senso-ji Temple', query: 'Senso-ji Temple, Tokyo', kind: 'sight', why: 'the oldest temple', source_url: 'https://example.org/Tokyo/temple' },
+  ] }));
+  fs.writeFileSync(path.join(dir, 'kyoto.json'), JSON.stringify({ ...base, item: 'Kyoto', places: [] }));
+  const extra = { UW_CACHE: path.join(tmp, 'cache-twice') };
+  await uw(['new', 'twice', '--title', 'Japan by train', '--center', '137.0,35.2', '--zoom', '6'], extra);
+  const r = await uw(['handoff', dir, '--site', 'twice', '--apply', '--route', 'Tokyo:2,Kyoto:2', '--start', '2027-04-01', '--no-source-check', '--json'], extra);
+  assert.ok([0, 3].includes(r.code), r.out.slice(-3000) + r.err);
+  const sights = readFC('twice', 'sights').features.map((f) => f.properties);
+  assert.deepEqual(sights.map((p) => [p.osm_id, p.source_url]), [['osm-n301', 'https://example.org/Tokyo/temple']], 'one pin, with the later lane\'s page');
+  assert.deepEqual(r.json.unverified.filter((u) => /Senso-ji/.test(u)), [], 'never "not placed": it is on the map');
+});
+
 test('the lodging around every stop is one batched Overpass request, and the stays are answered from it', async () => {
   mock.hits.overpass.length = 0;
   const r = await applyRun('batch', { UW_CACHE: path.join(tmp, 'cache-batch') });
@@ -213,8 +232,8 @@ test('an identical lookup from another site is answered from the cache every sit
   assert.equal(second.code, 0, second.out + second.err);
   assert.equal(mock.hits.photon.length - before, asked, 'the second site asked the place search nothing');
   assert.deepEqual(readFC('a2', 'sights').features[0].geometry.coordinates, readFC('a1', 'sights').features[0].geometry.coordinates);
-  // UW_NO_CACHE still turns every cache off
-  const third = await uw(['add-point', 'a2', '--layer', 'sights', '--query', 'Senso-ji, Tokyo', '--near', CITIES.Tokyo.station.join(','), '--id', 'again', '--json'], { UW_CACHE: cache, UW_NO_CACHE: '1' });
+  // UW_NO_CACHE still turns every cache off (the same place again: under its own id, one place is one pin)
+  const third = await uw(['add-point', 'a2', '--layer', 'sights', '--query', 'Senso-ji, Tokyo', '--near', CITIES.Tokyo.station.join(','), '--json'], { UW_CACHE: cache, UW_NO_CACHE: '1' });
   assert.equal(third.code, 0);
   assert.ok(mock.hits.photon.length - before > asked, 'UW_NO_CACHE asks again');
 });

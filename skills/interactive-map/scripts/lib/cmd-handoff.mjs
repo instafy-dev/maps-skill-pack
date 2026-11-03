@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs, makeOut, slugify, readJSON, writeJSON, writeGeoJSON, exists, haversine, clipWords, UsageError, UserError } from './util.mjs';
 import { expectOf, mergeExpect, describeItems } from './expect.mjs';
 import { openSite, layerPath, withSiteLock } from './site.mjs';
-import { politeFetch, pageText, pageNamesPlace } from './cmd-cite.mjs';
+import { politeFetch, pageText, pageNamesPlace, sourceCheckKey } from './cmd-cite.mjs';
 import { forgetMissing } from './cmd-geocode.mjs';
 import { FAR_FROM_CENTRE_KM, prefetchLodging } from './cmd-stay.mjs';
 import { isSkip, readShared, writeShared, setDeadline, withCap, partialLine } from './net.mjs';
@@ -165,11 +165,11 @@ export function unplacedSightsAdvice(n) {
  *  re-reads nothing it read within hours. Only answers are kept (a page, or a gone page), never a refusal or an error. */
 const PAGE_CACHE_MS = 6 * 3600e3;
 async function cachedPage(fetchPage, url, opts) {
-  const hit = readShared('pages', ['handoff-source', url], PAGE_CACHE_MS);
+  const hit = readShared('pages', sourceCheckKey(url), PAGE_CACHE_MS);
   if (hit) return hit;
   const r = await fetchPage(url, opts);
   if (!r.refused && (r.status < 400 || r.status === 404 || r.status === 410)) {
-    writeShared('pages', ['handoff-source', url], { status: r.status, type: r.type || null, text: String(r.text || '').slice(0, 600_000) });
+    writeShared('pages', sourceCheckKey(url), { status: r.status, type: r.type || null, text: String(r.text || '').slice(0, 600_000) });
   }
   return r;
 }
@@ -612,13 +612,14 @@ async function applyHandoff({ args, out, items, problems, sourcesCheck }) {
         b.unverified.push(`${c.city}: ${p.name} (researched, another option; not on the map: the place lookup was unavailable)`);
         continue;
       }
-      // the English query first, then the local name in brackets ("Mupinju Space Inn (沐品居太空旅棧)")
+      // the English query first, then the local name in brackets ("Mupinju Space Inn (沐品居太空旅棧)"); a pick that is
+      // the same place under another name takes the researcher's reason and source (--replace: one place, one pin)
       const local = (p.name.match(/\(([^)]*[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}][^)]*)\)/u) || [])[1];
       const queries = [p.query || `${p.name}, ${c.city}`, ...(local ? [local.trim()] : [])];
       let added = false;
       for (const query of queries) {
         const r = await timed(`researched hotel ${p.name}`, 'places', () => uwStep(['add-point', args.site, '--layer', 'stays', '--query', query, '--near', st.geometry.coordinates.join(','), ...countryArgs(c),
-          '--id', `${c.id}-${slugify(p.name) || 'stay'}`, '--kind', 'hotel', '--strict-name', '--no-fit', '--props', JSON.stringify(props)], log));
+          '--id', `${c.id}-${slugify(p.name) || 'stay'}`, '--kind', 'hotel', '--strict-name', '--no-fit', '--replace', '--props', JSON.stringify(props)], log));
         if (r.code === 0) { added = true; break; }
       }
       if (added) { b.ran.push(`researched ${p.name}`); continue; }
@@ -635,11 +636,12 @@ async function applyHandoff({ args, out, items, problems, sourcesCheck }) {
     b.facts.push(`${c.city}: ${c.nights} night(s), ${sights.length} researched sight(s)`);
     for (const { p } of sights) {
       if (!isUrl(p.source_url) || p.source_mismatch) continue; // already on the unverified list
-      // food goes on its own layer ("Eat: …" in the day text); the researcher's reason rides along for the day text
+      // food goes on its own layer ("Eat: …" in the day text); the researcher's reason rides along for the day text. A
+      // place already pinned in that layer (researched twice under two names) keeps its one pin (--replace)
       const layer = p.kind === 'food' ? 'food' : 'sights';
       const why = typeof p.why === 'string' && p.why.trim() ? { why: clipWords(p.why, 90) } : {};
       const addArgs = ['add-point', args.site, '--layer', layer, '--query', p.query || `${p.name}, ${c.city}`, '--near', st.geometry.coordinates.join(','),
-        ...countryArgs(c), '--strict-name', '--no-fit', '--id', slugify(p.name) || `${c.id}-sight`, '--props', JSON.stringify({ stop: c.id, source_url: p.source_url, source: hostName(p.source_url), ...why })];
+        ...countryArgs(c), '--strict-name', '--no-fit', '--replace', '--id', slugify(p.name) || `${c.id}-sight`, '--props', JSON.stringify({ stop: c.id, source_url: p.source_url, source: hostName(p.source_url), ...why })];
       // the place lookup is down: list the sight with its exact command for later instead of a slow fallback per place
       const code = geocodeDown() ? 4 : await step(b, `${p.kind === 'food' ? 'food' : 'sight'} ${p.name}`, 'places', addArgs);
       if (code === 4) {
