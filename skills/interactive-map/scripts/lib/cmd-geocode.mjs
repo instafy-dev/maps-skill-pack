@@ -9,6 +9,7 @@ import { fitView } from './cmd-site.mjs';
 import { isLodging, registrySearch, acceptable, fmtRegistryCand, registryProps, queryLabel, slugFor } from './registry-geo.mjs';
 import { adapterFor, adapterNamedIn, adapterForArea } from '../adapters/lib/areas.mjs';
 import { unnamedSource, unnamedSourceLine } from './cmd-cite.mjs';
+import { withDayItems } from './cmd-set.mjs';
 
 export const helps = {
   geocode: `geocode "<query>" [--near lng,lat] [--country <name|code>] [--limit 5] [--lang en|de|fr|default] [--source auto|osm|registry] [--json]
@@ -22,7 +23,7 @@ export const helps = {
   (--source registry: only them; --source osm: never; "photon" is an old name for osm).`,
   addPoint: `add-point <dir> --layer <id> --query "<q>" [--near lng,lat] [--id slug] [--name "Label"] [--emoji 🏨] [--note "…"]
           [--props '{"price":120}' | --props-file <file|->] [--kind hotel] [--pick N] [--allow-far] [--allow-mismatch] [--max-km 8] [--lang en]
-          [--source auto|osm|registry] [--tier option|support|context] [--no-fit] [--country <name|code>] [--strict-name] [--json]
+          [--source auto|osm|registry] [--tier option|support|context] [--no-fit] [--country <name|code>] [--strict-name] [--replace] [--json]
 add-point <dir> --layer <id> --osm osm-w940449133 [--id slug] [--name …]   (an exact OpenStreetMap object, e.g. one a refusal suggested)
 add-point <dir> --layer <id> --at lng,lat --name "Label" [...]     (only for coordinates the user gave you)
   Text with an apostrophe or quotes ("Alfama's") breaks single-quoted --props: pass the object on stdin instead,
@@ -35,7 +36,11 @@ add-point <dir> --layer <id> --at lng,lat --name "Label" [...]     (only for coo
     JSON
   --name in Latin script also becomes name_en (the label English maps show); OSM's English name is kept as osm_name_en.
   Geocodes with the place search and appends (or replaces, same id) a point in data/<layer>.geojson. Prints the chosen match and
-  the alternatives: check them. --pick N chooses candidate N (1-based) instead. A station is never the place it is named
+  the alternatives: check them. --pick N chooses candidate N (1-based) instead.
+  One place, one pin: a place already in the layer under another id (the same OpenStreetMap object or register
+  listing) is refused (exit 2, naming that pin; nothing written): a day that needs another place takes a different
+  place. --replace replaces that pin instead, which keeps its id, so the days and notes that name it still do. A
+  replaced place's items in the plan's days link its new source_url, as \`uw set\` does. A station is never the place it is named
   after unless the query (or --kind) asks for transit: a square or place within 600 m of it that has that name (its own,
   or another OpenStreetMap name: "Rossio" is "Praça Dom Pedro IV") is taken, shown as "Rossio" with its own name under
   it; none, or none that could be checked, keeps the station (said). A match farther than --max-km (default 8)
@@ -522,7 +527,7 @@ export async function addPoint(argv) {
 async function addPointRun(argv, ctx) {
   const args = parseArgs(argv, { layer: 'string', query: 'string', near: 'string', id: 'string', name: 'string', emoji: 'string',
     note: 'string', props: 'string', 'props-file': 'string', pick: 'number', 'allow-far': 'bool', 'allow-mismatch': 'bool', 'max-km': 'number', at: 'string', lang: 'string', kind: 'string', osm: 'string',
-    source: 'string', tier: 'string', 'no-fit': 'bool', country: 'string', 'strict-name': 'bool' },
+    source: 'string', tier: 'string', 'no-fit': 'bool', country: 'string', 'strict-name': 'bool', replace: 'bool' },
   { positionals: [1, 1], command: 'add-point' });
   if (args.help) return console.log(helps.addPoint);
   const out = makeOut(args);
@@ -911,47 +916,55 @@ async function addPointRun(argv, ctx) {
     // found by a fallback source: the point says so (and what it lacks) until a full answer replaces it
     Object.assign(props, partialProps(chosen));
   }
+  // the name it was looked up by, when the place's own names differ ("Museo de Bellas Artes de Sevilla"): a page that
+  // names it so names this place (uw set and uw validate judge its source_url with it too, with no request)
+  const asked = args.query ? String(args.query).split(/[,，]/)[0].trim() : '';
+  const foldName = (t) => String(t || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  if (asked && ![props.name, props.name_en, props.osm_name_en].some((n) => foldName(n) === foldName(asked))) props.looked_up_as = asked;
   Object.assign(props, extra);
   props.id = id; // --props cannot change the id silently
   const feature = { type: 'Feature', geometry: { type: 'Point', coordinates: chosen.coord.map(round6) }, properties: props };
   // its source_url is a page uw cite read that does not name it (by its name, or the name it was looked up by): that page
   // is not its source, said now while the turn can cite the place's own page
-  const sourceMiss = unnamedSource(props, [args.query ? String(args.query).split(/[,，]/)[0] : null, args.name]);
-  if (sourceMiss) warnings.push(unnamedSourceLine(sourceMiss, args._[0], `${layer}:${id}`));
+  const sourceMiss = unnamedSource(props, [args.name]);
 
   // the register's licence credit is loaded before the write lock is taken (no waiting inside it)
   const { ATTRIBUTION } = regUsed ? await import('../adapters/tw-hotels.mjs') : {};
   // read, change and write the layer and map.config.json under the site's write lock: another command (another stop
   // of handoff --apply) may write them at the same time
-  const { rel, replaced, cfgChanges, def, cfg } = withSiteLock(site, () => {
+  const { rel, replaced, cfgChanges, def, cfg, pinned, dayItems } = withSiteLock(site, () => {
     const p = layerPath(site, layer);
     let fc = { type: 'FeatureCollection', features: [] };
     if (exists(p)) {
       try { fc = readJSON(p); } catch (e) { throw new UserError(`${p} is not valid JSON (${e.message}); fix or delete it first`); }
       if (fc.type !== 'FeatureCollection' || !Array.isArray(fc.features)) throw new UserError(`${p} is not a FeatureCollection`);
     }
-    const i = fc.features.findIndex((f) => f?.properties?.id === id);
+    // one place, one pin: the same OpenStreetMap object or register listing already in this layer under another id is
+    // that place's pin (Plaza de España was pinned again under a new id to fill a third day, and the map listed it twice).
+    // Refused, naming that pin; --replace replaces that pin, keeping its id (the days and notes name it)
+    const pinned = fc.features.find((f) => String(f?.properties?.id) !== id
+      && ((chosen.osm_id && f?.properties?.osm_id === chosen.osm_id) || (props.tw_hotel_id && f?.properties?.tw_hotel_id === props.tw_hotel_id)));
+    if (pinned && !args.replace) return { pinned };
+    if (pinned) { id = String(pinned.properties.id); props.id = id; }
+    const i = fc.features.findIndex((f) => String(f?.properties?.id) === id);
     const replaced = i >= 0;
+    const prev = replaced ? fc.features[i] : null;
     if (replaced) {
       // Same place again: keep metrics/notes added later (enrich, hand edits); moved: drop them (they are stale).
-      const prev = fc.features[i];
       const prevC = prev?.geometry?.type === 'Point' ? prev.geometry.coordinates : null;
       if (prevC && haversine(prevC, feature.geometry.coordinates) < 25) feature.properties = { ...prev.properties, ...feature.properties };
       else if (Object.keys(prev?.properties || {}).length > Object.keys(feature.properties).length) warnings.push(`${id} moved; its old metrics were dropped. Re-run enrich for ${layer}.`);
       fc.features[i] = feature;
     } else fc.features.push(feature);
-    // Same OSM object, or the same spot, already present under another id? (a renamed hotel listed twice, say)
-    const dupe = chosen.osm_id && fc.features.find((f) => f !== feature && f?.properties?.osm_id === chosen.osm_id);
-    const dupeReg = props.tw_hotel_id && fc.features.find((f) => f !== feature && f?.properties?.tw_hotel_id === props.tw_hotel_id);
-    if (dupe) warnings.push(`the same OSM object is already in this layer as "${dupe.properties.id}"`);
-    else if (dupeReg) warnings.push(`the same register listing is already in this layer as "${dupeReg.properties.id}"`);
-    else {
-      const close = fc.features.find((f) => f !== feature && f?.geometry?.type === 'Point' && haversine(f.geometry.coordinates, feature.geometry.coordinates) < 30);
-      if (close) warnings.push(`"${close.properties.id}" (${close.properties.name}) is within 30 m: same building? A place can be listed twice under an old and a new name.`);
-    }
+    // the same spot under another id? (a renamed hotel listed twice, say)
+    const close = fc.features.find((f) => f !== feature && f?.geometry?.type === 'Point' && haversine(f.geometry.coordinates, feature.geometry.coordinates) < 30);
+    if (close) warnings.push(`"${close.properties.id}" (${close.properties.name}) is within 30 m: same building? A place can be listed twice under an old and a new name.`);
     fc.uw = { ...(fc.uw || {}), cmd: fc.uw?.cmd || 'add-point', updated_at: new Date().toISOString() };
     writeGeoJSON(p, fc);
     const rel = p.slice(site.dir.length + 1);
+    // pinned again under its id after the days were planned: its items in the days link its new page, as uw set does
+    // (they kept linking the page it had before)
+    const dayItems = prev ? withDayItems(site, layer, id, prev.properties || {}, feature.properties) : 0;
 
     // map.config.json: register the layer (so the point shows at once), drop its "not found yet" entry, add the
     // register's licence credit, and keep the options on screen
@@ -977,8 +990,23 @@ async function addPointRun(argv, ctx) {
       if (!list.includes(ATTRIBUTION)) { cfg.attribution = [...list, ATTRIBUTION]; cfgChanges.push('added the Taiwan open-data credit'); }
     }
     writeJSON(site.cfgPath, cfg, { pretty: true });
-    return { rel, replaced, cfgChanges, def, cfg };
+    return { rel, replaced, cfgChanges, def, cfg, dayItems };
   });
+  if (pinned) {
+    const ref = `${layer}:${pinned.properties.id}`;
+    const theirs = pinned.properties.name_en || pinned.properties.name;
+    const json = { ok: false, refused: 'already_pinned', query: args.query || null, layer, id: args.id || null,
+      pinned: { id: String(pinned.properties.id), name: theirs || null }, osm_id: chosen.osm_id || null };
+    if (out.json) process.stdout.write(JSON.stringify(json, null, 2) + '\n');
+    console.error([
+      `REFUSED: "${name}"${chosen.type ? ` [${chosen.type}]` : ''}${chosen.osm_id ? ` (${chosen.osm_id})` : ''} is already pinned in this layer as ${ref}${theirs && theirs !== name ? ` ("${theirs}")` : ''}: one place, one pin.`,
+      'Nothing was written. A day that needs another place takes a different place, from its own page.',
+      `To change that pin (its page, its reason): uw set ${args._[0]} ${ref} --props-file - with {"source_url":…,"source":…,"why":…}.`,
+      `To pin it again from what this command found: the same command with --replace (it replaces ${ref} and keeps that id, so the days that name it still do).`,
+    ].join('\n'));
+    return 2;
+  }
+  if (sourceMiss) warnings.push(unnamedSourceLine(sourceMiss, args._[0], `${layer}:${id}`));
   let view = null;
   const isOption = def.tier === 'option' || cfg.question?.options?.layer === layer;
   if (isOption && !args['no-fit']) {
@@ -992,7 +1020,7 @@ async function addPointRun(argv, ctx) {
   const altList = regUsed ? cands : cands.filter((c) => c !== chosen);
   out.result({ ok: true, ...(partialNote ? { status: 'partial', partial: partialNote } : { status: 'ok' }), layer, file: rel, id, replaced, source: regUsed ? 'registry' : args.at ? 'user' : args.osm ? 'osm' : chosen.provider || 'search',
     chosen: { ...chosen, name, id }, alternatives: altList, registry_alternatives: reg ? reg.candidates.filter((c) => c !== chosen) : [],
-    warnings, config: cfgChanges, view, ...(sourceMiss ? { source_not_named: sourceMiss } : {}) }, [
+    warnings, config: cfgChanges, view, ...(dayItems ? { day_items: dayItems } : {}), ...(sourceMiss ? { source_not_named: sourceMiss } : {}) }, [
     `${replaced ? 'Replaced' : 'Added'} ${layer}:${id} — ${props.emoji} ${name}${props.name_en && props.name_en !== name ? ` (${props.name_en})` : ''}` +
       (regUsed ? ` [registry: ${chosen.name}${chosen.name_local ? ' / ' + chosen.name_local : ''} · licence ${chosen.registry.licence_id || '—'} · match ${chosen.confidence} on ${chosen.by.join('+')}]`
         : ` [${chosen.type || 'user point'}]`) +
@@ -1002,6 +1030,7 @@ async function addPointRun(argv, ctx) {
       : !regUsed && cands.length > 1 ? 'Alternatives (use --pick N to choose another):\n' + cands.map((c, k) => (c === chosen ? '  * ' : '    ') + fmtCand(c, k)).join('\n') : null,
     reg && reg.candidates.filter((c) => c !== chosen).length ? 'Register alternatives (--source registry --pick N):\n' + reg.candidates.map((c, k) => (c === chosen ? '  * ' : '    ') + fmtRegistryCand(c, k)).join('\n') : null,
     cfgChanges.length ? `map.config.json: ${cfgChanges.join('; ')}.` : null,
+    dayItems ? `Its ${dayItems === 1 ? 'item' : `${dayItems} items`} in the plan's days link${dayItems === 1 ? 's' : ''} ${feature.properties.source_url ? 'its page now' : 'no page now'}; the days are as they were.` : null,
   ]);
 }
 

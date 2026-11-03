@@ -3,6 +3,54 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.30 (2026-11-03)
+
+Fixes from a "Plan 3 days in Seville for a first visit: where to stay, what to see each day, on a map" run: Plaza de
+España was pinned twice (Wednesday and Thursday), María Luisa Park cited an address that turned out to be a photo, two
+sights cited pages the turn never read, and the turn replied with validate's error still standing and over 5 minutes
+left.
+
+- **One place, one pin.** `uw add-point` added a place already in the layer under a new id and only warned "the same
+  OSM object is already in this layer": the square was pinned again to fill a third day. A place already pinned in
+  the layer (the same OpenStreetMap object or register listing) is now refused (exit 2, naming that pin; nothing is
+  written), with the commands that change that pin instead; `--replace` replaces that pin and keeps its id, so the
+  days and notes that name it still do. `uw handoff --apply` passes `--replace` for researched hotels and sights, so a
+  place two lanes researched under two names is one pin, never listed as "not placed".
+- **One place pinned twice is said so.** `uw validate`'s only error for the two pins was "2 places cite one page:
+  Plaza de España, Plaza de España", whose fix (cite each place's own page) could not clear it: the turn set the
+  square's own page again ("Nothing changed"), and replied with the error standing. The check now counts places, not
+  pins, and a place pinned twice in a layer of picked places is its own error, whose fix removes the later pin (then
+  the days: a new plan in the turn that planned them, else its item).
+- **An image is no source, and a page that does not say it is not either.** `uw cite --grep` exited 0 when no line
+  matched ("this page does not say it"), also when the page's address led to a photo, so the step read as a source
+  read and the photo stayed the park's source. It now exits 2 when no line matches, and when the address is not a
+  page (an image, a video, a PDF, a download; by its type, else by its bytes), with or without `--grep`. What it found
+  is kept, so `uw set` and `uw add-point` say at once that a place citing that address cites no page. `--grep` is
+  accent-insensitive ("María Luisa" finds "Maria Luisa Park").
+- **Every sight's page names it.** `uw validate` judged a place's page only when places shared one. It now checks
+  every sight of a trip's plan against what `uw cite` (or `uw handoff`'s source check) read there in the last hours,
+  with no request: a page that does not name its place, or that is not a page, fails while the turn has time (in any
+  turn); a page no `uw cite` read fails in the turn that planned the days, with the `uw cite` commands that read each
+  one. With under about 3 minutes left both are warnings whose fix is what the reply says. With every cache off
+  (`UW_NO_CACHE`) nothing read is kept, so nothing is judged. A place keeps the name it was looked up by
+  (`looked_up_as`, when its own names differ), which `uw set` and `uw validate` judge its page with, as `uw add-point`
+  does.
+- **Pinned again under its id after the days were planned, a place's day links its new page.** `uw add-point` with a
+  place's own `--id` replaced the place but left its items in the plan's days linking its old page; it now gives them
+  its new `source_url` and `source`, as `uw set` does (`day_items` in `--json`).
+- **`uw host` serves a map, never a whole folder.** Run in a space's top folder (a card command chained after `uw new`
+  from there), it served every file in the space, every chat's included, under a card the chat no longer showed. A
+  folder with no map (`map.config.json`) or bound site (`bound.json`) in it or in a subfolder is now refused (exit 2),
+  naming the map's own folder and the card command to run from it; a gallery folder of sites is served as before.
+- **Tests:** a second `add-point` of the same place exits 2 naming its pin, and `--replace` replaces it keeping its id;
+  `add-point` under a place's own id after the plan links its new page in the days; `uw cite --grep` with no match, on
+  an address that leads to an image and on an untyped file exits 2, and accents aside it matches; `uw set` says a place
+  citing the image cites no page; `uw validate` fails on a sight whose page does not name it or is an image, and on one
+  no `uw cite` read, warns with too little time, and in a later turn judges only what was read; a page naming a place
+  as it was looked up names it; one place pinned twice is its own error and its fix clears it; `uw handoff --apply`
+  pins one place researched under two names once; `uw host` refuses a space's top folder (with `--detach` too) and
+  serves a gallery of sites. Each fails without its change.
+
 ## 0.1.29 (2026-11-03)
 
 Fixes to 0.1.28.

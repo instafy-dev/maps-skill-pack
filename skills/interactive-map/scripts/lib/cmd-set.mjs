@@ -76,8 +76,9 @@ export async function run(argv) {
  *  its source_url, `source` = its source): the place's new page goes to each item that linked its old one (or none,
  *  while it had none), so the Plan tab never links a page the place no longer cites and the days need no new plan
  *  (one groups them by area again, which undoes what the person moved). An item that links another page keeps it.
- *  Call it holding the site lock. Returns how many items changed. */
-function withDayItems(site, layer, id, before, after) {
+ *  `uw set` and `uw add-point` (a place pinned again under its id) call it holding the site lock. Returns how many
+ *  items changed. */
+export function withDayItems(site, layer, id, before, after) {
   let cfg;
   try { cfg = readJSON(site.cfgPath); } catch { return 0; }
   const days = Array.isArray(cfg?.plan?.days) ? cfg.plan.days : [];

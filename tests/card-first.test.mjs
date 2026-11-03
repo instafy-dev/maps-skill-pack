@@ -186,16 +186,22 @@ test('the card\'s command, chained after `uw new` from the space\'s folder, serv
   for (const p of ['/AGENTS.md', '/sites/other-page/notes.txt', '/..%2FAGENTS.md', '/../AGENTS.md']) assert.ok([403, 404].includes((await get(map.port, p)).status), p);
   map.stop();
 
-  // the same serve command from the space's folder serves the whole space: its folder answers 404, its subfolders too
-  // (no redirect that names them), in plain words, and the map is only where it lives
-  const whole = await serve('uw host . --port {port}', space);
-  for (const p of ['/', '/sites', '/sites/', '/sites/other-page/']) {
-    const r = await get(whole.port, p);
-    assert.equal(r.status, 404, `${p}: ${r.status} ${r.body.slice(0, 200)}`);
-    assert.equal(r.body, 'There is no page here.', p);
+  // the same serve command from the space's folder is refused: it would put every file of the space on the web
+  // (AGENTS.md, every chat's files), under a card nobody sees. The refusal names the maps' own folders, and nothing
+  // answers on its port, with --detach too
+  for (const extra of [[], ['--detach']]) {
+    const port = await freePort();
+    const whole = spawnSync(process.execPath, [UW, 'host', '.', '--port', String(port), ...extra], { cwd: space, encoding: 'utf8', timeout: 20000, env: { ...process.env, UW_NO_CACHE: '1' } });
+    assert.equal(whole.status, 2, `${extra}: ${whole.stdout}${whole.stderr}`);
+    assert.equal(whole.stderr.trim(), 'error: . holds no map (map.config.json) or bound site (bound.json), so uw host would put every file in it on the web. '
+      + 'The maps\' own folders: sites/lisbon, sites/seville. Serve the one the card is for, from its folder: (cd sites/lisbon && instafy preview open --title "<title>" --serve-cmd "uw host . --port {port}" --start --json), or uw host sites/lisbon --detach.');
+    assert.equal(await fetch(`http://127.0.0.1:${port}/AGENTS.md`).then(() => true, () => false), false, 'nothing answers');
   }
-  assert.equal((await get(whole.port, '/sites/seville/')).status, 200);
-  whole.stop();
+  // a folder of sites is served as before: each at its own folder, and the folder itself is no page
+  const gallery = await serve('uw host . --port {port}', path.join(space, 'sites'));
+  assert.equal((await get(gallery.port, '/seville/')).status, 200);
+  assert.equal((await get(gallery.port, '/')).status, 404);
+  gallery.stop();
 
   // `uw serve` is the same server: a folder is its index.html or a 404, and it says so when it starts on one
   const plain = await serve('uw serve . --port {port}', space);

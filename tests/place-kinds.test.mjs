@@ -251,8 +251,10 @@ test('add-point: a garden or park that only shares the kind word is not the plac
   const pn = await sight('kinds-word', 'nacoes', 'Parque das Nações, Lisboa', ['--country', 'PT', '--strict-name'], LISBON);
   assert.equal(pn.code, 0, pn.out + pn.err);
   assert.deepEqual([pn.json.chosen.name, pn.json.chosen.type], ['Parque das Nações', 'place=suburb']);
-  // the district alone: pinned, as uw handoff --apply pins a researched sight (--strict-name), not refused
-  const only = await sight('kinds-word', 'nacoes2', 'Parque das Nações, Portugal', ['--country', 'PT', '--strict-name'], LISBON);
+  // the district alone: pinned, as uw handoff --apply pins a researched sight (--strict-name), not refused (on a map of
+  // its own: one place is one pin)
+  await newSite('kinds-word-alone');
+  const only = await sight('kinds-word-alone', 'nacoes2', 'Parque das Nações, Portugal', ['--country', 'PT', '--strict-name'], LISBON);
   assert.equal(only.code, 0, only.out + only.err);
   assert.deepEqual([only.json.chosen.name, only.json.chosen.type], ['Parque das Nações', 'place=suburb']);
   // a query that names the kind still takes the place of that kind whose name carries the query's own words, and of
@@ -275,7 +277,8 @@ test('add-point: a place asked for by its own name is that place: a visitor cent
   const vc = await sight('kinds-own', 'vc', 'Zion Canyon Visitor Center', [], ZION);
   assert.equal(vc.code, 0, vc.out + vc.err);
   assert.deepEqual([vc.json.chosen.name, vc.json.chosen.type], ['Zion Canyon Visitor Center', 'tourism=information']);
-  const kind = await sight('kinds-own', 'vc2', 'Zion Canyon Visitor Center', ['--kind', 'visitor_centre'], ZION);
+  await newSite('kinds-own-kind');
+  const kind = await sight('kinds-own-kind', 'vc2', 'Zion Canyon Visitor Center', ['--kind', 'visitor_centre'], ZION);
   assert.equal(kind.code, 0, kind.out + kind.err);
   assert.equal(kind.json.chosen.type, 'tourism=information');
   await newSite('kinds-own2');

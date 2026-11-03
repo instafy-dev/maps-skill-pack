@@ -11,6 +11,8 @@ import { STARTER_DIR } from './site.mjs';
 import { parseStops, expectOf, mergeExpect, uncovered, describeItems, featureNames } from './expect.mjs';
 import { stillRunning, runningList } from './running.mjs';
 import { REPLY_WITHIN_S } from './turn-advice.mjs';
+import { readPage, unnamedSource } from './cmd-cite.mjs';
+import { cacheOff } from './net.mjs';
 
 export const help = `validate <dir> [--signal] [--strict] [--expect "<stop>:<nights>,…"] [--json]
   Checks map.config.json (schema, enums, refs), every layer file (exists, valid GeoJSON, geometry fits the layer type,
@@ -260,6 +262,8 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
   if (!Array.isArray(cfg.layers)) E(CFG, '$.layers', 'layers must be an array', 'add "layers": []');
   const byId = new Map();
   const featuresByLayer = new Map();
+  // layers of places picked one by one (add-point): one place, one pin
+  const pinLayers = new Set();
   const checkedFiles = new Set();
   let dataBytes = 0;
   // properties custom.js sets at runtime ("p.ride = …") are fine in card templates even though no data file has them
@@ -349,6 +353,29 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
     if (Array.isArray(l.card?.fields)) l.card.fields.forEach((f, j) => { if (!has(f)) W(CFG, `${p}.card.fields[${j}]`, `"${f}" is not on any ${l.id} feature`, `run: uw enrich ${args._[0]} --layer ${l.id} … (or fix the name)`); });
     if (l.type === 'heat' && l.weight && !feats.some((f) => typeof f?.properties?.[l.weight] === 'number')) W(CFG, `${p}.weight`, `weight "${l.weight}" is not a numeric property in ${l.id}`, 'remove weight or fix the property name');
   });
+
+  // one place, one pin: the same OpenStreetMap object or register listing twice in a layer of picked places. A square
+  // pinned again under a new id to fill a third day showed twice on the map and on two days, and the only error was
+  // "places cite one page", whose fix (cite each one's own page) could not clear it: the reply went out with it standing
+  for (const lid of pinLayers) {
+    const same = new Map();
+    for (const f of featuresByLayer.get(lid) || []) {
+      const pr = f?.properties || {};
+      const k = placeKey(lid, pr);
+      if (pr.id == null || k === `${lid}:${pr.id}`) continue;
+      if (!same.has(k)) same.set(k, []);
+      same.get(k).push(pr);
+    }
+    const inDays = new Set((Array.isArray(cfg.plan?.days) ? cfg.plan.days : []).flatMap((d) => [d?.focus, ...(Array.isArray(d?.items) ? d.items : []).map((it) => it?.ref)])
+      .filter((r) => r && r.layer === lid).map((r) => String(r.id)));
+    for (const pins of same.values()) if (pins.length > 1) {
+      const later = pins.slice(1);
+      const planned = later.some((pr) => inDays.has(String(pr.id)));
+      E(byId.get(lid)?.data || CFG, '$.features', `one place is pinned ${pins.length} times: ${pins[0].name_en || pins[0].name} (${pins.map((pr) => `${lid}:${pr.id}`).join(', ')})`,
+        `one place, one pin: remove the later ${later.length === 1 ? 'pin' : 'pins'}: ${later.map((pr) => `uw set ${args._[0]} ${lid}:${pr.id} --remove`).join('; ')}`
+          + (planned ? `; then the days: uw plan ${args._[0]} … --force in the turn that planned them, else remove its item from its day and reword that day's text; a day it leaves short takes another place, from its own page` : ''));
+    }
+  }
 
   // data files nobody uses (usually: the agent forgot to add the layer to the config)
   try {
@@ -503,24 +530,61 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
         E(CFG, '$.plan.sights', 'sights must be the layer ids uw plan --sights was given', 'rebuild: uw plan … --sights sights,food --force');
       // the turn has time to add or cite places: more than about 3 minutes left on its clock (none: no limit)
       const timeToAdd = turnLeftS == null || turnLeftS > REPLY_WITHIN_S;
+      const plannedAt = Date.parse(cfg.plan?.planned_at ?? '');
+      const plannedThisTurn = Number.isFinite(plannedAt) && (turnStartedMs == null || plannedAt >= turnStartedMs);
+      const ownPageFix = (ref) => `cite each place's own page (its own site, else its Wikipedia article): uw cite <that page> --grep "<its name>", then uw set ${args._[0]} ${ref} --props-file - with {"source_url":"<that page>","source":"<site>"}; it gives the place's item in the days that page too, so the days stay as they are`;
+      const noTimeToCite = 'too little time is left to cite their own pages in this turn; the reply names these places as not checked on a page of their own';
       // each place's source is its own page: places that share one cite a city or listing page, which only says which
       // places are worth it (three sights once all cited one city guide page; two cited a routes page that named
       // neither, and the reply vouched for it). While the turn has time it fails, a later turn's too; its fix cites
       // each place's own page with uw set, which gives the place's items in the days that page too: no new plan, which
-      // would group the days by area again and undo what the person moved
+      // would group the days by area again and undo what the person moved. Places, not pins: one place pinned twice is
+      // its own error below (its fix is not another page)
+      const sharedPages = new Set();
       if (Array.isArray(sightLayers)) {
         const byPage = new Map();
         for (const id of sightLayers) for (const f of featuresByLayer.get(id) || []) {
-          const u = f?.properties?.source_url;
+          const pr = f?.properties || {};
+          const u = pr.source_url;
           if (typeof u !== 'string' || !/^https?:\/\//i.test(u)) continue;
           const page = u.replace(/#.*$/, '');
-          if (!byPage.has(page)) byPage.set(page, []);
-          byPage.get(page).push(String(f.properties.name_en || f.properties.name || f.properties.id));
+          if (!byPage.has(page)) byPage.set(page, new Map());
+          byPage.get(page).set(placeKey(id, pr), String(pr.name_en || pr.name || pr.id));
         }
-        for (const [page, names] of byPage) if (names.length > 1)
+        for (const [page, places] of byPage) if (places.size > 1) {
+          sharedPages.add(page);
+          const names = [...places.values()];
           (timeToAdd ? E : W)(CFG, '$.plan.sights', `${names.length} places cite one page (${page}): ${names.slice(0, 4).join(', ')}${names.length > 4 ? ' …' : ''}. A page about a whole city or a list of places says which are worth it; it is not their source`,
-            timeToAdd ? `cite each place's own page (its own site, else its Wikipedia article): uw cite <that page> --grep "<its name>", then uw set ${args._[0]} <layer>:<id> --props-file - with {"source_url":"<that page>","source":"<site>"}; it gives the place's item in the days that page too, so the days stay as they are`
-              : 'too little time is left to cite their own pages in this turn; the reply names these places as not checked on a page of their own');
+            timeToAdd ? ownPageFix('<layer>:<id>') : noTimeToCite);
+        }
+      }
+      // each sight's page names it, judged from what uw cite (or uw handoff's source check) read there in the last hours,
+      // with no request: a park once cited an address that led to a photo, and two sights cited pages the turn never
+      // read, while the reply vouched for them. A page read that does not name its place (or is not a page) fails while
+      // the turn has time, in any turn; a page nobody read fails in the turn that planned the days, which cites them (a
+      // later turn's pages may have been read before these hours, or on another machine). A page places share is the
+      // error above; with every cache off (UW_NO_CACHE) nothing read is kept, so nothing is judged
+      if (Array.isArray(sightLayers) && !cacheOff()) {
+        const unread = [], unnamed = [];
+        for (const lid of sightLayers) for (const f of featuresByLayer.get(lid) || []) {
+          const pr = f?.properties || {};
+          if (typeof pr.source_url !== 'string' || !/^https?:\/\//i.test(pr.source_url) || pr.id == null || sharedPages.has(pr.source_url.replace(/#.*$/, ''))) continue;
+          const place = { ref: `${lid}:${pr.id}`, name: String(pr.name_en || pr.name || pr.id), url: pr.source_url, props: pr };
+          const read = readPage(pr.source_url);
+          if (!read) { unread.push(place); continue; }
+          const miss = unnamedSource(pr, [], read);
+          if (miss) unnamed.push({ ...place, miss });
+        }
+        const list = (xs, why) => `${xs.slice(0, 4).map((x) => `${x.name} (${x.ref}: ${x.url}${why(x)})`).join(', ')}${xs.length > 4 ? ' …' : ''}`;
+        if (unnamed.length)
+          (timeToAdd ? E : W)(CFG, '$.plan.sights', `${unnamed.length === 1 ? '1 place cites a page that does not name it' : `${unnamed.length} places cite a page that does not name them`}: ${list(unnamed, (x) => (x.miss.not_page ? ` is ${x.miss.not_page}, not a page` : ''))}`,
+            timeToAdd ? ownPageFix(unnamed.length === 1 ? unnamed[0].ref : '<layer>:<id>') : noTimeToCite);
+        if (unread.length && plannedThisTurn) {
+          const greps = unread.slice(0, 4).map((x) => `uw cite "${shellWord(x.url)}" --grep "${shellWord(namesPattern(x.props))}"`);
+          (timeToAdd ? E : W)(CFG, '$.plan.sights', `${unread.length === 1 ? '1 place cites a page' : `${unread.length} places cite pages`} no uw cite read: ${list(unread, () => '')}`,
+            timeToAdd ? `read ${unread.length === 1 ? 'it' : 'each'}: ${greps.join('; ')}${unread.length > 4 ? '; …' : ''}; then validate again: a page that names its place passes. A page that does not, or that cannot be read, is not its source: ${ownPageFix(unread.length === 1 ? unread[0].ref : '<layer>:<id>')}`
+              : 'too little time is left to read their pages in this turn; the reply names these places as not checked on their page');
+        }
       }
       // a place of those layers in no day, and not one the plan left out itself ("unplaced": no room, or far from every
       // stop), was pinned after the days were planned: a lookup still running then finished later (uw plan named it)
@@ -544,8 +608,6 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       // minutes left). A later turn keeps the days the person changed (a place moved or dropped), and a turn with too
       // little time left adds nothing: there it is a warning whose fix is what the reply says
       const oneDays = sightsAsked ? gaps.single : [];
-      const plannedAt = Date.parse(cfg.plan?.planned_at ?? '');
-      const plannedThisTurn = Number.isFinite(plannedAt) && (turnStartedMs == null || plannedAt >= turnStartedMs);
       const days4 = (list) => `${list.slice(0, 4).join(', ')}${list.length > 4 ? ' …' : ''}`;
       const notPinned = 'a place the lookup cannot pin goes on its day as {"text": "<name>", "url": "<its page>", "source": "<site>"}';
       // the fix names the reader: uw cite on each place's own page, in this turn. "A page you read" named none, and a
@@ -692,6 +754,7 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
   function checkFC(l, fc, file, base) {
     if (fc?.type !== 'FeatureCollection' || !Array.isArray(fc.features)) { E(file, base, 'not a GeoJSON FeatureCollection', 'regenerate it with the script that made it'); return; }
     featuresByLayer.set(l.id, fc.features);
+    if (fc.uw?.cmd === 'add-point') pinLayers.add(l.id);
     if (!fc.features.length) W(file, `${base}.features`, `layer "${l.id}" is empty`, 'check the query/area, or hide the layer');
     const okGeom = GEOM_OK[l.type] || [];
     const ids = new Map();
@@ -742,6 +805,16 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
     const picked = ['add-point', 'route', 'legs'].includes(fc.uw?.cmd) || (!fc.uw && !l.cluster && fc.features.length <= 20);
     if (picked && outside - farOutside > 0) W(file, base, `${outside - farOutside} feature(s) lie outside view.bounds (but close)`, `run: uw fit ${args._[0]} (frames the hand-picked layers), or widen view.bounds`);
   }
+}
+
+/** One place, whatever pin it is under: its OpenStreetMap object or register listing, else the pin itself. */
+function placeKey(layerId, p) { return p?.osm_id ? `osm:${p.osm_id}` : p?.tw_hotel_id ? `tw:${p.tw_hotel_id}` : `${layerId}:${p?.id}`; }
+/** Text inside a double-quoted shell word. */
+const shellWord = (s) => String(s).replace(/(["\\$`])/g, '\\$1');
+/** uw cite's --grep for any of a place's names ("Maria Luisa Park|Parque de María Luisa"). */
+function namesPattern(p) {
+  const names = [...new Set([p?.name_en, p?.name, p?.looked_up_as].filter((n) => typeof n === 'string' && n.trim()).map((n) => n.trim()))];
+  return names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') || String(p?.id ?? '');
 }
 
 function suggestCmd(l) {
