@@ -136,7 +136,10 @@ is applied after custom.js has run.
 **Rendering**
 - Points: emoji icons must be rasterised with a canvas and `map.addImage` (SDF glyph fonts cannot draw emoji). Coloured
   circle badge + emoji; sizes s/m/l; selected = larger + ring + subtle pulse. `cluster: true` uses GeoJSON clustering
-  with count bubbles that zoom in on tap.
+  with count bubbles that zoom in on tap. A badge's emoji is centred on the circle by where its pixels land (measured
+  once per glyph, font and pixel ratio), not by the font's advance and baseline, which differ by font and platform; a
+  letter or number is placed up and down by its pixels and keeps the font's advance centred across. The list and card
+  badges place their emoji the same way.
 - Lines: width/colour/dash; `{prop}` colour with fallback. Casing for legibility.
 - Areas: fill + outline. Grid: the feel layer (see 2.6). Heat: MapLibre heatmap, fades out at high zoom into points.
 - Route: line + direction arrows; "Walk it ▶" animates a dot along the line (~6 s, camera follows); tap anywhere stops.
