@@ -3,6 +3,26 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.32 (2026-11-04)
+
+- **A pin's emoji, letter or number sits in the middle of its circle.** Badges, letter pins, numbered stops, leg
+  badges and the walker centred their glyph on the font's advance and middle baseline, with a fixed nudge down, so the
+  glyph landed wherever the font's metrics put it. On a Mac, Apple Color Emoji's advance at pin sizes is wider than
+  its picture, the extra space all on its right (18 px for a 14 px picture), so every emoji sat up to 2 px left of the
+  centre (8% of a small pin's width) and up to 1.7 px high; on Linux, Noto Color Emoji sat up to 1.9 px low (a bus
+  3.7 px); a "1" or a "J" sat off centre too, and the dot of an option pin with no letter sat 0.7 px high on a Mac and
+  1.2 px low on Linux. Each glyph is now placed by where its pixels land: its ink is measured once per glyph, font and
+  pixel ratio on a small canvas at the pin's scale, and the centre of its ink box goes on the circle's centre (a glyph
+  that draws nothing keeps the old placement). Sizes, colours, rings, shadows and the night look are unchanged, and so
+  are clusters' count bubbles, whose emoji runs inline with the count. A site made before 0.1.32 keeps its own
+  `engine/` until `uw upgrade <site>`.
+- **Tests:** in a browser (skipped without Playwright), badges (26, 32 and 40 px), the ring badges of legs and the
+  walker, and letter pins (26, 32 and 40 px), drawn at device pixel ratios 2 and 3, as drawn and 1.32× as a selected
+  pin shows them: the centre of each glyph's ink box is within 0.5 px of the circle's centre, across and up or down,
+  for letters, digits and the dot of an option pin with no letter and, where a colour emoji font exists, emoji. It
+  fails without the change on macOS (Apple Color Emoji, SF) and on Linux (Noto Color Emoji, Nimbus Sans), the letters
+  and the dot alone too.
+
 ## 0.1.31 (2026-11-03)
 
 Fixes to 0.1.30.
