@@ -31,11 +31,13 @@ function themeNight(c) {
 // A glyph in a disc is placed by its pixels: textAlign "center" centres the font's advance and textBaseline "middle"
 // its em box, and neither says where the ink is (Apple Color Emoji's advance at pin sizes is wider than its picture,
 // the extra space all on its right; other platforms have other fonts). inkCentre: where the ink of `text` (every pixel
-// about a tenth covered or more) lands around that anchor, in CSS px, measured once per text, font and pixel ratio on
-// a small canvas at the same scale; null when nothing is drawn.
+// about a tenth covered or more) lands around a centred anchor on `baseline` ("middle" or "alphabetic"), in CSS px,
+// measured once per text, font, pixel ratio and baseline on a small canvas at the same scale, with the anchor on a
+// whole device pixel as the glyph is then drawn (at a fractional one the raster can land a pixel apart); null when
+// nothing is drawn.
 const INK = new Map();
-function inkCentre(text, font, pr) {
-  const key = `${pr}|${font}|${text}`;
+function inkCentre(text, font, pr, baseline = 'middle') {
+  const key = `${pr}|${baseline}|${font}|${text}`;
   if (INK.has(key)) return INK.get(key);
   let at = null;
   try {
@@ -44,8 +46,9 @@ function inkCentre(text, font, pr) {
     const size = parseFloat(/([\d.]+)px/.exec(g.font)?.[1]) || 16;
     const ox = Math.ceil(g.measureText(text).width / 2 + size), oy = Math.ceil(size * 1.5);
     c.width = Math.ceil(ox * 2 * pr); c.height = Math.ceil(oy * 2 * pr);
-    g.scale(pr, pr); g.font = font; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#000';
-    g.fillText(text, ox, oy);
+    const ax = Math.round(ox * pr) / pr, ay = Math.round(oy * pr) / pr;
+    g.scale(pr, pr); g.font = font; g.textAlign = 'center'; g.textBaseline = baseline; g.fillStyle = '#000';
+    g.fillText(text, ax, ay);
     const W = c.width, H = c.height, a = g.getImageData(0, 0, W, H).data;
     let x0 = W, y0 = H, x1 = -1, y1 = -1;
     for (let y = 0; y < H; y++) {
@@ -57,17 +60,37 @@ function inkCentre(text, font, pr) {
         y1 = y;
       }
     }
-    if (x1 >= 0) at = [(x0 + x1 + 1) / 2 / pr - ox, (y0 + y1 + 1) / 2 / pr - oy];
+    if (x1 >= 0) at = [(x0 + x1 + 1) / 2 / pr - ax, (y0 + y1 + 1) / 2 / pr - ay];
   } catch { at = null; }
   INK.set(key, at);
   return at;
 }
-/** fillText with the ink's centre on (x, y), on whole device pixels; a glyph that draws nothing keeps the old nudge `dy` */
-function fillCentred(g, text, x, y, pr, dy) {
+/** fillText with the ink's centre on (x, y), on whole device pixels. `across` false (a letter or number) keeps the
+ *  font's advance centred on x, as a font spaces a "1" or a "J" to look centred (its ink box would put a "1"'s stem
+ *  right of the middle), and places it only up and down by its ink. A glyph that draws nothing keeps the old nudge `dy`. */
+function fillCentred(g, text, x, y, pr, dy, across = true) {
   g.textAlign = 'center'; g.textBaseline = 'middle';
   const at = inkCentre(text, g.font, pr);
   if (!at) { g.fillText(text, x, y + dy); return; }
-  g.fillText(text, Math.round((x - at[0]) * pr) / pr, Math.round((y - at[1]) * pr) / pr);
+  g.fillText(text, across ? Math.round((x - at[0]) * pr) / pr : x, Math.round((y - at[1]) * pr) / pr);
+}
+/** A list or card badge's emoji (ui.js badge, `box` px wide) placed by its ink as a pin's is: the badge centres the
+ *  font's advance and line box, not the picture. SVG text (in the badge's text colour) in an SVG as big as the badge,
+ *  which the badge centres onto itself (a box at a fractional offset inside it would be snapped to a whole px); the
+ *  plain text when nothing is drawn. */
+export function badgeGlyph(text, size, box) {
+  const font = `${size}px ${EMOJI_FONT}`, pr = window.devicePixelRatio || 1;
+  const at = inkCentre(text, font, pr, 'alphabetic');
+  if (!at) return text;
+  const NS = 'http://www.w3.org/2000/svg', svg = document.createElementNS(NS, 'svg'), t = document.createElementNS(NS, 'text');
+  svg.setAttribute('width', box); svg.setAttribute('height', box); svg.setAttribute('aria-hidden', 'true');
+  svg.style.cssText = 'flex:none;display:block;overflow:visible';
+  t.setAttribute('x', Math.round((box / 2 - at[0]) * pr) / pr); t.setAttribute('y', Math.round((box / 2 - at[1]) * pr) / pr);
+  t.setAttribute('text-anchor', 'middle');
+  t.style.font = font; t.style.fill = 'currentColor';
+  t.textContent = text;
+  svg.append(t);
+  return svg;
 }
 
 export function drawBadge({ emoji, color = '#64748b', d = 32, ring = false, dot = false }) {
@@ -105,7 +128,7 @@ export function drawLetter({ letter, color = '#2563eb', d = 40, emoji = null }) 
   g.shadowColor = 'transparent';
   g.beginPath(); g.arc(cx, cx, r - 2.2, 0, Math.PI * 2); g.fillStyle = color; g.fill();
   g.fillStyle = '#ffffff';
-  if (letter) { g.font = `800 ${Math.round(d * 0.5)}px -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif`; fillCentred(g, letter, cx, cx, pr, d * 0.03); }
+  if (letter) { g.font = `800 ${Math.round(d * 0.5)}px -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif`; fillCentred(g, letter, cx, cx, pr, d * 0.03, false); }
   else if (emoji) { g.font = `${Math.round(d * 0.5)}px ${EMOJI_FONT}`; fillCentred(g, emoji, cx, cx, pr, d * 0.045); }
   return { img: { width: W, height: W, data: new Uint8Array(g.getImageData(0, 0, W, W).data.buffer) }, pixelRatio: pr };
 }

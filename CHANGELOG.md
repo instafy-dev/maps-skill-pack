@@ -5,21 +5,33 @@ All notable changes to this pack. Versions follow [semantic versioning](https://
 
 ## 0.1.32 (2026-11-04)
 
-- **A pin's emoji, letter or number sits in the middle of its circle.** Badges, letter pins, numbered stops, leg
-  badges and the walker centred their glyph on the font's advance and middle baseline, with a fixed nudge down, so the
-  glyph landed wherever the font's metrics put it. On a Mac, Apple Color Emoji's advance at pin sizes is wider than
-  its picture, the extra space all on its right (18 px for a 14 px picture), so every emoji sat up to 2 px left of the
-  centre (8% of a small pin's width) and up to 1.7 px high; on Linux, Noto Color Emoji sat up to 1.9 px low (a bus
-  3.7 px); a "1" or a "J" sat off centre too, and the dot of an option pin with no letter sat 0.7 px high on a Mac and
-  1.2 px low on Linux. Each glyph is now placed by where its pixels land: its ink is measured once per glyph, font and
-  pixel ratio on a small canvas at the pin's scale, and the centre of its ink box goes on the circle's centre (a glyph
-  that draws nothing keeps the old placement). Sizes, colours, rings, shadows and the night look are unchanged, and so
-  are clusters' count bubbles, whose emoji runs inline with the count. A site made before 0.1.32 keeps its own
-  `engine/` until `uw upgrade <site>`.
-- **Tests:** in a browser (skipped without Playwright), badges (26, 32 and 40 px), the ring badges of legs and the
-  walker, and letter pins (26, 32 and 40 px), drawn at device pixel ratios 2 and 3, as drawn and 1.32× as a selected
-  pin shows them: the centre of each glyph's ink box is within 0.5 px of the circle's centre, across and up or down,
-  for letters, digits and the dot of an option pin with no letter and, where a colour emoji font exists, emoji. It
+- **A pin's emoji sits in the middle of its circle.** Badges, emoji option pins, leg badges and the walker centred
+  their emoji on the font's advance and middle baseline, with a fixed nudge down, so the picture landed wherever the
+  font's metrics put it. In Chrome on a Mac, Apple Color Emoji's advance at pin sizes is wider than its picture, the
+  extra space all on its right (18 px for a 14 px picture), so every emoji sat up to 2 px left of the centre (8% of a
+  small pin's width) and up to 1.9 px high; in WebKit (Safari) every emoji sat 1.2 to 3.7 px low; on Linux, Noto Color
+  Emoji sat up to 1.9 px low (a bus in a leg badge 3.7 px). An emoji is now placed by where its pixels land: its ink
+  is measured once per glyph, font and pixel ratio on a small canvas at the pin's scale, on the same grid of device
+  pixels as the pin (also at a pixel ratio such as 2.2), and the centre of its ink box goes on the circle's centre (a
+  glyph that draws nothing keeps the old placement). The dot of an option pin with no letter (0.7 px high in Chrome on
+  a Mac, 1.2 px low on Linux, 1.7 px low in Safari) is placed the same way.
+- **A letter or number sits in the middle up and down, and where its font centres it across.** Letter pins and
+  numbered stops sat up to 0.5 px low in Chrome and 1.5 px low in Safari; they are now placed up and down by their
+  pixels too. Across they keep the font's advance centred, as before: a font spaces a "1" or a "J" to look centred,
+  and centring its ink box would put a "1"'s stem right of the middle.
+- **A list or card badge's emoji sits in the middle of its circle too.** The round badges of place lists, card heads,
+  the layer list and compare columns centred the emoji's advance and line box: 2 px left of the centre in Chrome on a
+  Mac (6% of a 32 px badge), 1.75 to 3.5 px high on Linux, up to 1.8 px low in Safari. The emoji is now SVG text
+  placed by the same measurement, in the pins' emoji font and the badge's text colour.
+- Sizes, colours, rings, shadows and the night look are unchanged, and so are clusters' count bubbles, whose emoji
+  runs inline with the count, and the letter chips of lists. A site made before 0.1.32 keeps its own `engine/` until
+  `uw upgrade <site>`.
+- **Tests:** in a browser (skipped without Playwright, so not in CI, like the other browser tests): the engine's pins
+  (badges at 26, 32 and 40 px, the ring badges of legs and the walker, letter pins at 26, 32 and 40 px) drawn at
+  device pixel ratios 2, 3, 2.2 and 2.5, as drawn and 1.32× as a selected pin shows them: an emoji's or the dot's ink
+  box centre is within 0.5 px of the circle's centre, across and up or down, and a letter's ink box centre up and
+  down and its advance's centre across; and the badges `ui.js` makes, with `engine.css`, at device pixel ratios 2 and
+  3: the emoji's ink box centre is within 0.5 px of the disc's. Emoji are checked where a colour emoji font exists. It
   fails without the change on macOS (Apple Color Emoji, SF) and on Linux (Noto Color Emoji, Nimbus Sans), the letters
   and the dot alone too.
 

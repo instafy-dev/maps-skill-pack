@@ -2,6 +2,7 @@
 // Kit-owned file: sites should not edit it.
 import { h, clamp, fill, fmtHour, fmtMetric, fmtDate, humanize, timeIcon, distM, isIOS, round6, reducedMotion, BASIS, LETTER_COLORS, safeUrl, word, isDepartDay } from './util.js';
 import { BASIS_TAG, Question } from './question.js';
+import { badgeGlyph } from './layers.js';
 
 const ICONS = {
   clock: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></g></svg>',
@@ -480,8 +481,9 @@ export class UI {
     if (!n) this.placesList.append(h('p.uw-empty', q ? `Nothing matches “${q}”.` : 'No places yet.'));
   }
 
+  /** a place's round badge in lists and card heads; its emoji is placed by its ink, as on the map's pins */
   badge(emoji, color, d = 36) {
-    return h('span.uw-badge', { style: { background: color || '#64748b', width: d + 'px', height: d + 'px', fontSize: Math.round(d * 0.5) + 'px' }, 'aria-hidden': 'true' }, emoji || '');
+    return h('span.uw-badge', { style: { background: color || '#64748b', width: d + 'px', height: d + 'px', fontSize: Math.round(d * 0.5) + 'px' }, 'aria-hidden': 'true' }, emoji ? badgeGlyph(emoji, Math.round(d * 0.5), d) : '');
   }
 
   // ----- plan -----
