@@ -161,9 +161,10 @@ rather than reply. Sights come from `uw cite` in this turn, never from a browser
    stay found (exit 2 after widening, or exit 4): pin the area as the recommendation, labelled as one:
    `uw add-point <site> --layer stays --query "<area>, <City>" --kind area --id <area slug> --props-file - <<'JSON'`, then
    `{"stop":"<slug>","note":"Area to stay in: <why, from the page>","source_url":"<that page>","source":"<site>"}` and
-   `JSON` on their own lines (the days start there; no page says why: no note), and the reply says places to stay
-   were not looked up yet. `uw validate` fails while a stop's only stay is an area and `uw stay` has not looked there,
-   or while an area's note cites no page `uw cite` read.
+   `JSON` on their own lines (the days start there; no page says why: no note), and the reply says what `uw stay`
+   said: none found near it (exit 2), or places to stay not looked up yet (exit 4). `uw validate` fails while a stop's
+   only stay is an area and `uw stay` has not looked there (widened to 3000 m when it found none), or while an area's
+   note cites no page `uw cite` read.
 3. **Places by area**, before the plan: per day an area worth the day (a neighbourhood, a district a ride away, a day
    trip), 2-3 sourced places in it (Phase B step 1, with `"stop":"<slug>"`). Never put a place on a day because a
    list had room. Every full day gets its places before the reply: `uw validate` fails while one has fewer than two.

@@ -1,4 +1,6 @@
 // `set`: edit a feature's properties (note, name, metrics…) or remove it, without geocoding or re-fetching anything.
+import fs from 'node:fs';
+import path from 'node:path';
 import { parseArgs, makeOut, readJSON, writeJSON, writeGeoJSON, propsArg, UsageError, UserError } from './util.mjs';
 import { openSite, loadLayer, layerPath, withSiteLock } from './site.mjs';
 import { unnamedSource, unnamedSourceLine, sourceStamp } from './cmd-cite.mjs';
@@ -8,8 +10,9 @@ set <dir> plan:day<N> --note "…" | --unset note [--json]
   Changes properties of one feature in data/<layer>.geojson in place (other properties, metrics and geometry stay), or
   removes it (--remove). No network. Use it to fix a note, label or prop after add-point / enrich instead of re-running them.
   plan:day1 is the plan's first day: --note gives that day its own line (a note for day 1: "book the tickets ahead"),
-  shown under the day's text in the Plan tab, above its places; --note "" or --unset note takes it off. A place's or
-  a stop's note shows on its own card, never in a day. uw plan --force keeps each day's note.
+  shown under the day's text in the Plan tab, above its places (a map made before day notes keeps it but does not
+  show it: said); --note "" or --unset note takes it off. A place's or a stop's note shows on its own card, never in a
+  day. uw plan --force keeps each day's note.
   Geometry and "id" cannot be changed here (re-run add-point for a different place).
   A source_url that \`uw cite\` read (in the last hours) and that does not name the place is said at once: that page is
   not its source; cite the place's own page.
@@ -116,12 +119,21 @@ function setDayNote(args, out, site, ref) {
     return { day: d, changed: true };
   });
   const title = String(day.title || `day ${n}`);
-  out.result({ ok: true, day: Number(n), title, note: note || null, changed: changed ? ['note'] : [] }, [
+  // a map whose page came from a pack before day notes (its own engine/) does not show one: said, so the reply never
+  // says the map shows a note nobody can see
+  const shown = dayNotesShown(site);
+  out.result({ ok: true, day: Number(n), title, note: note || null, changed: changed ? ['note'] : [], shown }, [
     !changed ? `Nothing changed on day ${n} (${title}).`
-      : note ? `Day ${n} (${title}) has its note: "${note}". The Plan tab shows it under the day's text, above its places.`
-        : `Day ${n} (${title}) has no note now.`,
+      : !note ? `Day ${n} (${title}) has no note now.`
+        : shown ? `Day ${n} (${title}) has its note: "${note}". The Plan tab shows it under the day's text, above its places.`
+          : `Day ${n} (${title}) has its note: "${note}", but this map's page was made before day notes and does not show it: the reply says it is saved with day ${n}, not that the map shows it.`,
   ]);
   return 0;
+}
+
+/** Does the site's own page draw a day's note (its engine/ui.js, copied from the pack when the map was made)? */
+function dayNotesShown(site) {
+  try { return fs.readFileSync(path.join(site.dir, 'engine', 'ui.js'), 'utf8').includes('uw-day-note'); } catch { return false; }
 }
 
 /** A place's items in the plan's days (`ref` = this place) link the page it cites, as uw plan wrote them (`url` =

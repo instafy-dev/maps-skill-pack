@@ -8,37 +8,50 @@ All notable changes to this pack. Versions follow [semantic versioning](https://
 - **A trip's places to stay come from `uw stay`, with or without `--expect`.** A map made for "3 days in Seville …
   where to stay" without `uw new --expect` had only its area pinned as the place to stay, with a note no page had
   said, pinned before any page was read; `uw stay` never ran, and `uw validate` passed: it checked a trip only through
-  "expect". A stop with nights on the map is now a trip's either way. `uw validate` fails while a stop's only place to
-  stay is an area and `uw stay` has not looked there, naming the command (`uw stay <site> --near <the area> --stop
-  <stop> --kinds hotel`, then `uw plan … --force`), and while an area's note says why to stay there with no page
-  `uw cite` read that names it (the fix cites one, or takes the note off and the reply says places to stay were not
-  looked up yet). A stop with nights and no plan is a trip with no plan, as with "expect". In a later turn (one that
-  adds a note to a day, say) both are warnings, and so is a stop with no place to stay at all: a person may have a
-  place of their own.
-- **`uw stay`'s picks take the area's place.** It writes into the stays layer `uw add-point` made for the area
-  (refused before as "written by add-point") when every place in it belongs to a stop, and the stop's area gives way
-  to its picks. Each run, found or not (exit 2, exit 4), is kept in the site's state folder as that stop's lookup, so
-  an area stays the recommendation once `uw stay` found none there.
+  "expect". A stop with nights on the map is now a trip's either way. A place to stay is lodging by its kind, or what
+  `uw stay` found: an area, a square or a landmark only says where to stay. `uw validate` fails while a stop has no
+  place to stay but such a pin and `uw stay` has not looked around it, naming the command (`uw stay <site> --near
+  <the area> --stop <stop> --kinds hotel`, then `uw plan … --force`); a lookup that found none counts once it was
+  widened to 3000 m, and until then validate names the same lookup, wider, as `uw stay` printed it. It also fails
+  while an area's note says why to stay there with no page `uw cite` read that names it. Its fixes word the reply from
+  what `uw stay` found: none near the area, or not looked up yet while the search was busy. A stop with nights and no
+  plan is a trip with no plan, as with "expect". These fail in the turn that built the stop or its stays; a later turn
+  (a note to a day, a sight added and the days planned again) is warned, as is a stop with no place to stay at all: a
+  person may have a place of their own.
+- **`uw stay`'s picks take the place of the area it looked around, and nothing else.** With `--near <layer>:<area>`
+  in the layer `uw add-point` pinned the area in (refused before as "written by add-point"), the area gives way to the
+  picks, said by name, and when the plan's days started there it says to plan them again; validate's error for a day
+  that names a place no longer on the map says so too. A place pinned by hand (the traveller's own booking, a
+  researched hotel) and another area stay, also on a run near the city. That layer takes the picks when every place in
+  it belongs to a stop or is that area. `--stop` keeps an id the map has as given, so the picks and the lookup are
+  filed under the stop validate and `uw plan` look for. Each run, found or not (exit 2, exit 4), is kept in the site's
+  state folder as that stop's lookup.
 - **A note for a day lands on that day.** `uw set <site> plan:day1 --note "…"` gives day 1 its own line, which the
   Plan tab shows under the day's text and above its places, as the timeline page shows a day's note (`--note ""` or
   `--unset note` takes it off). `uw set` reached only a layer's features, so "Add a note to day 1" went on the city's
   stop, whose card showed it while day 1 did not. `uw plan --force` keeps each day's note on its day, and names one on
-  a day the new plan no longer has; `uw validate` checks that a day's note is one line of at most 120 characters.
+  a day the new plan no longer has; `uw validate` checks that a day's note is one line of at most 120 characters. A map
+  made before 0.1.33 keeps its own page (`engine/`), which does not draw a day's note: there `uw set` saves the note
+  and says the page does not show it, so the reply does not say the map shows it (`uw upgrade <site>` replaces the
+  page's `engine/`).
 - `SKILL.md` names a day's note in "Config and later changes", and the trip reference in "Later changes to a trip";
-  the trip reference's "One base" area takes the page that says why (`source_url`, `source`) and says what
-  `uw validate` checks. To stay within the skill's size budget, `SKILL.md` drops "First use: `uw doctor`" (a map turn
-  spent about 10 s on its service probes; every command says itself when a service is busy) and "(this is it)".
-- A site made before 0.1.33 shows a day's note once `uw upgrade <site>` replaced its `engine/`; new sites show it.
+  the trip reference's "One base" area takes the page that says why (`source_url`, `source`), its reply says what
+  `uw stay` found, and it says what `uw validate` checks. To stay within the skill's size budget, `SKILL.md` drops
+  "First use: `uw doctor`" (a map turn spent about 10 s on its service probes; every command says itself when a
+  service is busy) and "(this is it)".
 - **Tests:** `tests/stays-and-day-notes.test.mjs` (offline: the place search, the lodging search and the walking
   router are a local mock). The run's map fails `uw validate` with the stays error and the note error; the `uw stay`
   command it names runs as printed, writes three hotels into the area's layer in the area's place, and after
-  `uw plan --force` validate passes. A list of places to stay passes. After `uw stay` found none (exit 2) the area
-  passes, and its note fails until it cites a page `uw cite` read that names it (a page that does not fails too). A
-  later turn is warned, and a stop with nights and no plan fails. `uw set plan:day1 --note` changes day 1's note and
-  nothing else (no data file, no other day), `uw plan --force` keeps it, and a missing day, `--name` with it or a
-  121-character note are refused. The skill's texts name both. `tests/day-note-browser.test.mjs` (Playwright, skipped
-  without it like the other browser tests): the Plan tab shows day 1's note as plain text under its text and above
-  its places, and day 2 none. All six fail without the change.
+  `uw plan --force` validate passes. So it does for an area pinned with no stop and for a stop whose id is not a slug.
+  A list of places to stay passes; a square does not. A lookup that found none within 800 m is named again, wider,
+  and the wider one clears it; none within 3000 m passes the area, and the reply's words say none was found. The
+  traveller's own hotel and a second area survive `uw stay`, and the area it took the place of is named with the
+  days to plan again. A later turn is warned, also after adding a sight and planning the days again, and a stop with
+  nights and no plan fails. `uw set plan:day1 --note` changes day 1's note and nothing else (no data file, no other
+  day), `uw plan --force` keeps it, a map whose page draws no day notes is told so, and a missing day, `--name` with
+  it or a 121-character note are refused. The skill's texts name both. `tests/day-note-browser.test.mjs`
+  (Playwright, skipped without it like the other browser tests): the Plan tab shows day 1's note as plain text under
+  its text and above its places, and day 2 none. Each fails without its change.
 
 ## 0.1.32 (2026-11-04)
 

@@ -10,6 +10,8 @@ import { stateDirOf, stateDirsOf } from './state-dir.mjs';
 import { isLodging } from './registry-geo.mjs';
 
 const FILE = 'stays-looked-up.json';
+/** uw stay's widest radius (m): none found there is as far as it looks. */
+export const STAY_RADIUS_MAX = 3000;
 
 // a pin that is an area, not a place to stay: the "--kind area" recommendation, or a neighbourhood, district or town
 // pinned in a stays layer
@@ -18,11 +20,22 @@ const AREA_KINDS = new Set(['area', 'neighbourhood', 'neighborhood', 'suburb', '
 /** Is this feature an area (pinned as the place to stay), not a place to stay? */
 export const isAreaPin = (props) => AREA_KINDS.has(String(props?.kind ?? '').toLowerCase());
 
+// where a traveller sleeps: lodging (a hotel, hostel, guest house, apartment …), a hut or a campsite
+const sleepsIn = (kind) => isLodging({ kind }) || /(^|_)(hut|camp_site|caravan_site|shelter)$/.test(String(kind ?? '').toLowerCase());
+
+/** A place to stay among a trip's stays: lodging by its kind, a pick of uw stay (it keeps where it looked: near_ref) or a
+ *  hotel a research team named. Anything else pinned there (an area, a square, a landmark) only says where to stay. */
+export const isPlaceToStay = (props) => sleepsIn(props?.kind) || props?.near_ref != null || props?.researched === true;
+
 /** A stop that is itself where the traveller sleeps (a hut, a campsite, a hotel asked for as a stop): no stays of its own. */
-export const stopIsAStay = (props) => isLodging({ kind: props?.kind }) || /(^|_)(hut|camp_site|caravan_site|shelter)$/.test(String(props?.kind ?? '').toLowerCase());
+export const stopIsAStay = (props) => sleepsIn(props?.kind);
+
+/** Did uw stay look as far as it goes: it found some, the search was busy (exit 4), or none within its widest radius
+ *  (a first run looks 800 m around; with none it prints the same lookup, wider)? */
+export const lookedAsFarAsItGoes = (rec) => !!rec && (rec.status !== 'none' || !(Number(rec.radius) < STAY_RADIUS_MAX));
 
 /** Where uw stay looked for places to stay on the site in `dir`: { <stop id>: { at, status: found | none | unavailable,
- *  found, radius, near } }. No network. */
+ *  found, radius, near, widen: the same lookup wider, after none } }. No network. */
 export function staysLookedUp(dir, env = process.env) {
   const out = {};
   for (const d of stateDirsOf(dir, env)) {

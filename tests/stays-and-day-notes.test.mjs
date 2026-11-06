@@ -115,17 +115,31 @@ const layerOf = (site, id) => JSON.parse(fs.readFileSync(path.join(tmp, site, 'd
 const ok = (r, what) => assert.equal(r.code, 0, `${what}: ${r.out}${r.err}`);
 
 /** The run's map, as its turn built it: no --expect, the city with its nights, the area pinned as the place to stay
- *  with a note no page said, six sights from their own pages, and the plan. */
-async function runsMap(site) {
+ *  with a note no page said, six sights from their own pages, and the plan. `stop`: the stop's id; `area`: the area's
+ *  props (its "stop" too). */
+async function runsMap(site, { stop = 'seville', area = { stop, note: 'Recommended base area for first-time visitors; historic centre location.' } } = {}) {
   ok(await uw(['new', site, '--title', 'Three days in Seville', '--ask', 'Where to stay and what to see each day', '--center', SANTA_CRUZ.join(','), '--zoom', '13']), 'new');
-  ok(await uw(['add-point', site, '--layer', 'stops', '--query', 'Seville', '--country', 'ES', '--kind', 'city', '--id', 'seville', '--props', '{"nights":3}']), 'the stop');
+  ok(await uw(['add-point', site, '--layer', 'stops', '--query', 'Seville', '--country', 'ES', '--kind', 'city', '--id', stop, '--props', '{"nights":3}']), 'the stop');
   ok(await uw(['add-point', site, '--layer', 'stays', '--query', 'Santa Cruz, Seville', '--near', SANTA_CRUZ.join(','), '--id', 'santa-cruz-area', '--kind', 'area', '--props-file', '-'],
-    { input: JSON.stringify({ stop: 'seville', note: 'Recommended base area for first-time visitors; historic centre location.' }) }), 'the area');
+    { input: JSON.stringify(area) }), 'the area');
   for (const s of SIGHTS) {
     ok(await uw(['add-point', site, '--layer', 'sights', '--query', s.name, '--country', 'ES', '--strict-name', '--near', SANTA_CRUZ.join(','), '--id', s.id, '--props-file', '-'],
-      { input: JSON.stringify({ stop: 'seville', source_url: s.page, source: 'Wikipedia' }) }), s.name);
+      { input: JSON.stringify({ stop, source_url: s.page, source: 'Wikipedia' }) }), s.name);
   }
-  ok(await uw(['plan', site, '--stops', 'stops', '--ids', 'seville', '--nights', '3', '--start', '2026-11-06', '--stays', 'stays', '--sights', 'sights']), 'plan');
+  ok(await uw(['plan', site, '--stops', 'stops', '--ids', stop, '--nights', '3', '--start', '2026-11-06', '--stays', 'stays', '--sights', 'sights']), 'plan');
+  ok(await uw(['fit', site]), 'fit');
+}
+/** The `uw stay` command a validate error names, as words to run (its fix starts with it). */
+const stayCmd = (fix) => fix.match(/^uw (stay [^(]+?) \(/)[1].split(' ');
+const staysError = (v) => v.json.errors.find((e) => /^places to stay:/.test(e.message));
+/** A small one-stop trip for the stays checks: the city (2 nights) and what is pinned in its stays layer. */
+async function smallTrip(site, pins) {
+  ok(await uw(['new', site, '--title', 'Seville', '--center', SANTA_CRUZ.join(','), '--zoom', '13']), 'new');
+  ok(await uw(['add-point', site, '--layer', 'stops', '--query', 'Seville', '--country', 'ES', '--kind', 'city', '--id', 'seville', '--props', '{"nights":2}']), 'stop');
+  for (const p of pins) {
+    ok(await uw(['add-point', site, '--layer', 'stays', '--at', p.c.join(','), '--name', p.name, '--kind', p.kind, '--id', p.id, '--props-file', '-'], { input: JSON.stringify(p.props) }), p.name);
+  }
+  ok(await uw(['plan', site, '--stops', 'stops', '--ids', 'seville', '--nights', '2', '--start', '2026-11-06', '--stays', 'stays']), 'plan');
   ok(await uw(['fit', site]), 'fit');
 }
 
@@ -139,7 +153,7 @@ test('validate: a trip made without --expect fails while its only stay is an are
   assert.equal(stays.message, 'places to stay: Seville (3 nights) has only the area Santa Cruz to stay in, and uw stay has not looked for any there');
   assert.equal(stays.file, 'data/stops.geojson');
   assert.match(stays.fix, /^uw stay sv --near stays:santa-cruz-area --stop seville --kinds hotel \(hotels unless the person asked for hostels; reference\/itinerary\.md "One base" step 2\), then uw plan sv … --stays stays --force/);
-  assert.match(stays.fix, /None found \(exit 2 after widening, or exit 4\): the area is the recommendation, its note from a page you read, and the reply says places to stay were not looked up yet$/);
+  assert.match(stays.fix, /None found within 3000 m \(exit 2\): the area is the recommendation, its note from a page you read, and the reply says no place to stay was found near it\. Exit 4 \(the search was busy\): the reply says places to stay were not looked up yet$/);
   // the area's note says why to stay there, and no page said it
   const note = v.json.errors.find((e) => /^the area Santa Cruz/.test(e.message));
   assert.ok(note, JSON.stringify(v.json.errors, null, 1));
@@ -237,7 +251,7 @@ test('uw set plan:day1 --note writes day 1\'s own note and nothing else; uw plan
   const cfgBefore = cfgOf('notes');
   const r = await uw(['set', 'notes', 'plan:day1', '--note', 'Book the Alcázar tickets ahead.', '--json']);
   ok(r, 'set the note');
-  assert.deepEqual(r.json, { ok: true, day: 1, title: 'Fri 6 Nov · Seville', note: 'Book the Alcázar tickets ahead.', changed: ['note'] });
+  assert.deepEqual(r.json, { ok: true, day: 1, title: 'Fri 6 Nov · Seville', note: 'Book the Alcázar tickets ahead.', changed: ['note'], shown: true });
   const cfg = cfgOf('notes');
   assert.equal(cfg.plan.days[0].note, 'Book the Alcázar tickets ahead.');
   assert.ok(cfg.plan.days.slice(1).every((d) => d.note === undefined), 'only day 1');
@@ -280,8 +294,148 @@ test('the skill names a day\'s note and a trip\'s stays: SKILL.md, the trip refe
   const md = fs.readFileSync(path.join(SKILL, 'SKILL.md'), 'utf8').replace(/\s+/g, ' ');
   assert.match(md, /Trips: `reference\/itinerary\.md` "Later changes to a trip"; a day's note: `uw set <site> plan:day1 --note "…"`\./);
   const trip = fs.readFileSync(path.join(SKILL, 'reference', 'itinerary.md'), 'utf8').replace(/\s+/g, ' ');
-  assert.match(trip, /`uw validate` fails while a stop's only stay is an area and `uw stay` has not looked there, or while an area's note cites no page `uw cite` read\./);
+  assert.match(trip, /and the reply says what `uw stay` said: none found near it \(exit 2\), or places to stay not looked up yet \(exit 4\)\. `uw validate` fails while a stop's only stay is an area and `uw stay` has not looked there \(widened to 3000 m when it found none\), or while an area's note cites no page `uw cite` read\./);
   assert.match(trip, /- A note for a day \("add a note to day 1: book the tickets ahead"\): `uw set <site> plan:day1 --note "<the note>"`, the day's own line under its text in the Plan tab/);
   const help = await uw(['set', '--help']);
   assert.match(help.out, /^set <dir> plan:day<N> --note "…" \| --unset note \[--json\]$/m);
+});
+
+test('uw stay keeps places it did not write: a traveller\'s own hotel and another area to stay in stay; only the area it looked around gives way, said by name', async () => {
+  // the traveller's own booking, pinned for the stop as the trip reference pins a place, and the city's two areas
+  const TRIANA = off(SANTA_CRUZ, -1150, 0);
+  await smallTrip('own', [
+    { id: 'my-hotel', name: 'Casa de la Persona', kind: 'hotel', c: off(SANTA_CRUZ, -200, 100), props: { stop: 'seville', note: 'Booked by me' } },
+    { id: 'santa-cruz', name: 'Santa Cruz', kind: 'area', c: SANTA_CRUZ, props: { stop: 'seville' } },
+    { id: 'triana', name: 'Triana', kind: 'area', c: TRIANA, props: { stop: 'seville' } },
+  ]);
+  const near = await uw(['stay', 'own', '--near', 'stops:seville', '--stop', 'seville', '--kinds', 'hotel', '--json']);
+  ok(near, 'uw stay near the city');
+  const ids = () => layerOf('own', 'stays').map((f) => f.properties.id);
+  assert.ok(ids().includes('my-hotel'), `the traveller's own hotel stays: ${ids()}`);
+  assert.equal(layerOf('own', 'stays').find((f) => f.properties.id === 'my-hotel').properties.note, 'Booked by me');
+  assert.ok(ids().includes('santa-cruz') && ids().includes('triana'), `a lookup around the city takes no area's place: ${ids()}`);
+  assert.equal(near.json.replaced, undefined);
+  // validate's command for an area: that area gives way to the picks, by name; the other area and the hotel stay
+  const around = await uw(['stay', 'own', '--near', 'stays:santa-cruz', '--stop', 'seville', '--kinds', 'hotel']);
+  ok(around, 'uw stay around Santa Cruz');
+  assert.match(around.out, /^These take the place of the area Santa Cruz \(stays:santa-cruz\)/m);
+  assert.ok(!ids().includes('santa-cruz'), `the area it looked around gave way: ${ids()}`);
+  assert.ok(ids().includes('my-hotel') && ids().includes('triana'), `the rest stay: ${ids()}`);
+  // a run again around the same place replaces its own earlier picks, and nothing pinned by hand
+  ok(await uw(['stay', 'own', '--near', 'stays:triana', '--stop', 'seville', '--kinds', 'hotel', '--radius', '3000', '--max', '1']), 'around Triana');
+  assert.ok(ids().includes('my-hotel'), `the traveller's own hotel stays: ${ids()}`);
+  assert.equal(layerOf('own', 'stays').find((f) => f.properties.id === 'my-hotel').properties.note, 'Booked by me');
+  // a layer of places picked by hand for no stop (the options of a choice) is not joined: another layer, named
+  ok(await uw(['add-point', 'own', '--layer', 'stays', '--at', off(SANTA_CRUZ, 300, 300).join(','), '--name', 'Hotel Option', '--kind', 'hotel', '--id', 'option-a']), 'an option');
+  const refused = await uw(['stay', 'own', '--near', 'stops:seville', '--stop', 'seville', '--kinds', 'hotel']);
+  assert.equal(refused.code, 1, refused.out + refused.err);
+  assert.match(refused.err, /data\/stays\.geojson was written by "add-point"; use another --layer \(e\.g\. --layer hotels\)\./);
+});
+
+test('validate\'s uw stay runs as printed: an area pinned with no stop, and a stop whose id is not a slug, clear the error in one round', async () => {
+  // the area pinned with no "stop" (one stop with nights: it is that stop's)
+  await runsMap('nostop', { area: { note: 'Area to stay in.' } });
+  const v = await uw(['validate', 'nostop', '--json']);
+  const e = staysError(v);
+  assert.ok(e, JSON.stringify(v.json.errors, null, 1));
+  const r = await uw([...stayCmd(e.fix), '--json']);
+  ok(r, 'the printed uw stay');
+  assert.ok(!layerOf('nostop', 'stays').some((f) => f.properties.id === 'santa-cruz-area'), 'the area gave way');
+  ok(await uw(['plan', 'nostop', '--stops', 'stops', '--ids', 'seville', '--nights', '3', '--start', '2026-11-06', '--stays', 'stays', '--sights', 'sights', '--force']), 'plan again');
+  const v2 = await uw(['validate', 'nostop', '--json']);
+  assert.ok(!v2.json.errors.some((x) => /places to stay|says why to stay/.test(x.message)), JSON.stringify(v2.json.errors, null, 1));
+
+  // a stop id add-point kept as given: uw stay files its picks and its lookup under that id
+  await runsMap('slug', { stop: 'seville_city' });
+  const s = staysError(await uw(['validate', 'slug', '--json']));
+  assert.match(s.fix, /^uw stay slug --near stays:santa-cruz-area --stop seville_city --kinds hotel/);
+  const picks = await uw([...stayCmd(s.fix), '--json']);
+  ok(picks, 'the printed uw stay');
+  assert.ok(picks.json.picks.every((p) => p.stop === 'seville_city'), JSON.stringify(picks.json.picks.map((p) => p.stop)));
+  ok(await uw(['plan', 'slug', '--stops', 'stops', '--ids', 'seville_city', '--nights', '3', '--start', '2026-11-06', '--stays', 'stays', '--sights', 'sights', '--force']), 'plan again');
+  assert.equal(cfgOf('slug').plan.days[0].focus.id, picks.json.picks[0].id, 'the days start at the first stay');
+  const v3 = await uw(['validate', 'slug', '--json']);
+  assert.equal(v3.code, 0, JSON.stringify(v3.json.errors, null, 1));
+});
+
+test('uw stay that takes the place of the area the days start at says to plan the days again, and so does validate', async () => {
+  await runsMap('replan');
+  const e = staysError(await uw(['validate', 'replan', '--json']));
+  const r = await uw(stayCmd(e.fix));
+  ok(r, 'the printed uw stay');
+  assert.match(r.out, /^These take the place of the area Santa Cruz \(stays:santa-cruz-area\), where the days started: plan them again, uw plan replan … --stays stays --force \(each day starts at the first stay\)\.$/m);
+  // before that, validate names the same fix for the days' places that are gone, never "ids look like"
+  const v = await uw(['validate', 'replan', '--json']);
+  const gone = v.json.errors.filter((x) => /no feature "santa-cruz-area"/.test(x.message));
+  assert.ok(gone.length >= 2, JSON.stringify(v.json.errors, null, 1));
+  for (const g of gone) assert.equal(g.fix, 'the days name a place no longer on the map: plan them again, uw plan replan … --force', JSON.stringify(g));
+});
+
+test('validate: uw stay that found none counts once widened to its widest; the reply\'s words come from what it found', async () => {
+  // the lodging is 0.8 to 1.4 km from the area: none within the first 800 m
+  await smallTrip('far', [{ id: 'far-area', name: 'Prado', kind: 'area', c: off(SANTA_CRUZ, 0, -1100), props: { stop: 'seville' } }]);
+  const none = await uw(['stay', 'far', '--near', 'stays:far-area', '--stop', 'seville', '--kinds', 'hotel']);
+  assert.equal(none.code, 2, none.out + none.err);
+  const v = await uw(['validate', 'far', '--json']);
+  const e = staysError(v);
+  assert.ok(e, JSON.stringify(v.json.errors, null, 1));
+  assert.equal(e.message, 'places to stay: Seville (2 nights) has only the area Prado to stay in, and uw stay found none within 800 m of it');
+  assert.match(e.fix, /^uw stay far --near stays:far-area --stop seville --kinds hotel --radius 1600 \(the same lookup, wider\)/);
+  const wider = await uw(stayCmd(e.fix));
+  ok(wider, 'the printed widening');
+  ok(await uw(['plan', 'far', '--stops', 'stops', '--ids', 'seville', '--nights', '2', '--start', '2026-11-06', '--stays', 'stays', '--force']), 'plan again');
+  const v2 = await uw(['validate', 'far', '--json']);
+  assert.ok(!v2.json.errors.some((x) => /places to stay/.test(x.message)), JSON.stringify(v2.json.errors, null, 1));
+
+  // none at the widest: the area is the recommendation, and the reply says none was found, never "not looked up"
+  await smallTrip('none', [{ id: 'old-town', name: 'Old town', kind: 'area', c: CARMONA, props: { stop: 'seville', note: 'Area to stay in: inside the old walls.' } }]);
+  const v3 = await uw(['validate', 'none', '--json']);
+  assert.match(staysError(v3).fix, /None found within 3000 m \(exit 2\): the area is the recommendation, its note from a page you read, and the reply says no place to stay was found near it\. Exit 4 \(the search was busy\): the reply says places to stay were not looked up yet$/);
+  assert.equal((await uw(['stay', 'none', '--near', 'stays:old-town', '--stop', 'seville', '--kinds', 'hotel', '--radius', '3000'])).code, 2);
+  const v4 = await uw(['validate', 'none', '--json']);
+  assert.ok(!v4.json.errors.some((x) => /^places to stay:/.test(x.message)), JSON.stringify(v4.json.errors, null, 1));
+  const why = v4.json.errors.find((x) => /^the area Old town/.test(x.message));
+  assert.match(why.fix, /no such page: uw set none stays:old-town --unset note, and the reply says no place to stay was found within 3000 m of Old town$/);
+});
+
+test('validate: a square or a landmark pinned among the places to stay is not one', async () => {
+  await smallTrip('sq', [{ id: 'plaza-nueva', name: 'Plaza Nueva', kind: 'square', c: off(SANTA_CRUZ, -600, 250), props: { stop: 'seville' } }]);
+  const e = staysError(await uw(['validate', 'sq', '--json']));
+  assert.ok(e, 'a square is not a place to stay');
+  assert.equal(e.message, 'places to stay: Seville (2 nights) has only the area Plaza Nueva to stay in, and uw stay has not looked for any there');
+  assert.match(e.fix, /^uw stay sq --near stays:plaza-nueva --stop seville --kinds hotel /);
+  // a guest house, a hostel or an apartment is one
+  await smallTrip('gh', [{ id: 'casa', name: 'Casa Sol', kind: 'guest_house', c: off(SANTA_CRUZ, -600, 250), props: { stop: 'seville' } }]);
+  assert.equal(staysError(await uw(['validate', 'gh', '--json'])), undefined);
+});
+
+test('validate: a later turn that adds a sight and plans the days again is still warned about the stays, not made to look them up', async () => {
+  await runsMap('later2');
+  const now = Date.now() + 1000;
+  fs.writeFileSync(path.join(tmp, 'later2', '.uwcache', 'turn.json'), JSON.stringify({ started: now, last: now }));
+  await new Promise((r) => setTimeout(r, 1100));
+  const page = 'https://en.wikipedia.org/wiki/Metropol_Parasol';
+  read(page, 'Metropol Parasol is a wooden structure in Seville.');
+  ok(await uw(['add-point', 'later2', '--layer', 'sights', '--at', off(SANTA_CRUZ, -150, 900).join(','), '--name', 'Metropol Parasol', '--kind', 'attraction', '--id', 'parasol', '--props-file', '-'],
+    { input: JSON.stringify({ stop: 'seville', source_url: page, source: 'Wikipedia' }) }), 'a sight');
+  ok(await uw(['plan', 'later2', '--stops', 'stops', '--ids', 'seville', '--nights', '3', '--start', '2026-11-06', '--stays', 'stays', '--sights', 'sights', '--force']), 'plan again');
+  const v = await uw(['validate', 'later2', '--json']);
+  assert.ok(!v.json.errors.some((x) => /places to stay|says why to stay/.test(x.message)), JSON.stringify(v.json.errors, null, 1));
+  assert.ok(v.json.warnings.some((w) => /^places to stay: Seville/.test(w.message)), JSON.stringify(v.json.warnings, null, 1));
+});
+
+test('uw set plan:day1 --note on a map whose page was made before day notes says the page does not show it', async () => {
+  await runsMap('old');
+  ok(await uw(['stay', 'old', '--near', 'stays:santa-cruz-area', '--stop', 'seville', '--kinds', 'hotel']), 'stays');
+  ok(await uw(['plan', 'old', '--stops', 'stops', '--ids', 'seville', '--nights', '3', '--start', '2026-11-06', '--stays', 'stays', '--sights', 'sights', '--force']), 'plan');
+  // the map's own engine/ from a pack before day notes: its Plan tab draws a day's text and places only
+  const ui = path.join(tmp, 'old', 'engine', 'ui.js');
+  fs.writeFileSync(ui, fs.readFileSync(ui, 'utf8').split('\n').filter((l) => !/uw-day-note/.test(l)).join('\n'));
+  const r = await uw(['set', 'old', 'plan:day1', '--note', 'Book the Alcázar tickets ahead.', '--json']);
+  ok(r, 'set the note');
+  assert.equal(r.json.shown, false);
+  assert.equal(cfgOf('old').plan.days[0].note, 'Book the Alcázar tickets ahead.', 'kept with the day');
+  const said = await uw(['set', 'old', 'plan:day2', '--note', 'Flamenco show at 7 pm.']);
+  assert.match(said.out, /^Day 2 \(Sat 7 Nov · Seville\) has its note: "Flamenco show at 7 pm\.", but this map's page was made before day notes and does not show it: the reply says it is saved with day 2, not that the map shows it\.$/m);
+  assert.doesNotMatch(said.out, /The Plan tab shows it/);
 });
