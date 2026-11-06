@@ -534,6 +534,9 @@ export class UI {
     }
     if (meta.length) box.append(h('div.uw-chips', meta));
     if (d.text) box.append(h('p.uw-text', d.text));
+    // the day's own note (a warning, a plan B, "book the tickets ahead"), above its places, as the timeline page shows
+    // a day's note (uw set <site> plan:day1 --note "…")
+    if (typeof d.note === 'string' && d.note.trim()) box.append(h('p.uw-text.uw-day-note', d.note.trim().slice(0, 120)));
     if (Array.isArray(d.items) && d.items.length) {
       const ol = h('ol.uw-items');
       d.items.forEach((it) => {

@@ -5,13 +5,14 @@
 // Neither command ever takes a coordinate from the model except one that geocode/station printed (--near).
 import fs from 'node:fs';
 import { parseArgs, makeOut, parseLngLat, haversine, round6, slugify, writeGeoJSON, writeJSON, readJSON, exists, UsageError, UserError } from './util.mjs';
-import { openSite, checkLayerId, configLayer, layerPath, layerRelPath, resolvePoint, addAttribution, titleCase, viewCenter, withSiteLock } from './site.mjs';
+import { openSite, checkLayerId, configLayer, loadLayer, layerPath, layerRelPath, resolvePoint, addAttribution, titleCase, viewCenter, withSiteLock } from './site.mjs';
 import { isSkip, withCap, withReserve, timeLeft, overpassBatch, partialLine } from './net.mjs';
 import { geocodeSearch, countryMatches, forgetMissing, partialProps } from './cmd-geocode.mjs';
 import { placesSearch } from './osm-places.mjs';
 import { walkTable } from './route-lookups.mjs';
 import { adapterFor } from '../adapters/lib/areas.mjs';
 import { expectOf } from './expect.mjs';
+import { isAreaPin, noteStaysLookedUp, STAY_RADIUS_MAX } from './stays.mjs';
 
 export const helps = {
   station: `station <dir> --city "<city>" [--country <name|code>] [--near lng,lat] [--layer stations] [--id <slug>] [--kind rail|hsr]
@@ -45,8 +46,12 @@ export const helps = {
   Each point gets: rank, why in plain words ("6 min walk to Hualien Station · registered hotel, 120 rooms"; "about 6
   min walk" when estimated), how (the walk's basis and metres, the OpenStreetMap tags: the card's "How we know"), stop
   (the --near id), walk_min, walk_m, walk_basis, and in Taiwan licence + tw_* (rooms, class, FILED rates: not prices).
-  Runs per stop: the points for that --near are replaced, the other stops' points stay. Exit 2 = nothing in range
-  (widen --radius). Never a booking or a live price: say so in the reply.
+  Runs per stop: the points for that --near are replaced, the other stops' points stay. The area --near names, when it
+  is pinned in this layer as where to stay (add-point --kind area), gives way to the picks, said by name; a place
+  pinned by hand (the traveller's own booking) or another area stays. --stop names the stop as the map has it (an id
+  on the map is kept as given). Each run, found or not, is kept as the stop's lookup: \`uw validate\` passes an area
+  as a stop's only place to stay once one found none within ${STAY_RADIUS_MAX} m around it (or the search was busy).
+  Exit 2 = nothing in range (widen --radius). Never a booking or a live price: say so in the reply.
   It answers within its time limit (30 s; --timeout) with what it found: the lodging search gets most of it, the
   rest is kept for the walks and the write, so a busy Overpass gives the place search's shorter list (partial), a
   busy router straight-line walks, and a register that cannot answer in time gives way to OpenStreetMap. None found
@@ -89,7 +94,8 @@ export function rankStations(cands, { city, kind = 'rail', near = null, maxKm = 
   return kept;
 }
 
-function upsertPoints(site, layer, feats, { cmd, owners, replaceWhere }) {
+// `ownersIf`: a layer another command wrote that this one may join when its features pass the test
+function upsertPoints(site, layer, feats, { cmd, owners, ownersIf = {}, replaceWhere }) {
   // read, merge and write under the site's write lock: another stop's command may write this layer at the same time
   return withSiteLock(site, () => {
     const p = layerPath(site, layer);
@@ -97,7 +103,7 @@ function upsertPoints(site, layer, feats, { cmd, owners, replaceWhere }) {
     if (exists(p)) {
       try { fc = readJSON(p); } catch (e) { throw new UserError(`${layerRelPath(site, layer)} is not valid JSON: ${e.message}`); }
       const owner = fc?.uw?.cmd;
-      if (owner && !owners.includes(owner)) throw new UserError(`${layerRelPath(site, layer)} was written by "${owner}"; use another --layer (e.g. --layer ${cmd === 'stay' ? 'stays' : 'stations'}).`);
+      if (owner && !owners.includes(owner) && !ownersIf[owner]?.(fc)) throw new UserError(`${layerRelPath(site, layer)} was written by "${owner}"; use another --layer (e.g. --layer ${cmd === 'stay' ? (layer === 'stays' ? 'hotels' : 'stays') : 'stations'}).`);
       if (!Array.isArray(fc.features)) fc.features = [];
     }
     if (replaceWhere) fc.features = fc.features.filter((f) => !replaceWhere(f));
@@ -109,6 +115,24 @@ function upsertPoints(site, layer, feats, { cmd, owners, replaceWhere }) {
     writeGeoJSON(p, fc);
     return { rel: layerRelPath(site, layer), count: fc.features.length };
   });
+}
+
+/** Is `id` a place's id on the site's map (any layer of map.config.json)? */
+function idOnMap(site, id) {
+  for (const l of Array.isArray(site.config?.layers) ? site.config.layers : []) {
+    let fc = null;
+    try { fc = l?.id ? loadLayer(site, l.id, { required: false }) : null; } catch { continue; }
+    if (fc?.features?.some((f) => String(f?.properties?.id) === id)) return true;
+  }
+  return false;
+}
+
+/** Do the plan's days name `layer`:`id` (where a day starts, or one of its items)? */
+function planNames(site, layer, id) {
+  let cfg;
+  try { cfg = readJSON(site.cfgPath); } catch { return false; }
+  const is = (r) => r && String(r.layer) === layer && String(r.id) === id;
+  return (Array.isArray(cfg?.plan?.days) ? cfg.plan.days : []).some((d) => is(d?.focus) || (Array.isArray(d?.items) ? d.items : []).some((it) => is(it?.ref)));
 }
 
 function registerPoints(site, layer, def) {
@@ -470,7 +494,11 @@ export async function stay(argv) {
   // a coordinate anchor is named by --near-label ("the centre of Hualien"), never by its numbers: walk texts are read
   // by people
   const toName = args['near-label'] || anchor.feature?.properties?.name_en || anchor.name;
-  const stop = slugify(args.stop || '') || anchor.id || slugify(args['near-label'] || '') || 'here';
+  // the stop as the map names it: uw validate and uw plan match a stop's id exactly, so an id on the map is kept as
+  // given ("seville_city" was filed as seville-city, and validate asked for the same lookup again); any other word is
+  // made one ("Seville": seville)
+  const stopArg = String(args.stop ?? '').trim();
+  const stop = (stopArg && idOnMap(site, stopArg) ? stopArg : slugify(stopArg)) || anchor.id || slugify(args['near-label'] || '') || 'here';
   const nearRef = String(args.near).trim();
   const prefer = (args.prefer || 'hotel').toLowerCase();
   if (!['hotel', 'any', 'bnb'].includes(prefer)) throw new UsageError('--prefer must be hotel, any or bnb');
@@ -506,6 +534,8 @@ export async function stay(argv) {
     // valid without them)
     const retry = `uw stay ${argv.filter((a, i) => a !== '--json' && a !== '--timeout' && argv[i - 1] !== '--timeout' && !a.startsWith('--timeout=')).map(shq).join(' ')} --timeout 120`;
     const line = `No places to stay found near ${toName}: the lodging search did not answer in time (${e.message}).`;
+    // looked for, whatever came back: uw validate takes an area to stay in for this stop from now on
+    withSiteLock(site, () => noteStaysLookedUp(site.dir, stop, { status: 'unavailable', found: 0, radius, near: toName }));
     out.result({ ok: false, skipped: true, status: 'unavailable', none_found: true, layer, stop, near: { ref: args.near, name: toName }, radius, picks: [], error: line, retry, exit_code: 4 },
       [line, `Tell the user: places to stay near ${toName} were not looked up yet (the search was busy).`, `Try again later: ${retry}`]);
     return 4;
@@ -523,7 +553,9 @@ export async function stay(argv) {
   if (!pool.length && !spare.length) {
     // the same command with a wider radius (up to the widest, 3000 m): what names the point (--near-label), the stop,
     // the kinds and the layer stay, so it runs as printed (without the label a point is refused)
-    const widen = radius < 3000 ? ['stay', ...argv.filter((a, i) => a !== '--json' && a !== '--radius' && argv[i - 1] !== '--radius' && !a.startsWith('--radius=')), '--radius', String(Math.min(3000, radius * 2))] : null;
+    const widen = radius < STAY_RADIUS_MAX ? ['stay', ...argv.filter((a, i) => a !== '--json' && a !== '--radius' && argv[i - 1] !== '--radius' && !a.startsWith('--radius=')), '--radius', String(Math.min(STAY_RADIUS_MAX, radius * 2))] : null;
+    // uw validate asks for the widening it prints until none is found at the widest
+    withSiteLock(site, () => noteStaysLookedUp(site.dir, stop, { status: 'none', found: 0, radius, near: toName, ...(widen ? { widen: `uw ${widen.map(shq).join(' ')}` } : {}) }));
     out.result({ ok: false, layer, near: args.near, radius, source: srcLabel, picks: [], ...(widen ? { widen } : {}) },
       [`No lodging within ${radius} m of ${toName} in ${srcLabel}.${widen ? ` Widen it: uw ${widen.map(shq).join(' ')}` : ''}`]);
     return 2;
@@ -567,20 +599,35 @@ export async function stay(argv) {
     return { type: 'Feature', geometry: { type: 'Point', coordinates: c.coord.map(round6) }, properties: props };
   });
   // a re-run replaces this stop's picks for the same anchor; picks near another anchor of the stop (the station and
-  // the town centre) stay
-  const sameAnchor = (f) => (f?.properties?.near_ref ? f.properties.near_ref === nearRef : !/^-?\d/.test(nearRef));
-  const w = upsertPoints(site, layer, feats, { cmd: 'stay', owners: ['stay'], replaceWhere: (f) => f?.properties?.stop === stop && sameAnchor(f) });
+  // the town centre) stay. The area the lookup looked around, pinned in this layer as where to stay (reference/
+  // itinerary.md "One base" step 2: no stay found), stood in for these: it gives way. Nothing else does: a place pinned
+  // by hand (the traveller's own booking, a researched hotel) or another area to stay in stays (a run near the city
+  // once took them all)
+  const gives = anchor.layer === layer && isAreaPin(anchor.feature?.properties) ? String(anchor.id) : null;
+  const givesWay = (f) => gives != null && String(f?.properties?.id) === gives;
+  const earlier = (f) => f?.properties?.stop === stop && f?.properties?.near_ref === nearRef;
+  // the layer add-point made for the area takes them too, when every place in it belongs to a stop or is that area
+  // (an options layer of hand-picked places is neither: still refused)
+  const w = upsertPoints(site, layer, feats, { cmd: 'stay', owners: ['stay'], ownersIf: { 'add-point': (fc) => fc.features.every((f) => f?.properties?.stop != null || givesWay(f)) },
+    replaceWhere: (f) => givesWay(f) || earlier(f) });
+  withSiteLock(site, () => noteStaysLookedUp(site.dir, stop, { status: 'found', found: feats.length, radius, near: toName }));
+  // the area that gave way, by name; the days that started there are planned again (until then they name a place that
+  // is gone)
+  const gave = gives != null ? { ref: `${layer}:${gives}`, name: anchor.feature.properties.name_en || anchor.feature.properties.name || gives } : null;
+  const replan = gave ? planNames(site, layer, gives) : false;
+  const gaveLine = gave ? `These take the place of the area ${gave.name} (${gave.ref})${replan ? `, where the days started: plan them again, uw plan ${args._[0]} … --stays ${layer} --force (each day starts at the first stay)` : ''}.` : null;
   const reg = registerPoints(site, layer, { style: { emoji: '🏨' }, list: true });
   addAttribution(site, attribution);
   if (routed) addAttribution(site, 'Walking times: OSRM (FOSSGIS) on OpenStreetMap');
   const partialNote = got.partial ? `PARTIAL: ${got.partial}` : null;
   out.result({ ok: true, layer, file: w.rel, stop, near: { ref: args.near, name: toName }, radius, source: srcLabel, as_of: asOf, candidates: got.total ?? got.list.length,
-    routed, partial: got.partial || null, ...(noHotel ? { no_hotel: true } : {}), picks: feats.map((f) => f.properties), registered: reg },
+    routed, partial: got.partial || null, ...(noHotel ? { no_hotel: true } : {}), picks: feats.map((f) => f.properties), registered: reg,
+    ...(gave ? { replaced: gave.ref, ...(replan ? { replan: true } : {}) } : {}) },
   [`${feats.length} stay(s) near ${toName} (${got.total ?? got.list.length} lodging places within ${radius} m; ${srcLabel}; walks ${routed ? 'routed (OSRM foot)' : 'estimated'}):`,
     ...feats.map((f) => `  ${f.properties.rank}. ${f.properties.name}${f.properties.name_en ? ` (${f.properties.name_en})` : ''} — ${f.properties.why}  [${layer}:${f.properties.id}]`),
     addedBnb ? `  (fewer than ${max} hotels in range: B&Bs and guest houses were included)` : null,
     noHotel ? `No hotel within ${radius} m of ${toName}${got.partial ? ' in what the search could list' : ''}.` : null,
-    partialNote, reg,
+    partialNote, reg, gaveLine,
     `Tell the user: picked by walking distance, from OpenStreetMap and public registers; no live prices or availability${noHotel ? `; no hotel was found within ${radius} m of ${toName}` : ''}.`]);
   return 0;
 }

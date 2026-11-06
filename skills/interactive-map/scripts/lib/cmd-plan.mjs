@@ -39,7 +39,8 @@ export const help = `plan <dir> --stops <layer> --start YYYY-MM-DD [--ids taipei
   gives), ≤ 140 characters. A trip of several stops ends with the departure, the day after the last night ("depart":
   true, "Leave <stop>."): nothing is planned on it. The map's first view then frames the trip (its stops, --stays,
   --legs and --sights layers) and every layer \`uw fit\` frames. Prints a warning for a place that is far from its day's other places or closer to another day's
-  (plan-checks.json). Refuses to replace an existing plan without --force. Days with no sourced place keep "Day in …":
+  (plan-checks.json). Refuses to replace an existing plan without --force; with it, each day keeps its own note (uw set
+  <dir> plan:day<N> --note), and a note on a day the new plan no longer has is named. Days with no sourced place keep "Day in …":
   add places. --sights also says the trip is about what to see each day: the plan keeps those layers ("sights") and
   when it planned the days ("planned_at"), and \`uw validate\` fails while a full day (the arrival day of the trip too)
   has no sourced place, and while a place of those layers is in no day and not one the plan lists as left out
@@ -552,6 +553,13 @@ export async function run(argv) {
   const cfg = readJSON(site.cfgPath);
   if (cfg.plan && !args.force) throw new UserError('map.config.json already has a "plan"; pass --force to rebuild it (hand-written day texts are replaced)');
   const built = buildPlan({ stops: stopsIn, nights: nightsIn, start: args.start, legs, stays, sights, perDay, title: args.title || 'Plan' });
+  // a day's own note (uw set <site> plan:dayN --note) is the person's: the new plan keeps it on the same day; one on a
+  // day the new plan no longer has is named, never dropped quietly
+  const oldDays = Array.isArray(cfg.plan?.days) ? cfg.plan.days : [];
+  const noteOf = (d) => (typeof d?.note === 'string' && d.note.trim() ? d.note : null);
+  const keptNotes = [];
+  built.days.forEach((d, i) => { if (noteOf(oldDays[i])) { d.note = noteOf(oldDays[i]); keptNotes.push(i + 1); } });
+  const lostNotes = oldDays.map((d, i) => ({ n: i + 1, note: noteOf(d) })).filter((x) => x.note && x.n > built.days.length);
   // --sights: the ask is what to see each day, so validate fails while a full day has no sourced place, and in the turn
   // that planned the days while one has only one ("planned_at": a later turn keeps the days the person changed). A
   // --per-day of 1 is a person who asked for one place a day ("per_day")
@@ -620,6 +628,8 @@ export async function run(argv) {
     gaps.empty ? `${gaps.empty} of ${gaps.full} full days still have no places ("Day in …", or only the arrival): add 2-3 sourced places for each of those days (reference/itinerary.md Phase B step 1), then this command again with --force.` : null,
     ...misplaced.slice(0, 4).map((w) => `Day places: ${dayPlaceLine(w, plan.days)}.`),
     left.length ? `Not on any day (each day already has --per-day ${perDay} of their kind): ${left.slice(0, 6).map((f) => f.properties.name_en || f.properties.name || f.properties.id).join(', ')}${left.length > 6 ? ` and ${left.length - 6} more` : ''}. Add nights, raise --per-day, or leave them out of the reply.` : null,
+    keptNotes.length ? `Day notes kept on their days: ${keptNotes.map((n) => `day ${n}`).join(', ')} (uw set ${args._[0]} plan:day<N> --note moves one).` : null,
+    lostNotes.length ? `Day notes of days this plan no longer has: ${lostNotes.map((x) => `day ${x.n} "${x.note}"`).join('; ')}. Put each on its day (uw set ${args._[0]} plan:day<N> --note "…"), or say it in the reply.` : null,
     'Next: uw validate, then SKILL.md step 9 (refreshes the card). Never in the reply: file or folder names, commands or layer ids.',
   ]);
   return 0;

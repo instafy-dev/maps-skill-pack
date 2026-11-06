@@ -13,6 +13,8 @@ import { stillRunning, runningList } from './running.mjs';
 import { REPLY_WITHIN_S } from './turn-advice.mjs';
 import { readPage, unnamedSource, sourceSetSince } from './cmd-cite.mjs';
 import { cacheOff } from './net.mjs';
+import { isAreaPin, isPlaceToStay, stopIsAStay, staysLookedUp, lookedAsFarAsItGoes, STAY_RADIUS_MAX } from './stays.mjs';
+import { isLodging } from './registry-geo.mjs';
 
 export const help = `validate <dir> [--signal] [--strict] [--expect "<stop>:<nights>,…"] [--json]
   Checks map.config.json (schema, enums, refs), every layer file (exists, valid GeoJSON, geometry fits the layer type,
@@ -27,7 +29,11 @@ export const help = `validate <dir> [--signal] [--strict] [--expect "<stop>:<nig
   A trip's stops: every stop with nights in map.config.json "expect" (uw handoff --apply writes the route there; uw new
   --expect) and in --expect must be on the map and, when there is a plan, named by a day. One the request named and
   the map leaves out is an error, whatever the reason (a lookup that timed out included): place it, or say plainly in
-  the reply that it is missing.
+  the reply that it is missing. A stop with nights on the map is a trip's too, without "expect": it needs a plan, and
+  places to stay from uw stay. An area (or any pin that is not lodging) as its only place to stay is an error until uw
+  stay looked around it and found none within its widest radius, and so is an area's note that cites no page uw cite
+  read that names it: in the turn that built the stop or its stays, while its clock leaves time; later turns are
+  warned, as is a stop with no place to stay at all.
   A uw command still running on the site (a place lookup whose command has not finished) is an error, named: what it
   finds is not on the map yet. Wait until it has finished; never start it again.
   Exit 1 on errors, 0 when only warnings remain (--strict: warnings also fail).`;
@@ -262,6 +268,8 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
   if (!Array.isArray(cfg.layers)) E(CFG, '$.layers', 'layers must be an array', 'add "layers": []');
   const byId = new Map();
   const featuresByLayer = new Map();
+  // what wrote each layer file, and when ("uw": { "cmd", "updated_at" })
+  const uwByLayer = new Map();
   // layers of places picked one by one (add-point): one place, one pin
   const pinLayers = new Set();
   const checkedFiles = new Set();
@@ -397,14 +405,14 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
   } catch { /* no data dir */ }
 
   // --- refs
-  const ref = (r, file, p, what) => {
+  const ref = (r, file, p, what, gone = null) => {
     if (!r || typeof r !== 'object' || Array.isArray(r)) { E(file, p, `${what} must be { "layer": "<id>", "id": "<featureId>" }`, ''); return; }
     if (!byId.has(r.layer)) { E(file, p + '.layer', `${what}: unknown layer "${r.layer}"`, `use one of: ${[...byId.keys()].join(', ')}`); return; }
     const feats = featuresByLayer.get(r.layer);
     if (feats && !feats.some((f) => String(f?.properties?.id) === String(r.id))) {
       const ids = feats.map((f) => f?.properties?.id).filter(Boolean);
       const sim = ids.filter((x) => String(x).includes(String(r.id)) || String(r.id).includes(String(x))).slice(0, 3);
-      E(file, p + '.id', `${what}: no feature "${r.id}" in layer "${r.layer}"`, sim.length ? `did you mean ${sim.join(', ')}?` : `ids look like: ${ids.slice(0, 4).join(', ')}`);
+      E(file, p + '.id', `${what}: no feature "${r.id}" in layer "${r.layer}"`, sim.length ? `did you mean ${sim.join(', ')}?` : gone || `ids look like: ${ids.slice(0, 4).join(', ')}`);
     }
   };
   if (cfg.time !== undefined) {
@@ -472,17 +480,21 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
   }
   if (cfg.plan !== undefined) {
     const days = cfg.plan?.days;
+    // a day names a place no longer on the map (uw stay's picks took the place of the area the days started at)
+    const replan = `the days name a place no longer on the map: plan them again, uw plan ${args._[0]} … --force`;
     if (!Array.isArray(days)) E(CFG, '$.plan.days', 'plan.days must be an array', '');
     else days.forEach((d, i) => {
       const p = `$.plan.days[${i}]`;
       if (!d?.title) W(CFG, `${p}.title`, 'day without title', 'add "title": "Day 1 · Arrive"');
-      if (d?.focus !== undefined) ref(d.focus, CFG, `${p}.focus`, 'focus');
+      if (d?.focus !== undefined) ref(d.focus, CFG, `${p}.focus`, 'focus', replan);
       if (d?.route !== undefined && !byId.has(d.route)) E(CFG, `${p}.route`, `route "${d.route}" is not a layer id`, `make one: uw route ${args._[0]} --layer ${d.route} --from … --to …`);
       if (d?.time !== undefined && (!isNum(d.time) || d.time < 0 || d.time > 24)) E(CFG, `${p}.time`, 'time must be an hour 0-24', '');
       if (d?.time_hint !== undefined && typeof d.time_hint !== 'boolean') E(CFG, `${p}.time_hint`, 'time_hint must be true or false (true: the hour only sets the light, no clock time is shown)', '');
       if (d?.depart !== undefined && typeof d.depart !== 'boolean') E(CFG, `${p}.depart`, 'depart must be true or false (true: the day the traveller leaves; nothing is planned on it)', '');
+      if (d?.note !== undefined && (typeof d.note !== 'string' || !d.note.trim() || d.note.length > 120))
+        E(CFG, `${p}.note`, 'a day\'s note is one short line under its text (≤ 120 characters)', `uw set ${args._[0]} plan:day${i + 1} --note "…" (or --unset note)`);
       (Array.isArray(d?.items) ? d.items : []).forEach((it, j) => {
-        if (it?.ref !== undefined) ref(it.ref, CFG, `${p}.items[${j}].ref`, 'item ref');
+        if (it?.ref !== undefined) ref(it.ref, CFG, `${p}.items[${j}].ref`, 'item ref', replan);
         if (it?.url !== undefined && !(typeof it.url === 'string' && /^https:\/\/[^\s]+$/.test(it.url) && it.url.length <= 2000))
           E(CFG, `${p}.items[${j}].url`, 'item url must be an https:// link (the page the item\'s facts came from)', '"url": "https://…", "source": "Taiwan Tourism"');
         if (it?.source !== undefined && (typeof it.source !== 'string' || it.source.length > 40)) W(CFG, `${p}.items[${j}].source`, 'source should be a short name (≤ 40 characters), e.g. "Taroko National Park"', '');
@@ -637,9 +649,29 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
         W(CFG, '$.plan.days', `${gaps.thin} of ${gaps.full} full days have fewer than 2 sourced items: one sight a day is not a day worth following`, 'add sights until each full day has 2-3 with a source page (reference/itinerary.md Phase B step 1), then uw plan … --sights sights --force');
     }
   }
+  // --- a trip: its stops with nights. A stop with nights on the map is a trip's, with "expect" or without it (a turn
+  // that made its map without --expect had no check of its stays at all)
+  const planDays = Array.isArray(cfg.plan?.days) ? cfg.plan.days : [];
+  const staysBy = (lid) => uwByLayer.get(lid)?.cmd === 'stay' || isLodging({ layer: lid });
+  const nightStops = [];
+  for (const [lid, feats] of featuresByLayer) {
+    if (staysBy(lid)) continue;
+    for (const f of feats) {
+      const pr = f?.properties || {};
+      if (Number.isInteger(pr.nights) && pr.nights >= 1 && pr.id != null) nightStops.push({ lid, pr, name: String(pr.name_en || pr.name || pr.id), nights: pr.nights });
+    }
+  }
+  const nightLayers = new Set(nightStops.map((s) => s.lid));
+  // where a trip's places to stay are: a layer uw stay wrote or named for them, or one the days start at
+  const stayLayers = [...featuresByLayer.keys()].filter((lid) => !nightLayers.has(lid) && (staysBy(lid) || planDays.some((d) => d?.focus?.layer === lid)));
+
   // --- expect: the trip's stops (each with its nights) are all on the map, and in the plan
   if (cfg.expect !== undefined && !Array.isArray(cfg.expect)) E(CFG, '$.expect', 'expect must be an array of { "name", "nights" }', 'uw handoff --apply writes it; or uw new … --expect "Porto:3,Lisbon:4"');
   const expected = mergeExpect(expectOf(cfg), askedStops);
+  if (!expected.length && nightStops.length && !planDays.length) {
+    E(CFG, '$.plan', `a trip (${describeItems(nightStops)}) with no plan: its days go in the plan, which the map shows as its own tab, not in place notes`,
+      `follow reference/itinerary.md ("One base" for days in one place): places to stay (uw stay), 2-3 sourced places a day grouped by area, then uw plan ${args._[0]} --stops … --ids … --nights … --stays stays --sights sights`);
+  }
   if (expected.length) {
     const gaps = uncovered(cfg, featuresByLayer, expected);
     const off = gaps.filter((g) => !g.on_map), unplanned = gaps.filter((g) => g.on_map && g.in_plan === false);
@@ -650,6 +682,69 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
     if (!(Array.isArray(cfg.plan?.days) && cfg.plan.days.length))
       E(CFG, '$.plan', `a trip (${describeItems(expected)}) with no plan: its days go in the plan, which the map shows as its own tab, not in place notes`,
         `follow reference/itinerary.md ("One base" for days in one place): places to stay (uw stay), 2-3 sourced places a day grouped by area, then uw plan ${args._[0]} --stops … --ids … --nights … --stays stays --sights sights`);
+  }
+  // --- a trip's places to stay (reference/itinerary.md step 3, "One base" step 2). A Seville map had only its area
+  // pinned to stay in, with a note no page had said, written before the turn read any page; uw stay never ran, and the
+  // reply called the area the recommendation. Each stop with nights has places to stay; an area pinned as the place to
+  // stay stands in only once uw stay looked there and found none (uw stay keeps where it looked: lib/stays.mjs), and its
+  // note says why only from a page uw cite read that names it. Both fail in the turn that built the stop or its stays,
+  // while the clock leaves time to look; a later turn (a note to a day, a sight added and the days planned again) is
+  // warned, and keeps what the map has
+  if (nightStops.length) {
+    const thisTurn = (iso) => { const t = Date.parse(iso ?? ''); return Number.isFinite(t) && (turnStartedMs == null || t >= turnStartedMs); };
+    const builtNow = turnStartedMs == null || [...nightLayers, ...stayLayers].some((lid) => thisTurn(uwByLayer.get(lid)?.updated_at));
+    const level = builtNow && (turnLeftS == null || turnLeftS > REPLY_WITHIN_S) ? E : W;
+    const looked = staysLookedUp(dir);
+    const site = args._[0];
+    // what the reply says when uw stay found no place to stay (exit 2 at its widest), or could not look (exit 4)
+    const noneFound = `None found within ${STAY_RADIUS_MAX} m (exit 2): the area is the recommendation, its note from a page you read, and the reply says no place to stay was found near it. `
+      + 'Exit 4 (the search was busy): the reply says places to stay were not looked up yet';
+    for (const s of nightStops) {
+      if (stopIsAStay(s.pr)) continue;
+      const id = String(s.pr.id);
+      const mine = stayLayers.flatMap((sl) => (featuresByLayer.get(sl) || []).filter((f) => f?.properties?.id != null
+        && (f.properties.stop != null ? String(f.properties.stop) === id : nightStops.length === 1)).map((f) => ({ sl, pr: f.properties })));
+      // a place to stay is lodging, or what uw stay found: an area, a square or a landmark only says where to stay
+      if (mine.some((x) => isPlaceToStay(x.pr)) || lookedAsFarAsItGoes(looked[id])) continue;
+      const areas = mine.map((x) => ({ sl: x.sl, ref: `${x.sl}:${x.pr.id}`, name: String(x.pr.name_en || x.pr.name || x.pr.id) }));
+      // one stop: days in one place, its stays in the area to stay in ("One base" step 2); a trip's stop: by its point
+      const oneBase = nightStops.length === 1 && !(s.pr.kind === 'train_station' || s.pr.station_of);
+      const layerArg = areas.length && areas[0].sl !== 'stays' ? ` --layer ${areas[0].sl}` : '';
+      // uw stay looked and found none, short of its widest radius: the same lookup, wider, as it printed
+      const wider = looked[id]?.status === 'none' && typeof looked[id].widen === 'string' ? looked[id].widen : null;
+      const look = wider ? `${wider} (the same lookup, wider)`
+        : areas.length ? `uw stay ${site} --near ${areas[0].ref} --stop ${id} --kinds hotel${layerArg}`
+          : !oneBase ? `uw stay ${site} --near ${s.lid}:${id} --kinds hotel`
+            : `uw geocode "<the area a page you read recommends>, ${s.name}", then uw stay ${site} --near <its lng,lat> --near-label "<that area>" --stop ${id} --kinds hotel`;
+      // none at all is warned (a person may have a place of their own); an area pinned instead of looking fails
+      (areas.length ? level : W)(byId.get(s.lid)?.data || CFG, `$.features[?(@.properties.id=="${id}")]`,
+        `places to stay: ${s.name} (${s.nights} night${s.nights === 1 ? '' : 's'}) has ${areas.length ? `only the area${areas.length > 1 ? 's' : ''} ${areas.map((a) => a.name).join(', ')} to stay in` : 'none'}, and uw stay ${wider ? `found none within ${looked[id].radius} m of it` : 'has not looked for any there'}`,
+        `${look}${wider ? '' : ` (hotels unless the person asked for hostels; reference/itinerary.md ${oneBase ? '"One base" step 2' : 'step 3'})`}, then uw plan ${site} … --stays ${areas[0]?.sl || 'stays'} --force: each day starts at the first stay. ${noneFound}`);
+    }
+    // an area pinned as the place to stay says why only from a page uw cite read that names it
+    for (const sl of stayLayers) for (const f of featuresByLayer.get(sl) || []) {
+      const pr = f?.properties || {};
+      const key = ['note', 'why'].find((k) => typeof pr[k] === 'string' && pr[k].trim());
+      if (!isAreaPin(pr) || pr.id == null || !key) continue;
+      const ref = `${sl}:${pr.id}`, name = String(pr.name_en || pr.name || pr.id);
+      let problem = null;
+      if (typeof pr.source_url !== 'string' || !/^https?:\/\//i.test(pr.source_url)) problem = 'cites no page';
+      else if (!cacheOff()) {
+        const read = readPage(pr.source_url);
+        const miss = read ? unnamedSource(pr, [], read) : null;
+        if (!read && sourceSetSince(pr, turnStartedMs)) problem = `cites a page no uw cite read (${pr.source_url})`;
+        else if (miss) problem = miss.not_page ? `cites ${miss.not_page} (${pr.source_url}), not a page` : `cites a page that does not name it (${pr.source_url})`;
+      }
+      if (!problem) continue;
+      // the reply says what uw stay found for the area's stop, never "not looked up" after it looked
+      const rec = looked[String(pr.stop ?? (nightStops.length === 1 ? nightStops[0].pr.id : ''))];
+      const says = rec?.status === 'found' ? ''
+        : rec?.status === 'none' ? `, and the reply says no place to stay was found within ${rec.radius} m of ${rec.near || name}`
+          : `, and the reply says places to stay were not looked up yet${rec?.status === 'unavailable' ? ' (the search was busy)' : ''}`;
+      level(byId.get(sl)?.data || CFG, `$.features[?(@.properties.id=="${pr.id}")].properties.${key}`,
+        `the area ${name} (${ref}) says why to stay there ("${String(pr[key]).trim().slice(0, 80)}") but ${problem}`,
+        `read the page that says it: uw cite <that page> --grep "${shellWord(name)}", then uw set ${site} ${ref} --props-file - with {"source_url":"<that page>","source":"<site>"}; no such page: uw set ${site} ${ref} --unset ${key}${says}`);
+    }
   }
   // --- a "Not found yet" entry for a place that is on the map after all: the page would say it is missing while it
   // shows it (r11: a stop placed on handoff --apply's second try kept the entry its first pass wrote)
@@ -759,6 +854,7 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
   function checkFC(l, fc, file, base) {
     if (fc?.type !== 'FeatureCollection' || !Array.isArray(fc.features)) { E(file, base, 'not a GeoJSON FeatureCollection', 'regenerate it with the script that made it'); return; }
     featuresByLayer.set(l.id, fc.features);
+    if (fc.uw && typeof fc.uw === 'object') uwByLayer.set(l.id, fc.uw);
     if (fc.uw?.cmd === 'add-point') pinLayers.add(l.id);
     if (!fc.features.length) W(file, `${base}.features`, `layer "${l.id}" is empty`, 'check the query/area, or hide the layer');
     const okGeom = GEOM_OK[l.type] || [];

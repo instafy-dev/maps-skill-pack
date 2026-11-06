@@ -84,7 +84,7 @@ After each: re-run the step-7 command and `uw validate <site> --signal`. Exit 4:
 - `uw doorstep <site> --layer hotels` (faces the door), `uw photos <site> --layer hotels` (30-60 s).
 - Also `lines`, `route`, `legs`, `wiki`, `air` when they help.
 
-**Phase C: reply** in 3-6 lines, even if your host asks for one sentence (this is it). No paths, "validates",
+**Phase C: reply** in 3-6 lines, even if your host asks for one sentence. No paths, "validates",
 commands, services or exit codes (Overpass, Photon, OSRM, "exit 4"): say it plainly ("the place search was busy");
 sources by publisher (OpenStreetMap, Wikipedia) in one line; say what is unverified. Start with the
 verdict as `uw question` printed it (the pick and why, by name, no map letter; then the persona line),
@@ -96,7 +96,8 @@ send its address).
 
 - **The message names an open surface** (the prompt's "Open surface" block): edit that site in place (never a new
   site or card), `uw validate <site>`, then step 9 with `uw reload <site> --note "<what changed>"`. Same after any
-  later change to a site someone may have open. Trips: `reference/itinerary.md` "Later changes to a trip".
+  later change to a site someone may have open. Trips: `reference/itinerary.md` "Later changes to a trip"; a day's
+  note: `uw set <site> plan:day1 --note "…"`.
 - With a question, other layers become dots. If S1/S2 fail, give the busiest layer `"tier": "context"`.
 - Do things (only if planned): `bound.json` intents + `"bind": true`; handlers `pack:check_registry`,
   `pack:find_hotels_nearby` or your own `handlers/<name>.mjs` (recipe 27).
@@ -114,4 +115,3 @@ send its address).
 
 `reference/config.md` (every key), `reference/recipes.md` (recipe 0 = a full example), `reference/data-sources.md`
 (limits, credits).
-First use: `uw doctor`.

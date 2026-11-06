@@ -1,11 +1,18 @@
 // `set`: edit a feature's properties (note, name, metrics…) or remove it, without geocoding or re-fetching anything.
+import fs from 'node:fs';
+import path from 'node:path';
 import { parseArgs, makeOut, readJSON, writeJSON, writeGeoJSON, propsArg, UsageError, UserError } from './util.mjs';
 import { openSite, loadLayer, layerPath, withSiteLock } from './site.mjs';
 import { unnamedSource, unnamedSourceLine, sourceStamp } from './cmd-cite.mjs';
 
 export const help = `set <dir> <layer>:<id> [--note "…"] [--name "…"] [--emoji 🏨] [--props '{"price":120}' | --props-file <file|->] [--unset key1,key2] [--remove] [--json]
+set <dir> plan:day<N> --note "…" | --unset note [--json]
   Changes properties of one feature in data/<layer>.geojson in place (other properties, metrics and geometry stay), or
   removes it (--remove). No network. Use it to fix a note, label or prop after add-point / enrich instead of re-running them.
+  plan:day1 is the plan's first day: --note gives that day its own line (a note for day 1: "book the tickets ahead"),
+  shown under the day's text in the Plan tab, above its places (a map made before day notes keeps it but does not
+  show it: said); --note "" or --unset note takes it off. A place's or a stop's note shows on its own card, never in a
+  day. uw plan --force keeps each day's note.
   Geometry and "id" cannot be changed here (re-run add-point for a different place).
   A source_url that \`uw cite\` read (in the last hours) and that does not name the place is said at once: that page is
   not its source; cite the place's own page.
@@ -20,8 +27,10 @@ export async function run(argv) {
   const out = makeOut(args);
   const site = openSite(args._[0]);
   const m = String(args._[1]).match(/^([^:]+):(.+)$/);
-  if (!m) throw new UsageError(`"${args._[1]}" must be <layer>:<featureId>, e.g. hotels:via-loft`);
+  if (!m) throw new UsageError(`"${args._[1]}" must be <layer>:<featureId>, e.g. hotels:via-loft (a day: plan:day1)`);
   const [, layer, id] = m;
+  // a day of the plan (a site's own layer called "plan" keeps its features)
+  if (layer === 'plan' && (DAY_REF.test(id) || !loadLayer(site, 'plan', { required: false }))) return setDayNote(args, out, site, id);
   // the layer and map.config.json are read, changed and written under the site's write lock (another uw command may
   // write them at the same time); nothing here waits on the network
   const done = withSiteLock(site, () => {
@@ -72,6 +81,59 @@ export async function run(argv) {
   ]);
   if (miss) out.warn(unnamedSourceLine(miss, args._[0], `${layer}:${id}`));
   return 0;
+}
+
+const DAY_REF = /^(?:day-?)?(\d{1,3})$/i;
+const DAY_NOTE_MAX = 120;
+
+/** `uw set <site> plan:day<N> --note "…"`: day N's own line (a note for the day, a warning, a plan B), which the Plan
+ *  tab shows under the day's text and above its places, as Instafy's timeline page shows a day's note. A day is not a
+ *  feature: "Add a note to day 1: book the Alcázar tickets ahead." went on the city's stop (a 5 Nov 2026 run), whose
+ *  card showed it while day 1 did not, and the reply said "as a day 1 note". --note "" or --unset note takes it off. */
+function setDayNote(args, out, site, ref) {
+  const n = DAY_REF.exec(ref)?.[1];
+  if (!n) throw new UsageError(`"plan:${ref}" names no day: plan:day1 is the plan's first day, plan:day2 the second`);
+  const other = ['name', 'emoji', 'props', 'props-file'].filter((k) => args[k] !== undefined).concat(args.remove ? ['remove'] : []);
+  if (other.length) throw new UsageError(`a day takes --note "…" or --unset note; ${other.map((k) => `--${k}`).join(', ')} ${other.length === 1 ? 'is' : 'are'} for a place: uw set ${args._[0]} <layer>:<id> …`);
+  const unset = (args.unset || '').split(',').map((x) => x.trim()).filter(Boolean);
+  if (unset.some((k) => k !== 'note')) throw new UsageError('a day can only take its note off: --unset note');
+  if (args.note === undefined && !unset.length) throw new UsageError(`say what the day's note is: uw set ${args._[0]} plan:day${n} --note "<the note>"`);
+  const note = args.note === undefined ? '' : String(args.note).replace(/\s+/g, ' ').trim();
+  if (note.length > DAY_NOTE_MAX) throw new UsageError(`--note is ${note.length} characters: a day's note is one line under its text (≤ ${DAY_NOTE_MAX}); put the rest in the reply`);
+  // map.config.json is read, changed and written under the site's write lock (another uw command may write it too)
+  const { day, changed } = withSiteLock(site, () => {
+    const cfg = readJSON(site.cfgPath);
+    const days = Array.isArray(cfg?.plan?.days) ? cfg.plan.days : [];
+    if (!days.length) throw new UserError(`this map has no plan, so no day ${n}: a trip's days come from uw plan (reference/itinerary.md)`);
+    const i = Number(n) - 1;
+    if (i < 0 || i >= days.length) {
+      const list = days.slice(0, 6).map((d, j) => `day${j + 1}: ${d?.title || '(no title)'}`).join('; ');
+      throw new UserError(`no day ${n}: the plan has ${days.length} day${days.length === 1 ? '' : 's'} (${list}${days.length > 6 ? '; …' : ''})`);
+    }
+    const d = days[i] && typeof days[i] === 'object' ? days[i] : (days[i] = {});
+    const before = typeof d.note === 'string' ? d.note : '';
+    if (before === note) return { day: d, changed: false };
+    if (note) d.note = note; else delete d.note;
+    writeJSON(site.cfgPath, cfg, { pretty: true });
+    site.config = cfg;
+    return { day: d, changed: true };
+  });
+  const title = String(day.title || `day ${n}`);
+  // a map whose page came from a pack before day notes (its own engine/) does not show one: said, so the reply never
+  // says the map shows a note nobody can see
+  const shown = dayNotesShown(site);
+  out.result({ ok: true, day: Number(n), title, note: note || null, changed: changed ? ['note'] : [], shown }, [
+    !changed ? `Nothing changed on day ${n} (${title}).`
+      : !note ? `Day ${n} (${title}) has no note now.`
+        : shown ? `Day ${n} (${title}) has its note: "${note}". The Plan tab shows it under the day's text, above its places.`
+          : `Day ${n} (${title}) has its note: "${note}", but this map's page was made before day notes and does not show it: the reply says it is saved with day ${n}, not that the map shows it.`,
+  ]);
+  return 0;
+}
+
+/** Does the site's own page draw a day's note (its engine/ui.js, copied from the pack when the map was made)? */
+function dayNotesShown(site) {
+  try { return fs.readFileSync(path.join(site.dir, 'engine', 'ui.js'), 'utf8').includes('uw-day-note'); } catch { return false; }
 }
 
 /** A place's items in the plan's days (`ref` = this place) link the page it cites, as uw plan wrote them (`url` =
