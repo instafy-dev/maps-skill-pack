@@ -99,10 +99,11 @@ before(async () => {
 after(() => { mock?.server.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
 
 // the pack's own turn clock (one turn: no command waits 150 s), never the clock of a turn that runs these tests
-const uw = (args, { input = null } = {}) => new Promise((resolve) => {
+const uw = (args, { input = null, env: extra = {} } = {}) => new Promise((resolve) => {
   const env = { ...process.env, ...NO_WIKIPEDIA, UW_CACHE: path.join(tmp, 'cache'), UW_PHOTON: mock.url, UW_OVERPASS: `${mock.url}/api/interpreter`, UW_OSRM: mock.url,
     UW_VALHALLA: mock.url, INSTAFY_LOOKUP_STATE: path.join(tmp, 'lookups.json'), UW_RETRY_PAUSE_MS: '0' };
   for (const k of ['UW_NO_CACHE', 'UW_TURN_BUDGET', 'UW_TURN_GAP', 'INSTAFY_CACHE_DIR', 'INSTAFY_TURN_STARTED_AT', 'INSTAFY_TURN_DEADLINE', 'INSTAFY_TURN_CONTINUE_FILE', 'INSTAFY_STEP_TIMINGS_FILE', 'INSTAFY_JOB_DEADLINE', 'UW_RUN_ID']) delete env[k];
+  Object.assign(env, extra);
   const p = spawn(process.execPath, [UW, ...args], { cwd: tmp, env });
   let out = '', err = '';
   p.stdout.on('data', (d) => { out += d; }); p.stderr.on('data', (d) => { err += d; });
@@ -438,4 +439,18 @@ test('uw set plan:day1 --note on a map whose page was made before day notes says
   const said = await uw(['set', 'old', 'plan:day2', '--note', 'Flamenco show at 7 pm.']);
   assert.match(said.out, /^Day 2 \(Sat 7 Nov · Seville\) has its note: "Flamenco show at 7 pm\.", but this map's page was made before day notes and does not show it: the reply says it is saved with day 2, not that the map shows it\.$/m);
   assert.doesNotMatch(said.out, /The Plan tab shows it/);
+});
+
+test('validate: a hosted turn is one turn, also when a long read between commands on the site restarts the pack\'s own clock', async () => {
+  // the host's turn started before the map was built, and sets no deadline (a turn with no time limit)
+  const hosted = { INSTAFY_TURN_STARTED_AT: new Date(Date.now() - 1000).toISOString(), UW_TURN_GAP: '1' };
+  await runsMap('gap');
+  // a read of pages that takes longer than the pack's idle gap, with no command on the site
+  await new Promise((r) => setTimeout(r, 1500));
+  const v = await uw(['validate', 'gap', '--json'], { env: hosted });
+  assert.ok(staysError(v), `the places to stay this turn pinned still fail: ${JSON.stringify(v.json?.warnings, null, 1)}`);
+  // the next turn: the host's start is after the map was built
+  const later = await uw(['validate', 'gap', '--json'], { env: { ...hosted, INSTAFY_TURN_STARTED_AT: new Date(Date.now() + 1000).toISOString() } });
+  assert.ok(!later.json.errors.some((e) => /places to stay|says why to stay/.test(e.message)), JSON.stringify(later.json.errors, null, 1));
+  assert.ok(later.json.warnings.some((w) => /^places to stay: Seville/.test(w.message)));
 });

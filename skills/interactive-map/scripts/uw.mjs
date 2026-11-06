@@ -78,6 +78,11 @@ const HOST_TURN = (() => {
 const TURN_BUDGET_S = process.env.UW_TURN_BUDGET != null ? Number(process.env.UW_TURN_BUDGET)
   : HOST_TURN ? Math.max(60, Math.round((HOST_TURN.deadline - HOST_TURN.started) / 1000) - REPLY_MARGIN_S) : 480;
 const TURN_GAP_S = Number(process.env.UW_TURN_GAP ?? 150);
+// When the turn started, as the host says, also with no deadline (a turn with no time limit): what validate counts as
+// this turn's (the places to stay it pinned, the days it planned, the sources it gave). The idle-gap guess above starts
+// a new "turn" whenever no command touched the site for UW_TURN_GAP s, as during a long read of pages mid-turn, and
+// the places to stay pinned before that read then passed as an earlier turn's
+const HOST_STARTED_MS = (() => { const t = Date.parse(process.env.INSTAFY_TURN_STARTED_AT || ''); return Number.isFinite(t) ? t : null; })();
 
 function siteDirOf(rest) {
   // the site is the first positional, or --site <dir> (handoff <handoff dir> --site <site>)
@@ -262,7 +267,7 @@ async function main() {
   // day with one place to see fails in the turn that planned the days, while there is time to add places
   // (lib/turn-advice.mjs REPLY_WITHIN_S)
   const turnLeftS = cmd === 'validate' && clock && TURN_BUDGET_S > 0 ? (await import('./lib/turn-advice.mjs')).secondsLeft(clock.elapsedS, TURN_BUDGET_S) : null;
-  const code = cmd === 'validate' ? await mod[entry[1]](rest, { turnLeftS, turnStartedMs: clock?.startedMs ?? null }) : await mod[entry[1]](rest);
+  const code = cmd === 'validate' ? await mod[entry[1]](rest, { turnLeftS, turnStartedMs: clock ? (HOST_STARTED_MS ?? clock.startedMs) : null }) : await mod[entry[1]](rest);
   if (typeof code === 'number') process.exitCode = code;
   if (siteDir || cmd === 'new') turnClock(siteDir || siteDirOf(rest), { touchOnly: true });
   if (clock && (cmd === 'question' || cmd === 'validate') && !argv.includes('--json')) {

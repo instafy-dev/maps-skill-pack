@@ -17,7 +17,9 @@ All notable changes to this pack. Versions follow [semantic versioning](https://
   what `uw stay` found: none near the area, or not looked up yet while the search was busy. A stop with nights and no
   plan is a trip with no plan, as with "expect". These fail in the turn that built the stop or its stays; a later turn
   (a note to a day, a sight added and the days planned again) is warned, as is a stop with no place to stay at all: a
-  person may have a place of their own.
+  person may have a place of their own. A turn is the host's own (`INSTAFY_TURN_STARTED_AT`), also when it sets no
+  deadline: the pack's idle-gap clock started a new "turn" during a long read of pages, and the places to stay pinned
+  before it then passed as an earlier turn's.
 - **`uw stay`'s picks take the place of the area it looked around, and nothing else.** With `--near <layer>:<area>`
   in the layer `uw add-point` pinned the area in (refused before as "written by add-point"), the area gives way to the
   picks, said by name, and when the plan's days started there it says to plan them again; validate's error for a day
@@ -46,8 +48,8 @@ All notable changes to this pack. Versions follow [semantic versioning](https://
   A list of places to stay passes; a square does not. A lookup that found none within 800 m is named again, wider,
   and the wider one clears it; none within 3000 m passes the area, and the reply's words say none was found. The
   traveller's own hotel and a second area survive `uw stay`, and the area it took the place of is named with the
-  days to plan again. A later turn is warned, also after adding a sight and planning the days again, and a stop with
-  nights and no plan fails. `uw set plan:day1 --note` changes day 1's note and nothing else (no data file, no other
+  days to plan again. A later turn is warned, also after adding a sight and planning the days again; a hosted turn
+  stays one turn after a read longer than the idle gap; and a stop with nights and no plan fails. `uw set plan:day1 --note` changes day 1's note and nothing else (no data file, no other
   day), `uw plan --force` keeps it, a map whose page draws no day notes is told so, and a missing day, `--name` with
   it or a 121-character note are refused. The skill's texts name both. `tests/day-note-browser.test.mjs`
   (Playwright, skipped without it like the other browser tests): the Plan tab shows day 1's note as plain text under
