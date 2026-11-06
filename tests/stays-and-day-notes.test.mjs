@@ -322,9 +322,9 @@ test('uw stay keeps places it did not write: a traveller\'s own hotel and anothe
   assert.match(around.out, /^These take the place of the area Santa Cruz \(stays:santa-cruz\)/m);
   assert.ok(!ids().includes('santa-cruz'), `the area it looked around gave way: ${ids()}`);
   assert.ok(ids().includes('my-hotel') && ids().includes('triana'), `the rest stay: ${ids()}`);
-  // a run again around the same place replaces its own earlier picks, and nothing pinned by hand
+  // the other area's lookup: that area gives way too, and the traveller's own hotel still stays
   ok(await uw(['stay', 'own', '--near', 'stays:triana', '--stop', 'seville', '--kinds', 'hotel', '--radius', '3000', '--max', '1']), 'around Triana');
-  assert.ok(ids().includes('my-hotel'), `the traveller's own hotel stays: ${ids()}`);
+  assert.ok(!ids().includes('triana') && ids().includes('my-hotel'), `the traveller's own hotel stays: ${ids()}`);
   assert.equal(layerOf('own', 'stays').find((f) => f.properties.id === 'my-hotel').properties.note, 'Booked by me');
   // a layer of places picked by hand for no stop (the options of a choice) is not joined: another layer, named
   ok(await uw(['add-point', 'own', '--layer', 'stays', '--at', off(SANTA_CRUZ, 300, 300).join(','), '--name', 'Hotel Option', '--kind', 'hotel', '--id', 'option-a']), 'an option');
