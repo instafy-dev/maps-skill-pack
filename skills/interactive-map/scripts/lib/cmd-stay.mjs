@@ -12,6 +12,7 @@ import { placesSearch } from './osm-places.mjs';
 import { walkTable } from './route-lookups.mjs';
 import { adapterFor } from '../adapters/lib/areas.mjs';
 import { expectOf } from './expect.mjs';
+import { isAreaPin, noteStaysLookedUp } from './stays.mjs';
 
 export const helps = {
   station: `station <dir> --city "<city>" [--country <name|code>] [--near lng,lat] [--layer stations] [--id <slug>] [--kind rail|hsr]
@@ -45,8 +46,10 @@ export const helps = {
   Each point gets: rank, why in plain words ("6 min walk to Hualien Station · registered hotel, 120 rooms"; "about 6
   min walk" when estimated), how (the walk's basis and metres, the OpenStreetMap tags: the card's "How we know"), stop
   (the --near id), walk_min, walk_m, walk_basis, and in Taiwan licence + tw_* (rooms, class, FILED rates: not prices).
-  Runs per stop: the points for that --near are replaced, the other stops' points stay. Exit 2 = nothing in range
-  (widen --radius). Never a booking or a live price: say so in the reply.
+  Runs per stop: the points for that --near are replaced, the other stops' points stay. An area pinned as the stop's
+  place to stay (add-point --kind area, in this layer) gives way to the picks. Each run, found or not, is kept as the
+  stop's lookup: \`uw validate\` passes an area as a stop's only place to stay once one ran there.
+  Exit 2 = nothing in range (widen --radius). Never a booking or a live price: say so in the reply.
   It answers within its time limit (30 s; --timeout) with what it found: the lodging search gets most of it, the
   rest is kept for the walks and the write, so a busy Overpass gives the place search's shorter list (partial), a
   busy router straight-line walks, and a register that cannot answer in time gives way to OpenStreetMap. None found
@@ -89,7 +92,8 @@ export function rankStations(cands, { city, kind = 'rail', near = null, maxKm = 
   return kept;
 }
 
-function upsertPoints(site, layer, feats, { cmd, owners, replaceWhere }) {
+// `ownersIf`: a layer another command wrote that this one may join when its features pass the test
+function upsertPoints(site, layer, feats, { cmd, owners, ownersIf = {}, replaceWhere }) {
   // read, merge and write under the site's write lock: another stop's command may write this layer at the same time
   return withSiteLock(site, () => {
     const p = layerPath(site, layer);
@@ -97,7 +101,7 @@ function upsertPoints(site, layer, feats, { cmd, owners, replaceWhere }) {
     if (exists(p)) {
       try { fc = readJSON(p); } catch (e) { throw new UserError(`${layerRelPath(site, layer)} is not valid JSON: ${e.message}`); }
       const owner = fc?.uw?.cmd;
-      if (owner && !owners.includes(owner)) throw new UserError(`${layerRelPath(site, layer)} was written by "${owner}"; use another --layer (e.g. --layer ${cmd === 'stay' ? 'stays' : 'stations'}).`);
+      if (owner && !owners.includes(owner) && !ownersIf[owner]?.(fc)) throw new UserError(`${layerRelPath(site, layer)} was written by "${owner}"; use another --layer (e.g. --layer ${cmd === 'stay' ? 'stays' : 'stations'}).`);
       if (!Array.isArray(fc.features)) fc.features = [];
     }
     if (replaceWhere) fc.features = fc.features.filter((f) => !replaceWhere(f));
@@ -506,6 +510,8 @@ export async function stay(argv) {
     // valid without them)
     const retry = `uw stay ${argv.filter((a, i) => a !== '--json' && a !== '--timeout' && argv[i - 1] !== '--timeout' && !a.startsWith('--timeout=')).map(shq).join(' ')} --timeout 120`;
     const line = `No places to stay found near ${toName}: the lodging search did not answer in time (${e.message}).`;
+    // looked for, whatever came back: uw validate takes an area to stay in for this stop from now on
+    withSiteLock(site, () => noteStaysLookedUp(site.dir, stop, { status: 'unavailable', found: 0, radius, near: toName }));
     out.result({ ok: false, skipped: true, status: 'unavailable', none_found: true, layer, stop, near: { ref: args.near, name: toName }, radius, picks: [], error: line, retry, exit_code: 4 },
       [line, `Tell the user: places to stay near ${toName} were not looked up yet (the search was busy).`, `Try again later: ${retry}`]);
     return 4;
@@ -524,6 +530,7 @@ export async function stay(argv) {
     // the same command with a wider radius (up to the widest, 3000 m): what names the point (--near-label), the stop,
     // the kinds and the layer stay, so it runs as printed (without the label a point is refused)
     const widen = radius < 3000 ? ['stay', ...argv.filter((a, i) => a !== '--json' && a !== '--radius' && argv[i - 1] !== '--radius' && !a.startsWith('--radius=')), '--radius', String(Math.min(3000, radius * 2))] : null;
+    withSiteLock(site, () => noteStaysLookedUp(site.dir, stop, { status: 'none', found: 0, radius, near: toName }));
     out.result({ ok: false, layer, near: args.near, radius, source: srcLabel, picks: [], ...(widen ? { widen } : {}) },
       [`No lodging within ${radius} m of ${toName} in ${srcLabel}.${widen ? ` Widen it: uw ${widen.map(shq).join(' ')}` : ''}`]);
     return 2;
@@ -569,7 +576,12 @@ export async function stay(argv) {
   // a re-run replaces this stop's picks for the same anchor; picks near another anchor of the stop (the station and
   // the town centre) stay
   const sameAnchor = (f) => (f?.properties?.near_ref ? f.properties.near_ref === nearRef : !/^-?\d/.test(nearRef));
-  const w = upsertPoints(site, layer, feats, { cmd: 'stay', owners: ['stay'], replaceWhere: (f) => f?.properties?.stop === stop && sameAnchor(f) });
+  // the stop's area pinned as the place to stay (reference/itinerary.md "One base" step 2: no stay found) stood in for
+  // these: it goes. The layer it was pinned in (add-point wrote it) takes them too, when every place in it is a stop's
+  // (an options layer of hand-picked places has none: still refused)
+  const w = upsertPoints(site, layer, feats, { cmd: 'stay', owners: ['stay'], ownersIf: { 'add-point': (fc) => fc.features.every((f) => f?.properties?.stop != null) },
+    replaceWhere: (f) => f?.properties?.stop === stop && (sameAnchor(f) || isAreaPin(f.properties)) });
+  withSiteLock(site, () => noteStaysLookedUp(site.dir, stop, { status: 'found', found: feats.length, radius, near: toName }));
   const reg = registerPoints(site, layer, { style: { emoji: '🏨' }, list: true });
   addAttribution(site, attribution);
   if (routed) addAttribution(site, 'Walking times: OSRM (FOSSGIS) on OpenStreetMap');

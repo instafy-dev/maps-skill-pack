@@ -3,6 +3,43 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.33 (2026-11-06)
+
+- **A trip's places to stay come from `uw stay`, with or without `--expect`.** A map made for "3 days in Seville …
+  where to stay" without `uw new --expect` had only its area pinned as the place to stay, with a note no page had
+  said, pinned before any page was read; `uw stay` never ran, and `uw validate` passed: it checked a trip only through
+  "expect". A stop with nights on the map is now a trip's either way. `uw validate` fails while a stop's only place to
+  stay is an area and `uw stay` has not looked there, naming the command (`uw stay <site> --near <the area> --stop
+  <stop> --kinds hotel`, then `uw plan … --force`), and while an area's note says why to stay there with no page
+  `uw cite` read that names it (the fix cites one, or takes the note off and the reply says places to stay were not
+  looked up yet). A stop with nights and no plan is a trip with no plan, as with "expect". In a later turn (one that
+  adds a note to a day, say) both are warnings, and so is a stop with no place to stay at all: a person may have a
+  place of their own.
+- **`uw stay`'s picks take the area's place.** It writes into the stays layer `uw add-point` made for the area
+  (refused before as "written by add-point") when every place in it belongs to a stop, and the stop's area gives way
+  to its picks. Each run, found or not (exit 2, exit 4), is kept in the site's state folder as that stop's lookup, so
+  an area stays the recommendation once `uw stay` found none there.
+- **A note for a day lands on that day.** `uw set <site> plan:day1 --note "…"` gives day 1 its own line, which the
+  Plan tab shows under the day's text and above its places, as the timeline page shows a day's note (`--note ""` or
+  `--unset note` takes it off). `uw set` reached only a layer's features, so "Add a note to day 1" went on the city's
+  stop, whose card showed it while day 1 did not. `uw plan --force` keeps each day's note on its day, and names one on
+  a day the new plan no longer has; `uw validate` checks that a day's note is one line of at most 120 characters.
+- `SKILL.md` names a day's note in "Config and later changes", and the trip reference in "Later changes to a trip";
+  the trip reference's "One base" area takes the page that says why (`source_url`, `source`) and says what
+  `uw validate` checks. To stay within the skill's size budget, `SKILL.md` drops "First use: `uw doctor`" (a map turn
+  spent about 10 s on its service probes; every command says itself when a service is busy) and "(this is it)".
+- A site made before 0.1.33 shows a day's note once `uw upgrade <site>` replaced its `engine/`; new sites show it.
+- **Tests:** `tests/stays-and-day-notes.test.mjs` (offline: the place search, the lodging search and the walking
+  router are a local mock). The run's map fails `uw validate` with the stays error and the note error; the `uw stay`
+  command it names runs as printed, writes three hotels into the area's layer in the area's place, and after
+  `uw plan --force` validate passes. A list of places to stay passes. After `uw stay` found none (exit 2) the area
+  passes, and its note fails until it cites a page `uw cite` read that names it (a page that does not fails too). A
+  later turn is warned, and a stop with nights and no plan fails. `uw set plan:day1 --note` changes day 1's note and
+  nothing else (no data file, no other day), `uw plan --force` keeps it, and a missing day, `--name` with it or a
+  121-character note are refused. The skill's texts name both. `tests/day-note-browser.test.mjs` (Playwright, skipped
+  without it like the other browser tests): the Plan tab shows day 1's note as plain text under its text and above
+  its places, and day 2 none. All six fail without the change.
+
 ## 0.1.32 (2026-11-04)
 
 - **A pin's emoji sits in the middle of its circle.** Badges, emoji option pins, leg badges and the walker centred

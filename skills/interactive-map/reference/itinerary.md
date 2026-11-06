@@ -160,8 +160,10 @@ rather than reply. Sights come from `uw cite` in this turn, never from a browser
    a reason each). The base is the rank-1 stay; each day starts and ends there. Never the area itself as a hotel. No
    stay found (exit 2 after widening, or exit 4): pin the area as the recommendation, labelled as one:
    `uw add-point <site> --layer stays --query "<area>, <City>" --kind area --id <area slug> --props-file - <<'JSON'`, then
-   `{"stop":"<slug>","note":"Area to stay in: <why, from the page>"}` and `JSON` on their own lines (the days start
-   there), and the reply says places to stay were not looked up yet.
+   `{"stop":"<slug>","note":"Area to stay in: <why, from the page>","source_url":"<that page>","source":"<site>"}` and
+   `JSON` on their own lines (the days start there; no page says why: no note), and the reply says places to stay
+   were not looked up yet. `uw validate` fails while a stop's only stay is an area and `uw stay` has not looked there,
+   or while an area's note cites no page `uw cite` read.
 3. **Places by area**, before the plan: per day an area worth the day (a neighbourhood, a district a ride away, a day
    trip), 2-3 sourced places in it (Phase B step 1, with `"stop":"<slug>"`). Never put a place on a day because a
    list had room. Every full day gets its places before the reply: `uw validate` fails while one has fewer than two.
@@ -230,6 +232,9 @@ open site in place; then `uw validate`, SKILL.md step 9, the reply.
   {"layer": "food", "id": "…"}, "url": "…"}` and rewrite that day's text to include it. Many days at once:
   `uw plan … --sights sights,food,daytrips --force` places them and rewrites the texts (hand edits are replaced).
   Prose items are only for how to get there.
+- A note for a day ("add a note to day 1: book the tickets ahead"): `uw set <site> plan:day1 --note "<the note>"`,
+  the day's own line under its text in the Plan tab (`--note ""` takes it off; `uw plan --force` keeps it). Never
+  on a place or the stop: their notes show on their cards, not in the day.
 - When the ask is per base, per city or per day, check every one against it before replying, and say which got
   nothing and why.
 - The departure day keeps its plan text unless you have something sourced for it.

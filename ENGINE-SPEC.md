@@ -107,6 +107,7 @@ Rules:
   (one origin: shown fully; override with `linkedIdle: "show" | "faint"`). Selecting a point frames its linked area.
 - `cluster` may be `{ "radius": 46, "maxZoom": 15 }`.
 - `notes[].at` is either a ref `{layer,id}` or `[lng,lat]` that came from a script (never invented).
+- A plan day's `note` (one line, ≤ 120 characters) shows under the day's `text`, above its items.
 - Unknown keys are ignored with a console warning (forward compatible).
 
 ### 2.3 Feature conventions (all GeoJSON written by scripts)
