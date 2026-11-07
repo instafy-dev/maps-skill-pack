@@ -4,8 +4,8 @@ On a turn that plans a research team (its skill is loaded and the trip meets its
 the plan; the builder lane follows this file later.
 
 Use this for an itinerary: two or more places with nights ("3 nights Taipei, then Hualien…", "10 days in Japan with
-hotels and trains", "a rail loop with places to stay"), or days in one place ("3 days in Lisbon": "One base" below).
-It replaces steps 4-8 of SKILL.md; the hard rules, the
+hotels and trains", "a rail loop with places to stay"), or days in one place ("3 days in Lisbon": "One base", right
+after step 1). It replaces steps 4-8 of SKILL.md; the hard rules, the
 card (step 3), step 9 and the turn clock stay. It works anywhere: where an open-data adapter covers the area (`uw adapter list
 --at <lng,lat>`, e.g. a national lodging register) its data comes first; elsewhere OpenStreetMap. Region extras: when
 `reference/regions/<country>.md` exists (e.g. `taiwan.md`), read it too.
@@ -35,69 +35,40 @@ out ("flying home from Taipei"), so the last day never strands them.
 is the route from step 0: every stop the user named or you chose, so `uw validate` fails while one is missing).
 Then its card at once (SKILL.md step 3), before any lookup: a slow lookup can cost the map content, never its card.
 
-**2. One station per stop**, in travel order (a stop visited twice is added once):
-`uw station <site> --city "<City>" --country "<Country>" --nights N` (it finds the city centre itself, in that
-country: many city names exist in several countries; Photon, OpenStreetMap railway stations only, so a weather
-station or bus stop never wins). Read the pick and the alternatives; `--pick N` takes another. A `FAR FROM THE
-CENTRE` line (more than about 15 min walk): for a stop with full days, also find stays in town (the printed command)
-and tell the traveller where the station is.
-High-speed rail only where it pays: a leg of roughly 100 km or more where a high-speed line serves both ends (the
-`rail` layer shows it; `uw handoff --apply` prints it per leg). Then an HSR station outside town gets its own
-pass-through stop: `uw station <site> --city "<City>" --country "<Country>" --kind hsr --id <city>-hsr --nights 0`
-(exit 2 = no HSR station by that name: try the station's own name). No high-speed line at either end: conventional
-train, and never mention HSR. Neighbouring cities (Porto–Braga, Osaka–Kyoto) take the conventional train between the
-two city stations: never route a short hop out to an HSR station and back.
+## One base: days in one place
 
-**3. Stays by the station**, per stop: `uw stay <site> --near stations:<id>` (3 picks within 800 m, ranked by walking
-time, each with a reason in plain words: "3 min walk to Porto São Bento · hotel"; a route that goes round the station
-is replaced by the straight-line estimate, "about 3 min walk"; how each part is known is on the card, under "How we
-know"). Where a lodging register covers the
-area it comes first (licensed, open listings); elsewhere OpenStreetMap hotels, hostels and guest houses. Pass
-`--kinds hotel` unless the user asked for hostels or said the budget is tight (an unknown party counts as hotels);
-travellers who want character or a small place `--prefer any` (no penalty for B&Bs and small hotels). Call each
-pick by the kind it was written with: a hostel is a hostel, in the reply too. A hotel in range is always among the
-picks; "No hotel within …" means there is none, and the reply says so. Small towns: `--radius 1500`.
-It answers within about 30 s with what it found (a busy lookup gives fewer, marked partial; exit 4 = none found:
-say places to stay were not looked up yet): wait for it, never run it twice.
-A station far from the centre (step 2): `uw stay <site> --near <centre lng,lat> --near-label "the centre of <City>"
---stop <station id>` too, and let the reply say which is which. Exit 2 = nothing in range: widen it. Never say a stay
-is available, bookable or a price (a register's filed rates are not prices).
-Give each pick one reason beyond the walk when a page you opened says it (quiet street, river view, family rooms).
+"3 days in Lisbon", "a weekend in Kyoto", "a day in Porto": one stop and no trains. Step 0 (parse, defaults, the
+`Assumed:` line), step 1, Phase B (next) and step 6 (`uw validate <site> --signal`, then SKILL.md step 9) stay;
+instead of steps 2-5, which are for several stops:
 
-**4. Real track, then the legs on it.**
-`uw fit <site>`, `uw lines <site> --layer rail --kinds rail,hsr --simplify 80`, then
-`uw legs <site> --layer trip --stops stations:a,stations:b,…,stations:a --modes train,…,hsr --follow rail --source-url "<timetable page per leg>"`.
-Legs follow the OpenStreetMap track (no straight lines over mountains; the card says "194 km by rail"). A country
-or a long trip is fetched as map tiles kept in a cache every site shares, so a busy Overpass costs only the tiles it
-did not answer: `PARTIAL: rail track for 2 of 9 map tiles did not load` still writes the rest, and the line it prints
-fetches only the missing tiles. A leg it could not put on the track stays an arc and its card says "Drawn straight"
-(track not loaded / no connected track): say so in the reply, never its distance as a route. `lines` skipped (exit
-4, no tile loaded): run `legs` anyway (arcs, labelled) and make "lines with `--timeout 180`, then `legs` again"
-Phase B's first step (`uw handoff --apply` retries once itself and prints both commands). Until that has worked,
-every later turn that touches the route runs them first: straight arcs over mountains are not a route. Durations: only from a source you opened this turn (`--durations "2h10,,3h30" --source "TRA timetable"
---source-url …`, empty = unknown); otherwise leave them out and the plan says "times: check the timetable" with the
-link. A journey planner gives them per leg when one is configured:
-`uw transit <site> --from stations:a --to stations:b --date <travel day>` prints a typical ride time with its
-`source`/`source_url` (exit 4 = no planner configured: no durations, move on). Say "about": times are scheduled.
-Operator pages: the operator's journey planner (DB, SNCF, Trenitalia, Renfe, NS, JR, Amtrak…; a region file names
-more).
+1. **The stop** is the city, never the hotel (`uw plan` refuses a place to stay as a stop): `uw add-point <site>
+   --layer stops --query "<City>" --country "<Country>" --kind city --id <slug> --props '{"nights":N}'`. "N days" is
+   N nights unless the user gave dates; one day is 0. The plan has a dated day per night and no departure day: they
+   leave the day after, which the stay line's dates end on.
+2. **Stays** in the area you recommend staying in (a page you read says why): `uw geocode "<area>, <City>"`, then
+   `uw stay <site> --near <its lng,lat> --near-label "<area>" --stop <slug>` (step 3's rules: hotels unless asked,
+   a reason each). The base is the rank-1 stay; each day starts and ends there. Never the area itself as a hotel. No
+   stay found (exit 2 after widening, or exit 4): pin the area as the recommendation, labelled as one:
+   `uw add-point <site> --layer stays --query "<area>, <City>" --kind area --id <area slug> --props-file - <<'JSON'`, then
+   `{"stop":"<slug>","note":"Area to stay in: <why, from the page>","source_url":"<that page>","source":"<site>"}` and
+   `JSON` on their own lines (the days start there; no page says why: no note), and the reply says what `uw stay`
+   said: none found near it (exit 2), or places to stay not looked up yet (exit 4). `uw validate` fails while a stop's
+   only stay is an area and `uw stay` has not looked there (widened to 3000 m when it found none), or while an area's
+   note cites no page `uw cite` read.
+3. **Places by area**, before the plan: per day an area worth the day (a neighbourhood, a district a ride away, a day
+   trip), 2-3 sourced places in it (Phase B step 1, with `"stop":"<slug>"`). Never put a place on a day because a
+   list had room. Every full day gets its places before the reply: `uw validate` fails while one has fewer than two.
+4. **Plan**: `uw plan <site> --stops stops --ids <slug> --nights N --start <date> --stays stays --sights sights,food,daytrips`.
+   Every day is a loop from the base: a stop's places are grouped by area (the closest share a day, in walking
+   order, the area nearest the base first; every day, the arrival day too, gets a place before any gets a second).
+   Never "<city> → <city>": a stop named twice in a row is one stay. The reply ("Reply", at the end): the stay with
+   its dates as `uw plan` prints it, the `Assumed:` line (the dates too, when the person gave none), where to stay and
+   why, then each day's area.
 
-**5. Question + plan.**
-`uw question <site> --kind plan-route --options stations --force` (the heading "6 stops · 14 nights · 6 rides by
-train & HSR"; the ask comes from `--ask`), then
-`uw plan <site> --stops stations --ids a,b,…,a --nights 3,2,…,2 --start 2026-10-20 --legs trip --stays stays`:
-one dated day per night plus the departure day, travel days with the leg and the new base, every day focused on that
-stop's best stay. A 0-night stop shares its travel day ("Tainan → Tainan HSR → Taipei"). The departure day is marked
-("Departure" on the map, "Leave <stop>."): nothing is planned on it; never fill it with places to look complete.
-
-**6. Reconcile, then preview.** `uw validate <site> --signal`. It checks the map against the route ("expect"):
-`asked for but not on the map: <Stop> (2 nights)` or `on the map but in no day of the plan` is an error. Place the
-stop (the retry command `uw handoff --apply` or the lookup printed, with `--timeout 120`; else `uw add-point <site>
---layer stations --query "<City>" --country "<Country>" --kind city --allow-far --id <id> --props-file - <<'JSON'`, then
-`{"nights":N,"station_of":"<City>","no_station":true}` and `JSON` on their own lines), then
-`uw plan … --ids <every stop> --nights … --force`. Still not placed (exit 4 again): keep going, and the reply's route
-line names it as missing with its nights ("<Stop> (2 nights) is not on the map yet: the place lookup was down"). Then SKILL.md step 9 (open viewers update, the card's picture is refreshed), before Phase B: the traveller has
-the map while the days fill in.
+**Days that hang together.** `uw plan` and `uw validate` warn when a day has a place far from its other places, or
+nearer another day's (`day places: "<place>" (<day>) is 3.1 km from that day's other places but 0.2 km from
+"<place>" on <day>`). Move it to the day named, in the items and both days' texts, or rebuild with `uw plan … --force`
+(it groups by area). A day trip far out of town is judged on its own.
 
 ## Phase B: make it worth following (one step at a time, while the turn clock shows more than ~3 min left)
 
@@ -146,38 +117,73 @@ rather than reply. Sights come from `uw cite` in this turn, never from a browser
 4. Optional, if time is left: licence chips on the stays where a lodging register covers the area (`uw adapter
    list --at <lng,lat>`), doorstep photos (`uw photos <site> --layer stays`), what the region file suggests.
 
-## One base: days in one place
+## Several stops: stations, stays, trains (Phase A, steps 2-6)
 
-"3 days in Lisbon", "a weekend in Kyoto", "a day in Porto": one stop and no trains. Step 0 (parse, defaults, the
-`Assumed:` line), step 1, step 6 and Phase B stay; instead of steps 2-5:
+Two or more places with nights (one place: "One base" above). Phase B follows step 6.
 
-1. **The stop** is the city, never the hotel (`uw plan` refuses a place to stay as a stop): `uw add-point <site>
-   --layer stops --query "<City>" --country "<Country>" --kind city --id <slug> --props '{"nights":N}'`. "N days" is
-   N nights unless the user gave dates; one day is 0. The plan has a dated day per night and no departure day: they
-   leave the day after, which the stay line's dates end on.
-2. **Stays** in the area you recommend staying in (a page you read says why): `uw geocode "<area>, <City>"`, then
-   `uw stay <site> --near <its lng,lat> --near-label "<area>" --stop <slug>` (step 3's rules: hotels unless asked,
-   a reason each). The base is the rank-1 stay; each day starts and ends there. Never the area itself as a hotel. No
-   stay found (exit 2 after widening, or exit 4): pin the area as the recommendation, labelled as one:
-   `uw add-point <site> --layer stays --query "<area>, <City>" --kind area --id <area slug> --props-file - <<'JSON'`, then
-   `{"stop":"<slug>","note":"Area to stay in: <why, from the page>","source_url":"<that page>","source":"<site>"}` and
-   `JSON` on their own lines (the days start there; no page says why: no note), and the reply says what `uw stay`
-   said: none found near it (exit 2), or places to stay not looked up yet (exit 4). `uw validate` fails while a stop's
-   only stay is an area and `uw stay` has not looked there (widened to 3000 m when it found none), or while an area's
-   note cites no page `uw cite` read.
-3. **Places by area**, before the plan: per day an area worth the day (a neighbourhood, a district a ride away, a day
-   trip), 2-3 sourced places in it (Phase B step 1, with `"stop":"<slug>"`). Never put a place on a day because a
-   list had room. Every full day gets its places before the reply: `uw validate` fails while one has fewer than two.
-4. **Plan**: `uw plan <site> --stops stops --ids <slug> --nights N --start <date> --stays stays --sights sights,food,daytrips`.
-   Every day is a loop from the base: a stop's places are grouped by area (the closest share a day, in walking
-   order, the area nearest the base first; every day, the arrival day too, gets a place before any gets a second).
-   Never "<city> → <city>": a stop named twice in a row is one stay. The reply says where to stay and why, then each
-   day's area.
+**2. One station per stop**, in travel order (a stop visited twice is added once):
+`uw station <site> --city "<City>" --country "<Country>" --nights N` (it finds the city centre itself, in that
+country: many city names exist in several countries; Photon, OpenStreetMap railway stations only, so a weather
+station or bus stop never wins). Read the pick and the alternatives; `--pick N` takes another. A `FAR FROM THE
+CENTRE` line (more than about 15 min walk): for a stop with full days, also find stays in town (the printed command)
+and tell the traveller where the station is.
+High-speed rail only where it pays: a leg of roughly 100 km or more where a high-speed line serves both ends (the
+`rail` layer shows it; `uw handoff --apply` prints it per leg). Then an HSR station outside town gets its own
+pass-through stop: `uw station <site> --city "<City>" --country "<Country>" --kind hsr --id <city>-hsr --nights 0`
+(exit 2 = no HSR station by that name: try the station's own name). No high-speed line at either end: conventional
+train, and never mention HSR. Neighbouring cities (Porto–Braga, Osaka–Kyoto) take the conventional train between the
+two city stations: never route a short hop out to an HSR station and back.
 
-**Days that hang together.** `uw plan` and `uw validate` warn when a day has a place far from its other places, or
-nearer another day's (`day places: "<place>" (<day>) is 3.1 km from that day's other places but 0.2 km from
-"<place>" on <day>`). Move it to the day named, in the items and both days' texts, or rebuild with `uw plan … --force`
-(it groups by area). A day trip far out of town is judged on its own.
+**3. Stays by the station**, per stop: `uw stay <site> --near stations:<id>` (3 picks within 800 m, ranked by walking
+time, each with a reason in plain words: "3 min walk to Porto São Bento"; a route that goes round the station
+is replaced by the straight-line estimate, "about 3 min walk"; how each part is known is on the card, under "How we
+know"). Where a lodging register covers the
+area it comes first (licensed, open listings); elsewhere OpenStreetMap hotels, hostels and guest houses. Pass
+`--kinds hotel` unless the user asked for hostels or said the budget is tight (an unknown party counts as hotels);
+travellers who want character or a small place `--prefer any` (no penalty for B&Bs and small hotels). Call each
+pick by the kind it was written with: a hostel is a hostel, in the reply too. A hotel in range is always among the
+picks; "No hotel within …" means there is none, and the reply says so. Small towns: `--radius 1500`.
+It answers within about 30 s with what it found (a busy lookup gives fewer, marked partial; exit 4 = none found:
+say places to stay were not looked up yet): wait for it, never run it twice.
+A station far from the centre (step 2): `uw stay <site> --near <centre lng,lat> --near-label "the centre of <City>"
+--stop <station id>` too, and let the reply say which is which. Exit 2 = nothing in range: widen it. Never say a stay
+is available, bookable or a price (a register's filed rates are not prices).
+Give each pick one reason beyond the walk when a page you opened says it (quiet street, river view, family rooms).
+
+**4. Real track, then the legs on it.**
+`uw fit <site>`, `uw lines <site> --layer rail --kinds rail,hsr --simplify 80`, then
+`uw legs <site> --layer trip --stops stations:a,stations:b,…,stations:a --modes train,…,hsr --follow rail --source-url "<timetable page per leg>"`.
+Legs follow the OpenStreetMap track (no straight lines over mountains; the card says "194 km by rail"). A country
+or a long trip is fetched as map tiles kept in a cache every site shares, so a busy Overpass costs only the tiles it
+did not answer: `PARTIAL: rail track for 2 of 9 map tiles did not load` still writes the rest, and the line it prints
+fetches only the missing tiles. A leg it could not put on the track stays an arc and its card says "Drawn straight"
+(track not loaded / no connected track): say so in the reply, never its distance as a route. `lines` skipped (exit
+4, no tile loaded): run `legs` anyway (arcs, labelled) and make "lines with `--timeout 180`, then `legs` again"
+Phase B's first step (`uw handoff --apply` retries once itself and prints both commands). Until that has worked,
+every later turn that touches the route runs them first: straight arcs over mountains are not a route. Durations: only from a source you opened this turn (`--durations "2h10,,3h30" --source "TRA timetable"
+--source-url …`, empty = unknown); otherwise leave them out and the plan says "times: check the timetable" with the
+link. A journey planner gives them per leg when one is configured:
+`uw transit <site> --from stations:a --to stations:b --date <travel day>` prints a typical ride time with its
+`source`/`source_url` (exit 4 = no planner configured: no durations, move on). Say "about": times are scheduled.
+Operator pages: the operator's journey planner (DB, SNCF, Trenitalia, Renfe, NS, JR, Amtrak…; a region file names
+more).
+
+**5. Question + plan.**
+`uw question <site> --kind plan-route --options stations --force` (the heading "6 stops · 14 nights · 6 rides by
+train & HSR"; the ask comes from `--ask`), then
+`uw plan <site> --stops stations --ids a,b,…,a --nights 3,2,…,2 --start 2026-10-20 --legs trip --stays stays`:
+one dated day per night plus the departure day, travel days with the leg and the new base, every day focused on that
+stop's best stay. A 0-night stop shares its travel day ("Tainan → Tainan HSR → Taipei"). The departure day is marked
+("Departure" on the map, "Leave <stop>."): nothing is planned on it; never fill it with places to look complete.
+
+**6. Reconcile, then preview.** `uw validate <site> --signal`. It checks the map against the route ("expect"):
+`asked for but not on the map: <Stop> (2 nights)` or `on the map but in no day of the plan` is an error. Place the
+stop (the retry command `uw handoff --apply` or the lookup printed, with `--timeout 120`; else `uw add-point <site>
+--layer stations --query "<City>" --country "<Country>" --kind city --allow-far --id <id> --props-file - <<'JSON'`, then
+`{"nights":N,"station_of":"<City>","no_station":true}` and `JSON` on their own lines), then
+`uw plan … --ids <every stop> --nights … --force`. Still not placed (exit 4 again): keep going, and the reply's route
+line names it as missing with its nights ("<Stop> (2 nights) is not on the map yet: the place lookup was down"). Then SKILL.md step 9 (open viewers update, the card's picture is refreshed), before Phase B: the traveller has
+the map while the days fill in.
 
 ## Research-team handoff (big trips)
 
@@ -257,18 +263,20 @@ open site in place; then `uw validate`, SKILL.md step 9, the reply.
 ## Reply (Phase C for trips)
 
 Write for the traveller, 5-8 short lines:
-1. The route with nights and dates, as `uw plan` prints it ("Route for the reply"): `<Stop> <nights> → <Stop>
-   <nights> → … (<n> nights, <first date> – <last date>)`. The night split is part of the answer: always state it.
+1. The route with nights and dates, as `uw plan` prints it ("Route for the reply"; one stop: "Stay for the reply"):
+   `<Stop> <nights> → <Stop> <nights> → … (<n> nights, <first date> – <last date>)`. The night split is part of the
+   answer: always state it.
    Check it against the stops asked for (step 0): one that is not on the map is named right after the route, with its
    nights and why ("<Stop> (2 nights) is not on the map yet: the place lookup was down; ask me to add it").
-2. The `Assumed:` line from step 0 (only what you filled in).
+2. The `Assumed:` line from step 0: only what you filled in, the dates too when the person gave none.
 3. Where to sleep: one stay per stop with its reason (name, walk to the station, and what a page said about it),
    e.g. `Porto: Hotel X (4 min walk from São Bento, quiet side street)`; where the base is not a walk from the
    station, say how far and how ("Taitung: Hotel Y, 6 km from the station: taxi or local bus"), as the plan does.
 4. Trains: what is sourced (durations with their timetable) and what is an estimate from the distance (the plan
    says "about 2 h … (estimate …)"; "check the operator's timetable, linked on each leg").
 5. Day highlights or warnings worth acting on (a closure, a pass to buy), only from the pages you opened; a full
-   day with one place to see (`uw validate` names it): say which, and offer to add more.
+   day still with one place to see when the time ran out (`uw validate` names it then): say which, and offer to add
+   more.
 6. `Sources:` in one line, by who publishes the data (e.g. "OpenStreetMap, Wikivoyage, the national park's site",
    the lodging register when one was used, plus the operator's journey planner when `uw transit` gave times).
 7. `Unverified:` prices and availability (never checked), train times not sourced, anything "Not found yet",

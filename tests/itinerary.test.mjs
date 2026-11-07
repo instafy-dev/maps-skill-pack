@@ -242,7 +242,10 @@ test('rankStays: walk time ranks, B&Bs and tiny places pay a penalty, one pick p
   assert.match(est[0].why, /^about 4 min walk to X · /);
   assert.equal(est[0].how[0].text, '300 m, estimated from the straight line');
   const osm = rankStays([c('Nord', 200, { registered: false, osm_kind: 'hotel', stars: '4' })], { to: 'X' });
-  assert.match(osm[0].why, /^3 min walk to X · hotel, 4★$/);
+  // the card and the list name the kind ("Hotel"): the reason says only what they do not
+  assert.match(osm[0].why, /^3 min walk to X · 4★$/);
+  assert.equal(rankStays([c('Plain', 200, { registered: false, osm_kind: 'hotel' })], { to: 'X' })[0].why, '3 min walk to X');
+  assert.equal(rankStays([c('Roadside', 200, { registered: false, osm_kind: 'motel' })], { to: 'X' })[0].why, '3 min walk to X · motel');
   assert.deepEqual(osm[0].how.map((x) => x.label), ['Walk', 'Kind and stars']);
 });
 
@@ -302,7 +305,8 @@ test('stay (elsewhere): OpenStreetMap lodging; Photon stands in when Overpass is
   const names = r.json.picks.map((p) => p.name);
   assert.equal(names[0], 'Hotel Nord');
   assert.ok(!names.includes(undefined));
-  assert.match(r.json.picks[0].why, /hotel, 4★$/);
+  assert.match(r.json.picks[0].why, /^\d+ min walk to .+ · 4★$/);
+  assert.doesNotMatch(r.json.picks.map((p) => p.why).join(' '), /· hotel/);
   assert.doesNotMatch(r.json.picks[0].why, /OpenStreetMap|OSM|routed|est\./);
   assert.equal(r.json.picks[0].osm_id, 'osm-n501');
   assert.ok(cfgOf('ams').attribution.some((a) => /OpenStreetMap/.test(a)));
@@ -373,7 +377,7 @@ test('Overpass never answers: uw stay answers within its 30 s with the place sea
     assert.ok(r.ms < 31000, `${kind}s: answered after ${r.ms} ms, past its 30 s`);
     assert.match(r.json.partial, /Overpass could not answer/);
     assert.ok(r.json.picks.length >= 1 && r.json.picks.every((p) => p.kind === kind), `${kind}s: ${r.json.picks.map((p) => `${p.name} (${p.kind})`)}`);
-    assert.ok(r.json.picks.every((p) => /^\d+ min walk to Baixa · /.test(p.why)), 'walked, with time left after the search');
+    assert.ok(r.json.picks.every((p) => /^\d+ min walk to Baixa(?: · .+)?$/.test(p.why)), 'walked, with time left after the search');
   }
   assert.equal(hotels.json.picks[0].name, 'Hotel Rua Augusta');
   assert.deepEqual(hostels.json.picks.map((p) => p.name).sort(), ['Downtown Rooms Hostel', 'Draft Hostel', 'Lounge Hostel']);
