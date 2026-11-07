@@ -434,7 +434,8 @@ export async function run(argv) {
     own = ownSiteLink(r.text, r.finalUrl);
     if (own && new URL(own).hostname.replace(/^www\./, '') === source) own = null;
   }
-  const ownNext = own ? `For a place, its own site is its source before this page: uw cite ${own} --grep "<its name>"; `
+  // the address is the page's: quoted as one word, so a command copied from here runs nothing the page wrote into it
+  const ownNext = own ? `For a place, its own site is its source before this page: uw cite "${dq(own)}" --grep "<its name>"; `
     + 'this page only when that one cannot be read or does not name the place.' : null;
   // kept for `uw set` / `uw add-point`: a place whose source_url is this page and whose name it lacks is said at once
   rememberCited([url.href, r.finalUrl], { url: r.finalUrl, title, retrieved_at: retrieved, text: lines.join('\n') });

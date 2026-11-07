@@ -683,13 +683,13 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       E(CFG, '$.plan', `a trip (${describeItems(expected)}) with no plan: its days go in the plan, which the map shows as its own tab, not in place notes`,
         `follow reference/itinerary.md ("One base" for days in one place): places to stay (uw stay), 2-3 sourced places a day grouped by area, then uw plan ${args._[0]} --stops … --ids … --nights … --stays stays --sights sights`);
   }
-  // --- a trip's places to stay (reference/itinerary.md step 3, "One base" step 2). A Seville map had only its area
-  // pinned to stay in, with a note no page had said, written before the turn read any page; uw stay never ran, and the
-  // reply called the area the recommendation. Each stop with nights has places to stay; an area pinned as the place to
-  // stay stands in only once uw stay looked there and found none (uw stay keeps where it looked: lib/stays.mjs), and its
-  // note says why only from a page uw cite read that names it. Both fail in the turn that built the stop or its stays,
-  // while the clock leaves time to look; a later turn (a note to a day, a sight added and the days planned again) is
-  // warned, and keeps what the map has
+  // --- a trip's places to stay (reference/several-stops.md step 3, itinerary.md "One base" step 2). A Seville map had
+  // only its area pinned to stay in, with a note no page had said, written before the turn read any page; uw stay never
+  // ran, and the reply called the area the recommendation. Each stop with nights has places to stay; an area pinned as
+  // the place to stay stands in only once uw stay looked there and found none (uw stay keeps where it looked:
+  // lib/stays.mjs), and its note says why only from a page uw cite read that names it. Both fail in the turn that built
+  // the stop or its stays, while the clock leaves time to look; a later turn (a note to a day, a sight added and the
+  // days planned again) is warned, and keeps what the map has
   if (nightStops.length) {
     const thisTurn = (iso) => { const t = Date.parse(iso ?? ''); return Number.isFinite(t) && (turnStartedMs == null || t >= turnStartedMs); };
     const builtNow = turnStartedMs == null || [...nightLayers, ...stayLayers].some((lid) => thisTurn(uwByLayer.get(lid)?.updated_at));
@@ -719,7 +719,7 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       // none at all is warned (a person may have a place of their own); an area pinned instead of looking fails
       (areas.length ? level : W)(byId.get(s.lid)?.data || CFG, `$.features[?(@.properties.id=="${id}")]`,
         `places to stay: ${s.name} (${s.nights} night${s.nights === 1 ? '' : 's'}) has ${areas.length ? `only the area${areas.length > 1 ? 's' : ''} ${areas.map((a) => a.name).join(', ')} to stay in` : 'none'}, and uw stay ${wider ? `found none within ${looked[id].radius} m of it` : 'has not looked for any there'}`,
-        `${look}${wider ? '' : ` (hotels unless the person asked for hostels; reference/itinerary.md ${oneBase ? '"One base" step 2' : 'step 3'})`}, then uw plan ${site} … --stays ${areas[0]?.sl || 'stays'} --force: each day starts at the first stay. ${noneFound}`);
+        `${look}${wider ? '' : ` (hotels unless the person asked for hostels; ${oneBase ? 'reference/itinerary.md "One base" step 2' : 'reference/several-stops.md step 3'})`}, then uw plan ${site} … --stays ${areas[0]?.sl || 'stays'} --force: each day starts at the first stay. ${noneFound}`);
     }
     // an area pinned as the place to stay says why only from a page uw cite read that names it
     for (const sl of stayLayers) for (const f of featuresByLayer.get(sl) || []) {

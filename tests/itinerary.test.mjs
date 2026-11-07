@@ -327,6 +327,12 @@ test('stay keeps a hotel with the hostels, or says it found none', async () => {
   assert.equal(r.json.picks.find((p) => p.kind === 'hotel').name, 'Hotel Rua Augusta');
   assert.deepEqual(r.json.picks.map((p) => p.rank), [1, 2, 3], 'ranked by walk');
   assert.equal(r.json.no_hotel, undefined);
+  // the plain listing names each pick's kind as its card does (the reason leaves it out): a hostel is called a hostel
+  const listed = await uw(['stay', 'lx', '--near', LX.join(','), '--near-label', 'Baixa', '--stop', 'lisboa']);
+  assert.equal(listed.code, 0, listed.err);
+  for (const p of r.json.picks) {
+    assert.ok(listed.out.split('\n').includes(`  ${p.rank}. ${p.name} (${p.kind.replace('_', ' ')}) — ${p.why}  [stays:${p.id}]`), `${p.name} (${p.kind}):\n${listed.out}`);
+  }
   // --kinds hostel: hostels only, and no word about hotels
   const h = await uw(['stay', 'lx', '--near', LX.join(','), '--near-label', 'Baixa', '--stop', 'lisboa', '--kinds', 'hostel', '--json']);
   assert.ok(h.json.picks.every((p) => p.kind === 'hostel'));

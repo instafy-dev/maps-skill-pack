@@ -626,7 +626,11 @@ export async function stay(argv) {
     routed, partial: got.partial || null, ...(noHotel ? { no_hotel: true } : {}), picks: feats.map((f) => f.properties), registered: reg,
     ...(gave ? { replaced: gave.ref, ...(replan ? { replan: true } : {}) } : {}) },
   [`${feats.length} stay(s) near ${toName} (${got.total ?? got.list.length} lodging places within ${radius} m; ${srcLabel}; walks ${routed ? 'routed (OSRM foot)' : 'estimated'}):`,
-    ...feats.map((f) => `  ${f.properties.rank}. ${f.properties.name}${f.properties.name_en ? ` (${f.properties.name_en})` : ''} — ${f.properties.why}  [${layer}:${f.properties.id}]`),
+    // each pick's kind, as its card names it: the reason leaves it out, and the reply calls a hostel a hostel
+    ...feats.map(({ properties: p }) => {
+      const what = [p.name_en, p.kind && String(p.kind).replace('_', ' ')].filter(Boolean).join(', ');
+      return `  ${p.rank}. ${p.name}${what ? ` (${what})` : ''} — ${p.why}  [${layer}:${p.id}]`;
+    }),
     addedBnb ? `  (fewer than ${max} hotels in range: B&Bs and guest houses were included)` : null,
     noHotel ? `No hotel within ${radius} m of ${toName}${got.partial ? ' in what the search could list' : ''}.` : null,
     partialNote, reg, gaveLine,

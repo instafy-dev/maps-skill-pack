@@ -50,7 +50,7 @@ from `https://tdx.transportdata.tw/auth/realms/TDXConnect/protocol/openid-connec
 data quotas by plan). A platform-held key would plug in as an adapter reading `TDX_CLIENT_ID` / `TDX_CLIENT_SECRET`
 from the runtime environment (never from the site), mapping stations by name to TDX StationIDs, and feeding
 `legs --durations … --source "TRA timetable (TDX)" --source-url <operator page>`. Until then: the operator pages
-(itinerary.md step 4) and no duration without one.
+(several-stops.md step 4) and no duration without one.
 
 **Journey planners (`uw transit`).** MOTIS (open source) answers `GET <base>/api/v5/plan?fromPlace=<lat,lng>&toPlace=…
 &time=…&transitModes=RAIL` from GTFS feeds worldwide; Taiwan's TRA/THSR come from the TDX GTFS feed (OGDL credit).
