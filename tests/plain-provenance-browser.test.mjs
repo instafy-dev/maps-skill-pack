@@ -1,6 +1,6 @@
 // The 28 Oct drive's third map (375×812, "3 days in Lisbon"): a stay's card read "2 min walk (routed, 161 m) to Baixa ·
 // hotel in OpenStreetMap, 4★ (OSM tag)", the Map key ended "Walking times: OSRM (FOSSGIS) on OpenStreetMap", and the
-// sheet's title was cut ("Where to stay and what to see each …"). The card now says "2 min walk to Baixa · hotel, 4★"
+// sheet's title was cut ("Where to stay and what to see each …"). The card now says "2 min walk to Baixa · 4★"
 // with how each part is known under its collapsed "How we know", the key's credits sit behind a collapsed "Sources",
 // and the title wraps to a second line.
 // Needs Playwright (UW_PLAYWRIGHT=/path/to/playwright, optionally UW_BROWSER_CHANNEL=chrome); skipped without it.
@@ -32,7 +32,7 @@ test('a stay\'s card and the Map key read in plain words; how it is known is one
   assert.equal(r.status, 0, r.stderr);
   // the reason and its "how" exactly as uw stay writes them
   const [pick] = rankStays([{ name: 'Pestana Rua Augusta', coord: [-9.1372, 38.7101], walk_min: 2, walk_m: 161, walk_basis: 'routed', registered: false, osm_kind: 'hotel', stars: '4', group: 'hotel' }], { to: 'Baixa' });
-  assert.equal(pick.why, '2 min walk to Baixa · hotel, 4★');
+  assert.equal(pick.why, '2 min walk to Baixa · 4★');
   fs.writeFileSync(path.join(dir, 'data', 'stays.geojson'), JSON.stringify({ type: 'FeatureCollection', uw: { cmd: 'stay' }, features: [
     { type: 'Feature', geometry: { type: 'Point', coordinates: pick.coord }, properties: { id: 'pestana', name: pick.name, kind: 'hotel', emoji: '🏨', stop: 'lisbon', rank: 1, why: pick.why, note: pick.why, how: pick.how, walk_min: 2, walk_m: 161, walk_basis: 'routed', walk_to: 'Baixa', stars: '4', source: 'OpenStreetMap' } },
   ] }));
@@ -70,7 +70,8 @@ test('a stay\'s card and the Map key read in plain words; how it is known is one
   await page.waitForFunction(() => /Pestana Rua Augusta/.test(document.querySelector('.uw-sheet')?.innerText || ''), null, { timeout: 10000 });
   await page.waitForTimeout(300);
   const card = await page.evaluate(() => document.querySelector('.uw-sheet').innerText);
-  assert.match(card, /2 min walk to Baixa · hotel, 4★/);
+  assert.match(card, /2 min walk to Baixa · 4★/);
+  assert.doesNotMatch(card, /· hotel/);
   assert.match(card, /How we know/);
   assert.doesNotMatch(card, JARGON);
   await page.getByRole('button', { name: 'How we know' }).click();

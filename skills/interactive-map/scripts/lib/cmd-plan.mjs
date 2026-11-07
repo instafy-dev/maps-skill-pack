@@ -49,7 +49,8 @@ export const help = `plan <dir> --stops <layer> --start YYYY-MM-DD [--ids taipei
   a later turn only warns (it keeps the days the person changed), and --per-day 1 (kept as "per_day") is a person who
   asked for one place a day. uw commands still running on the site (a place lookup whose command has not
   finished) are named, in the JSON too ("still_running"): what they find is not in the plan yet; wait until each has
-  finished, then plan again with --force.`;
+  finished, then plan again with --force. The stay or route for the reply, with its dates and the "Assumed:" line they
+  need, is in the JSON too ("for_the_reply").`;
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -119,6 +120,16 @@ export function routeLine(stops, nights, plan, start = null) {
   }
   const when = first && last ? (first === last ? first : `${first} – ${last}`) : '';
   return `${parts.join(' → ') || cityOf(stops[0]?.props)} (${total} night${total === 1 ? '' : 's'}${when ? `, ${when}` : ''})`;
+}
+
+/** The line for the reply, printed the same in both outputs (with --json as "for_the_reply"): the stay or route with
+ *  its dates, and the "Assumed:" line for the dates and nights the person did not give. With --json only the route was
+ *  printed, and two replies named neither the dates nor that they were assumed. Pure; exported for the tests. */
+export function replyLine(stopCount, route, plan, total) {
+  const first = plan?.days?.[0]?.title?.split(' · ')[0];
+  const example = first ? ` ("Assumed: arrive ${first}${total > 0 ? `, ${total} night${total === 1 ? '' : 's'}` : ''}")` : '';
+  return `${stopCount === 1 ? 'Stay' : 'Route'} for the reply, with its dates: ${route}. ${stopCount === 1 ? 'The dates and nights' : 'The dates and the night split'} `
+    + `are assumptions unless the person gave them: say those in the reply's "Assumed:" line${example}.`;
 }
 
 /** The stops in travel order with a stop named twice in a row merged into one stay (its nights added up): "Lisbon →
@@ -604,6 +615,7 @@ export async function run(argv) {
   const sightsOf = (s) => sights.filter((f) => f.properties.stop === s.id).length;
   const missingSights = stops.filter((s, i) => nights[i] >= 2 && sightsOf(s) < 2).map((s) => `${cityOf(s.props)} (${sightsOf(s)})`);
   const route = routeLine(stops, nights, plan, args.start);
+  const forReply = replyLine(stops.length, route, plan, totalN);
   const gaps = emptyPlanDays(plan);
   const drafted = plan.days.filter((d, i) => (i > 0 || plan.days.length === 1) && !SKELETON_DAY.test(String(d.text || '')) && !/^(Arrive in|Leave |Travel day)/.test(String(d.text || ''))).length;
   const feats = new Map([...[...legs, ...stays, ...sights].map((f) => [`${f._layer}:${f.properties?.id}`, f]), ...sfc.features.map((f) => [`${stopLayer}:${f.properties?.id}`, f])]);
@@ -615,11 +627,11 @@ export async function run(argv) {
   const many = running.length > 1;
   const runningNext = running.length ? `Still running on this site: ${runningList(running)}. What ${many ? 'they find is' : 'it finds is'} not in this plan yet: `
     + `wait until ${many ? 'each has' : 'it has'} finished (an exit code; never start ${many ? 'one' : 'it'} again), then run this command again with --force.` : null;
-  out.result({ ok: true, days: plan.days.length, nights: totalN, route, plan, ...(view ? { view } : {}), ...(misplaced.length ? { day_places: misplaced } : {}), ...(left.length ? { not_on_plan: left.map((f) => `${f._layer}:${f.properties.id}`) } : {}),
+  out.result({ ok: true, days: plan.days.length, nights: totalN, route, for_the_reply: forReply, plan, ...(view ? { view } : {}), ...(misplaced.length ? { day_places: misplaced } : {}), ...(left.length ? { not_on_plan: left.map((f) => `${f._layer}:${f.properties.id}`) } : {}),
     ...(running.length ? { still_running: running.map((r) => r.label), next: runningNext } : {}) }, [
     runningNext,
     `map.config.json: plan with ${plan.days.length} days (${totalN} nights) from ${args.start}: ` + plan.days.map((d) => d.title).slice(0, 4).join(' | ') + (plan.days.length > 4 ? ' | …' : ''),
-    `${stops.length === 1 ? 'Stay' : 'Route'} for the reply (say the night split; it is an assumption unless the user fixed it): ${route}`,
+    forReply,
     stays.length ? null : `No --stays: days focus on the ${stops.length === 1 ? 'stop' : 'stations'}. Run uw stay per stop, then re-run plan --force.`,
     sights.length && missingSights.length ? `Fewer than 2 sights with "stop" for: ${[...new Set(missingSights)].join(', ')} (add 2-3 sourced ones a full day).` : null,
     !sightLayers.length ? 'No --sights: add 2-3 a full day (uw add-point … --layer sights --props-file - with {"stop":"<id>","source_url":"https://…","source":"…"}), then re-run with --sights sights --force.' : null,

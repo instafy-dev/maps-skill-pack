@@ -342,14 +342,16 @@ export function rankStays(cands, { max = 3, to = 'the station', prefer = 'hotel'
   }
   kept.sort((a, b) => a.score - b.score || a.walk_m - b.walk_m);
   return kept.map((c, i) => {
-    // the reason in plain words ("2 min walk to Baixa · hotel, 4★"); how each part is known goes behind the card's
-    // "How we know" (stayHow)
+    // the reason in plain words ("2 min walk to Baixa · 4★"); how each part is known goes behind the card's "How we
+    // know" (stayHow). The card and the Places list already name the kind ("Hotel"), so the reason does not say it
+    // again ("… · hotel"), only a word that kind does not ("motel", "apartment")
     const walk = `${c.walk_basis === 'routed' ? '' : 'about '}${c.walk_min} min walk to ${to}`;
     const hostelByName = c.registered && HOSTEL_NAME.test(`${c.name} ${c.name_en || ''}`);
+    const word = KIND_WORD[c.osm_kind] || 'hotel';
     const what = c.registered
       ? `registered ${KIND_WORD[c.cls] || 'hotel'}${hostelByName ? ' (a hostel by its name)' : ''}${c.rooms ? `, ${c.rooms} rooms` : ''}`
-      : `${KIND_WORD[c.osm_kind] || 'hotel'}${c.stars ? `, ${c.stars}★` : ''}`;
-    return { ...c, rank: i + 1, why: `${walk} · ${what}`, how: stayHow(c) };
+      : [word === stayKind(c).replace('_', ' ') ? null : word, c.stars ? `${c.stars}★` : null].filter(Boolean).join(', ');
+    return { ...c, rank: i + 1, why: what ? `${walk} · ${what}` : walk, how: stayHow(c) };
   });
 }
 
@@ -624,7 +626,11 @@ export async function stay(argv) {
     routed, partial: got.partial || null, ...(noHotel ? { no_hotel: true } : {}), picks: feats.map((f) => f.properties), registered: reg,
     ...(gave ? { replaced: gave.ref, ...(replan ? { replan: true } : {}) } : {}) },
   [`${feats.length} stay(s) near ${toName} (${got.total ?? got.list.length} lodging places within ${radius} m; ${srcLabel}; walks ${routed ? 'routed (OSRM foot)' : 'estimated'}):`,
-    ...feats.map((f) => `  ${f.properties.rank}. ${f.properties.name}${f.properties.name_en ? ` (${f.properties.name_en})` : ''} — ${f.properties.why}  [${layer}:${f.properties.id}]`),
+    // each pick's kind, as its card names it: the reason leaves it out, and the reply calls a hostel a hostel
+    ...feats.map(({ properties: p }) => {
+      const what = [p.name_en, p.kind && String(p.kind).replace('_', ' ')].filter(Boolean).join(', ');
+      return `  ${p.rank}. ${p.name}${what ? ` (${what})` : ''} — ${p.why}  [${layer}:${p.id}]`;
+    }),
     addedBnb ? `  (fewer than ${max} hotels in range: B&Bs and guest houses were included)` : null,
     noHotel ? `No hotel within ${radius} m of ${toName}${got.partial ? ' in what the search could list' : ''}.` : null,
     partialNote, reg, gaveLine,

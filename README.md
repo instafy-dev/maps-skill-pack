@@ -73,7 +73,8 @@ the space can start again after the server stops. A folder with no `index.html` 
 | At the door | `doorstep`, `photos` |
 | Data | `adapter` (dataset adapters with licences), `cite` (one public page as a fact source), `lookups` (services and their health) |
 
-A trip, in one place or several, follows `skills/interactive-map/reference/itinerary.md`. Run `uw help` for all commands and
+A trip, in one place or several, follows `skills/interactive-map/reference/itinerary.md` (several stops: also
+`reference/several-stops.md`). Run `uw help` for all commands and
 `uw <command> --help` for flags. The config reference is `skills/interactive-map/reference/config.md`, and how-tos
 are in `reference/recipes.md`.
 
@@ -138,7 +139,7 @@ skills/interactive-map/ the pack root: what Instafy installs and what /skills im
   SKILL.md              procedure and hard rules for the agent
   .instafy-pack.json    pack manifest
   LICENSE, THIRD_PARTY_NOTICES.md
-  reference/            config.md, recipes.md, itinerary.md, data-sources.md, regions/
+  reference/            config.md, recipes.md, itinerary.md, several-stops.md, data-sources.md, regions/
   scripts/uw.mjs        CLI entry (scripts/uw is a shell shim); scripts/lib/*.mjs, one file per command group
   scripts/adapters/     dataset adapters
   scripts/handlers/     intent handlers run by `uw host`

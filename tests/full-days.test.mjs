@@ -391,8 +391,9 @@ test('the trip guide asks for 2-3 sourced places a full day, not a city, says wh
   // leaves the map (else validate finds it on no day and its fix plans it back)
   assert.match(md, /- Moving a place to another day: move its item and reword both days' texts in the same edit \(never `uw plan --force` for it: it groups the days by area again, which undoes the move\)/);
   assert.match(md, /- Dropping a place: `uw set <site> <layer>:<id> --remove`, then remove its item and reword its day's text\./);
-  // the reply names a day left with one place to see, and offers more
-  assert.match(md, /5\. Day highlights or warnings worth acting on \(a closure, a pass to buy\), only from the pages you opened; a full day with one place to see \(`uw validate` names it\): say which, and offer to add more\./);
+  // the reply names a day left with one place to see when the time ran out, and offers more (with time left, the
+  // turn adds places: uw validate fails)
+  assert.match(md, /5\. Day highlights or warnings worth acting on \(a closure, a pass to buy\), only from the pages you opened; a full day still with one place to see when the time ran out \(`uw validate` names it then\): say which, and offer to add more\./);
   // no line of the pack asks for 2-3 a city or a stop any more: three sights in one city are one a day for three days
   const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
   const said = walk(SKILL).filter((f) => /\.(md|mjs|json)$/.test(f))

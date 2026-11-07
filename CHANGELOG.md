@@ -3,6 +3,51 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.34 (2026-11-07)
+
+- **Days in one place come first in the trip reference.** A turn read `reference/itinerary.md` with its output capped
+  at 4,000 tokens: the first and the last 2,000 were kept, and the middle, which held "One base" and Phase B, was cut.
+  It took the steps it saw for a trip of several stops, put the stays by the railway station instead of in the area
+  to stay in, gave two of its three days one place each and replied with minutes left, and cited Wikipedia for every
+  sight. "One base" now follows step 1, then Phase B. The steps for several stops (2-6) are a file of their own,
+  `reference/several-stops.md`, which step 1 names for two or more places: one place never reads "Stays by the
+  station", and a read capped at 4,000 tokens keeps that file whole (with "One base" first in one file, the same read
+  cut every step of a trip of several stops). The trip reference's first 4,000 tokens hold all a trip in one place
+  reads, and a read capped at 4,000 still keeps "One base" whole, Phase B's "add sights rather than reply", a sight's
+  own site before its Wikipedia article, and the reply. "One base" names step 6's commands, its stays' `--kinds
+  hotel` and the reply's opening lines itself, and the reply's day with one place to see is one left when the time
+  ran out (with time left, `uw validate` fails it and the turn adds places). `uw validate`'s command for a stop of
+  several with no place to stay names the new file's step 3.
+- **The reply names its dates, and the `Assumed:` line.** `uw plan` printed the stay or route "for the reply", with
+  the note that it is an assumption unless the person fixed it, only without `--json`; with `--json` there was only
+  the route, and two replies named neither the dates nor that they were assumed. The JSON now carries the same line
+  as `for_the_reply`, right after the route, and the line names the reply's `Assumed:` line with an example from the
+  plan ("Assumed: arrive Sat 7 Nov, 3 nights"). The trip reference's reply asks for the dates in it when the person
+  gave none.
+- **A stay's reason no longer repeats its kind.** The card and the Places list name the kind ("Hotel"), and the
+  reason under it ended "· hotel". `uw stay` leaves out the kind word they already show (hotel, hostel, guest house)
+  and keeps the stars and a word they do not ("motel", "apartment"): "5 min walk to Sevilla - Santa Justa",
+  "2 min walk to Baixa · 4★". A register's listing keeps "registered hotel, 40 rooms". `uw stay`'s own list names
+  each pick's kind as its card does ("Lounge Hostel (hostel) — 1 min walk to Baixa"), so a reply still calls a
+  hostel a hostel.
+- **`uw cite` of an article prints its subject's own site.** A sight's source is its own site before its article,
+  and turns that read only the article cited it, or guessed an address that answered 404. When a page links its
+  subject's own site (an encyclopedia article's "Official website", or its infobox's "Website"), `uw cite` prints that
+  address with the command that cites it (`own_site` and `next` in the JSON, before the page's lines); the article
+  stays the source only when that page cannot be read or does not name the place. The address is the page's own
+  text, so the command quotes it as one word: copied into a shell, an address with `;`, `$(…)`, `|`, `&` or a
+  backtick runs nothing of its own.
+- **Tests:** `tests/one-base-first.test.mjs` (offline: a local server stands in for the article's site): the
+  reference's order, its first 4,000 tokens and a read capped at 4,000; the steps for several stops whole in a read
+  capped at 4,000, and no pointer left to a step the reference no longer has; `uw plan --json`'s line for the reply
+  for one stop and for two, as the plain output prints it, and `uw validate`'s command for a stop of several; a
+  stay's reason for each kind; `uw cite`'s own site from the infobox and from "Official website", none for an
+  article that links only its wiki's own projects, and its command run in a shell for addresses with the shell's own
+  characters. The reason's new words and the list's kinds in `tests/itinerary.test.mjs`, the reason in
+  `tests/place-kinds.test.mjs` and `tests/plain-provenance-browser.test.mjs` (Playwright), the card's step in
+  `tests/card-first.test.mjs`, and the reply's day with one place in `tests/full-days.test.mjs`. Each fails without
+  its change.
+
 ## 0.1.33 (2026-11-06)
 
 - **A trip's places to stay come from `uw stay`, with or without `--expect`.** A map made for "3 days in Seville …

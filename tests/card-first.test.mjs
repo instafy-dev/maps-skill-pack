@@ -52,10 +52,12 @@ test('itinerary.md: a trip posts its card right after `uw new` too, before the s
   const md = flat('reference/itinerary.md');
   const created = md.indexOf('`uw new <site> --title "<Country> by train"');
   const card = md.indexOf('Then its card at once (SKILL.md step 3), before any lookup');
-  assert.ok(created > 0 && card > created && card < md.indexOf('**2. One station per stop**'), 'the card is step 1');
+  // the stations and stays of several stops come after it, in their own file
+  assert.ok(created > 0 && card > created && card < md.indexOf('Next, two or more places: steps 2-6 in `reference/several-stops.md`'), 'the card is step 1');
+  assert.ok(flat('reference/several-stops.md').indexOf('**2. One station per stop**') > 0);
   assert.ok(md.indexOf('the card (step 3), step 9 and the turn clock stay') > 0);
   // step 6 and the team job refresh it, they never post it
-  assert.match(md, /Then SKILL\.md step 9 \(open viewers update, the card's picture is refreshed\), before Phase B/);
+  assert.match(flat('reference/several-stops.md'), /Then SKILL\.md step 9 \(open viewers update, the card's picture is refreshed\), before Phase B/);
   assert.doesNotMatch(md, /Then preview \(SKILL\.md step 9\)|Open the preview while it runs/);
   // a later change to a trip refreshes the card too
   assert.match(md, /## Later changes to a trip [^#]*?then `uw validate`, SKILL\.md step 9, the reply\./);

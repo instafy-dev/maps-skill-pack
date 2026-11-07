@@ -1,9 +1,9 @@
-// A trip's places to stay. Every stop with nights gets them from `uw stay` (reference/itinerary.md step 3, "One base"
-// step 2); an area pinned as the place to stay stands in only where uw stay found none. A Seville map once had only its
-// area pinned, with a note no page had said, before the turn read any page: uw stay never ran, and `uw validate` asked
-// for nothing, as the map had no "expect". `uw stay` now keeps where it looked for each stop, found or not, in the
-// site's state folder (lib/state-dir.mjs: outside the space's files), so `uw validate` can tell an area uw stay found
-// nothing around from an area pinned instead of looking.
+// A trip's places to stay. Every stop with nights gets them from `uw stay` (reference/several-stops.md step 3,
+// itinerary.md "One base" step 2); an area pinned as the place to stay stands in only where uw stay found none. A
+// Seville map once had only its area pinned, with a note no page had said, before the turn read any page: uw stay never
+// ran, and `uw validate` asked for nothing, as the map had no "expect". `uw stay` now keeps where it looked for each
+// stop, found or not, in the site's state folder (lib/state-dir.mjs: outside the space's files), so `uw validate` can
+// tell an area uw stay found nothing around from an area pinned instead of looking.
 import fs from 'node:fs';
 import path from 'node:path';
 import { stateDirOf, stateDirsOf } from './state-dir.mjs';

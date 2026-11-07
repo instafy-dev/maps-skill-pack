@@ -363,7 +363,7 @@ test('stay: a point for --near needs --near-label (exit 2, nothing looked up); w
   assert.equal(ok.code, 0, ok.out + ok.err);
   const stays = layerOf(site, 'stays');
   assert.equal(stays.length, 3);
-  for (const f of stays) assert.match(f.properties.why, /^\d+ min walk to the centre of Seville · hotel$/);
+  for (const f of stays) assert.match(f.properties.why, /^\d+ min walk to the centre of Seville$/);
   assert.doesNotMatch(JSON.stringify(stays), /chosen point/);
 });
 
