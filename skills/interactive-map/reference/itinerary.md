@@ -93,8 +93,8 @@ rather than reply. Sights come from `uw cite` in this turn, never from a browser
    site that names it and can be read. Checked for being current (closures, renovations, seasonal
    hours); that page is its `source_url`, read in this turn (`uw validate` fails while places share one, or while one
    cites a page `uw cite` did not read or that does not name it; `uw add-point` and `uw set` refuse a `source_url` no
-   `uw cite` read ("cite it first"), and say at once when a page `uw cite` read does not name the place; an image is
-   no page). A refused site (it bans agents, robots.txt, a bot
+   `uw cite` read ("cite it first"), and one that does not name the place or that another place cites ("cite its own
+   page"); an image is no page). A refused site (it bans agents, robots.txt, a bot
    check) is a plain link, never fetched another way. At most about 2 pages a sight. One place, one pin: a day short of
    places takes another place (`uw add-point` refuses one already pinned, naming its pin). Then each sight in a command
    of its own, one `uw add-point` per command (chained, one slow lookup held back the sights after it and the plan):

@@ -9,7 +9,7 @@ import { fitView } from './cmd-site.mjs';
 import { isLodging, registrySearch, acceptable, fmtRegistryCand, registryProps, queryLabel, slugFor } from './registry-geo.mjs';
 import { adapterFor, adapterNamedIn, adapterForArea } from '../adapters/lib/areas.mjs';
 import { unnamedSource, unnamedSourceLine, sourceStamp, sourceNotRead, sourceNotReadRefusal } from './cmd-cite.mjs';
-import { withDayItems } from './cmd-set.mjs';
+import { withDayItems, sourceNotOwn } from './cmd-set.mjs';
 import { handoffStep } from './running.mjs';
 
 export const helps = {
@@ -52,10 +52,11 @@ add-point <dir> --layer <id> --at lng,lat --name "Label" [...]     (only for coo
   check the list, then --pick N or --allow-mismatch. Query words that only name the area (the city, region or country
   the candidates are in) do not count as a name match. --strict-name: refuse unless a candidate's own name carries the
   query's name (use it for a researched place: a wrong hotel with the right reason is worse than "not found").
-  A source_url (in --props) that \`uw cite\` read and that does not name the place is said at once: not its source. One
-  that \`uw cite\` did not read in the last hours (or could not: HTTP 404, refused) is refused before any lookup (exit 2,
-  "cite it first", with the uw cite to run; nothing added): cite the page, then run the same add-point again. So is
-  an address uw cite found is not a page (an image, a PDF): cite the place's own page.
+  A source_url (in --props) that \`uw cite\` did not read in the last hours (or could not: HTTP 404, refused) is refused
+  before any lookup (exit 2, "cite it first", with the uw cite to run; nothing added): cite the page, then run the same
+  add-point again. So is an address uw cite found is not a page (an image, a PDF), and, once the place is found, a page
+  read that does not name it or a page another place already cites (exit 2, "cite its own page", as uw validate judges
+  them; nothing added).
   --country: only candidates in that country (an ISO code like JP, or its name).
   Taiwan lodging (a hotel/hostel/旅館/飯店/民宿 query, --kind hotel, or a layer like "hotels", in Taiwan by --near or the
   view): when the search's match is missing, far or unsure, Taiwan's lodging registers are searched by name (registered name,
@@ -65,7 +66,8 @@ add-point <dir> --layer <id> --at lng,lat --name "Label" [...]     (only for coo
   place is listed as "Not found yet"; not a wrong name: do not retry with another query this turn).
   map.config.json: a new layer is registered (points; tier option for a layer named like hotels/options/stays, else
   support; --tier sets it), an option layer keeps the view framed on its points (uw fit; --no-fit skips), and a place
-  that could not be added is listed under "missing" (shown as "Not found yet" on the map) until it is.`,
+  that could not be added is listed under "missing" (shown as "Not found yet" on the map) until it is pinned under the id
+  or name it was looked up by (by its OpenStreetMap object: --osm <its osm id> --name "<that name>").`,
 };
 
 /** The last line of a researched sight's --strict-name refusal: the trip guide's rule (reference/itinerary.md Phase B
@@ -568,7 +570,9 @@ async function addPointRun(argv, ctx) {
     // researched hotels itself)
     const next = args['strict-name'] && !isLodging({ kind: args.kind || extra.kind, layer }) ? STRICT_NEXT : null;
     if (out.json) process.stdout.write(JSON.stringify(next ? { ...json, next } : json, null, 2) + '\n');
-    console.error([...lines, `Listed on the map as "not found yet" (map.config.json "missing"); it goes away once this place is added.`, ...(next ? [next] : [])].join('\n'));
+    // pinned by its OpenStreetMap object under another name, the place stayed "Not found yet" beside its own pin (the
+    // entry goes only under the id or name it was looked up by): the line says which
+    console.error([...lines, `Listed on the map as "not found yet" (map.config.json "missing"). In OpenStreetMap under another name (an object above, or one uw geocode finds by that name)? Pin that object under the ${args.id ? 'id and name' : 'name'} it was looked up by, which takes it off the list: ${pinAs(args, layer)}, with the same props.`, ...(next ? [next] : [])].join('\n'));
     return code;
   };
   const maxKm = args['max-km'] ?? 8;
@@ -948,7 +952,7 @@ async function addPointRun(argv, ctx) {
   const { ATTRIBUTION } = regUsed ? await import('../adapters/tw-hotels.mjs') : {};
   // read, change and write the layer and map.config.json under the site's write lock: another command (another stop
   // of handoff --apply) may write them at the same time
-  const { rel, replaced, cfgChanges, def, cfg, pinned, unlisted, dayItems } = withSiteLock(site, () => {
+  const { rel, replaced, cfgChanges, def, cfg, pinned, unlisted, dayItems, notOwn } = withSiteLock(site, () => {
     const p = layerPath(site, layer);
     let fc = { type: 'FeatureCollection', features: [] };
     if (exists(p)) {
@@ -978,7 +982,12 @@ async function addPointRun(argv, ctx) {
       return { pinned: others[0], unlisted };
     }
     if (others.length && !ownIsIt) { id = String(others[0].properties.id); props.id = id; }
-    else if (others.length) warnings.push(`the same place is also pinned in this layer as ${others.map((f) => `${layer}:${f.properties.id}`).join(', ')}: one place, one pin: ${others.map((f) => `uw set ${args._[0]} ${layer}:${f.properties.id} --remove`).join('; ')}`);
+    // a page that does not name the place, or that another place cites, is not its source: refused before anything is
+    // written, as uw validate would fail it (cmd-set.mjs sourceNotOwn; a uw handoff step's places were judged by its own
+    // source check, and keep the line below)
+    const notOwn = handoffStep() ? null : sourceNotOwn(site, layer, feature);
+    if (notOwn) return { notOwn };
+    if (others.length && ownIsIt) warnings.push(`the same place is also pinned in this layer as ${others.map((f) => `${layer}:${f.properties.id}`).join(', ')}: one place, one pin: ${others.map((f) => `uw set ${args._[0]} ${layer}:${f.properties.id} --remove`).join('; ')}`);
     const i = fc.features.findIndex((f) => String(f?.properties?.id) === id);
     const replaced = i >= 0;
     const prev = replaced ? fc.features[i] : null;
@@ -1039,6 +1048,12 @@ async function addPointRun(argv, ctx) {
       `To change that pin (its page, its reason): uw set ${args._[0]} ${ref} --props-file - with {"source_url":…,"source":…,"why":…}.`,
       `To pin it again from what this command found: the same command with --replace (it replaces ${ref} and keeps that id, so the days that name it still do).`,
     ].join('\n'));
+    return 2;
+  }
+  if (notOwn) {
+    const { lines, refused, next } = sourceNotReadRefusal(notOwn, notOwn.name || props.name_en || name, 'Nothing was added.', args._[0]);
+    if (out.json) process.stdout.write(JSON.stringify({ ok: false, refused, layer, id, source_url: notOwn.url, next, ...(notOwn.shared ? { cited_by: notOwn.shared } : {}) }, null, 2) + '\n');
+    console.error(lines.join('\n'));
     return 2;
   }
   if (sourceMiss) warnings.push(unnamedSourceLine(sourceMiss, args._[0], `${layer}:${id}`));
@@ -1201,9 +1216,15 @@ async function altNameSearch(q, near) {
       address: t['addr:full'] || [t['addr:street'], t['addr:housenumber']].filter(Boolean).join(' '), distance_km: c[0] != null ? Math.round(haversine(near, c) / 10) / 100 : null };
   }).filter((a) => !/^highway=(bus_stop)/.test(a.type));
 }
+/** add-point by an OpenStreetMap object under the id and name a place was looked up by, which clears its "Not found
+ *  yet" entry (clearMissing), whatever OpenStreetMap calls it */
+function pinAs(args, layer) {
+  const name = args.name || queryLabel(args.query || '');
+  return `uw add-point ${args._[0]} --layer ${layer} --osm <its osm id>${args.id ? ` --id ${args.id}` : ''} --name "${String(name).replace(/(["\\$`])/g, '\\$1')}"`;
+}
 function altLines(alt, args, layer) {
   if (!alt.length) return [];
   return ['OpenStreetMap has these objects nearby with that name as an old, alternative or English name (renamed or rebranded?):',
     ...alt.map((a) => `  ${a.osm_id}: ${a.name} [${a.type}] (${a.matched}) ${a.address ? '— ' + a.address : ''} ${a.distance_km != null ? `(${a.distance_km} km away)` : ''}`),
-    `  If one is the place, add it exactly: add-point ${args._[0]} --layer ${layer} --osm <id> --name "…" (and tell the user about the new name).`];
+    `  If one is the place, add it exactly: ${pinAs(args, layer)} (and tell the user about its new name).`];
 }

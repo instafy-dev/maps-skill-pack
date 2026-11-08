@@ -213,9 +213,16 @@ test('validate: with a list of places to stay the trip passes; an area stays the
   assert.ok(why, JSON.stringify(looked.json.errors, null, 1));
   const page = 'https://en.wikipedia.org/wiki/Carmona,_Spain';
   read(page, 'Carmona. The old town lies inside the old walls, around the Alcázar.');
-  // a page that does not name the area is not its source
+  // a page that does not name the area is not its source: uw set refuses it ("cite its own page"), and a map an earlier
+  // pack left with it fails validate
   read('https://example.org/routes', 'Routes of the region.');
-  ok(await uw(['set', 'cm', 'stays:old-town', '--props-file', '-'], { input: JSON.stringify({ source_url: 'https://example.org/routes', source: 'Routes' }) }), 'set the wrong page');
+  const refused = await uw(['set', 'cm', 'stays:old-town', '--props-file', '-', '--json'], { input: JSON.stringify({ source_url: 'https://example.org/routes', source: 'Routes' }) });
+  assert.equal(refused.code, 2, refused.out + refused.err);
+  assert.equal(refused.json.refused, 'source_not_named');
+  const stays = path.join(tmp, 'cm', 'data', 'stays.geojson');
+  const fc = JSON.parse(fs.readFileSync(stays, 'utf8'));
+  Object.assign(fc.features.find((f) => f.properties.id === 'old-town').properties, { source_url: 'https://example.org/routes', source: 'Routes' });
+  fs.writeFileSync(stays, JSON.stringify(fc));
   const wrong = await uw(['validate', 'cm', '--json']);
   assert.ok(wrong.json.errors.some((e) => /^the area Old town .* but cites a page that does not name it \(https:\/\/example\.org\/routes\)$/.test(e.message)), JSON.stringify(wrong.json.errors, null, 1));
   ok(await uw(['set', 'cm', 'stays:old-town', '--props-file', '-'], { input: JSON.stringify({ source_url: page, source: 'Wikipedia' }) }), 'set the page');

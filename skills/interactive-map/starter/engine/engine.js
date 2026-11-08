@@ -2545,18 +2545,21 @@ E.command = (name, a) => {
 };
 // "reload" (the site changed: the reload Instafy sends a changed site, which `uw host` pushes over SSE, or the host's ↻):
 // reload in place and come back where the viewer was. The hash already holds camera, selection, lens, layers, time;
-// the sheet height, tab and a note ride along.
+// the sheet height, tab, whether a card was open and a note ride along.
 let reloading = false;
 function softReload(a = {}) {
   if (reloading) return;
   reloading = true;
   try { writeHash.flush(); } catch { /* */ }
-  stashReload(window, { snap: E.ui?.snap || null, tab: E.ui?.tab || null, note: reloadNote(a) });
+  stashReload(window, { snap: E.ui?.snap || null, tab: E.ui?.tab || null, card: !!E.ui?.card, note: reloadNote(a) });
   setTimeout(() => location.reload(), 120);
 }
 function restoreAfterReload() {
   const s = takeReload(window); if (!s) return;
   try {
+    // the hash holds the selection, not whether its card was open: a day of the Plan selects its base with no card, and
+    // that card came back over the Plan after each reload. A card that was closed stays closed; the selection stays
+    if (s.card === false && E.ui.card) E.ui.hideCard();
     if (typeof s.tab === 'string' && s.tab !== 'card' && !E.ui.card && E.ui.panels[s.tab]) E.ui.showTab(s.tab, false);
     if (!E.ui.side && ['peek', 'half', 'full'].includes(s.snap) && !E.ui.card) E.ui.setSnap(s.snap, false);
   } catch { /* the tab is gone after the change */ }

@@ -176,7 +176,8 @@ export function geoAvailability(win = globalThis.window) {
 }
 
 const RELOAD = 'uw:reload:';
-/** soft reload: remember what the hash does not hold (sheet height, tab, a note for the toast), then reload in place */
+/** soft reload: remember what the hash does not hold (sheet height, tab, whether a card was open, a note for the toast),
+ *  then reload in place */
 export function stashReload(win, state) {
   try { win.sessionStorage.setItem(RELOAD + (win.location?.pathname || '/'), JSON.stringify({ ...state, at: Date.now() })); } catch { /* */ }
 }

@@ -2,8 +2,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs, makeOut, readJSON, writeJSON, writeGeoJSON, propsArg, UsageError, UserError } from './util.mjs';
-import { openSite, loadLayer, layerPath, withSiteLock } from './site.mjs';
-import { unnamedSource, unnamedSourceLine, sourceStamp, sourceNotRead, sourceNotReadRefusal } from './cmd-cite.mjs';
+import { openSite, loadLayer, layerPath, withSiteLock, placeIndex } from './site.mjs';
+import { unnamedSource, unnamedSourceLine, sourceStamp, sourceNotRead, sourceNotReadRefusal, readPage } from './cmd-cite.mjs';
+import { cacheOff } from './net.mjs';
+import { isAreaPin } from './stays.mjs';
+import { isLodging } from './registry-geo.mjs';
 
 export const help = `set <dir> <layer>:<id> [--note "…"] [--name "…"] [--emoji 🏨] [--props '{"price":120}' | --props-file <file|->] [--unset key1,key2] [--remove] [--json]
 set <dir> plan:day<N> --note "…" | --unset note [--json]
@@ -14,10 +17,10 @@ set <dir> plan:day<N> --note "…" | --unset note [--json]
   show it: said); --note "" or --unset note takes it off. A place's or a stop's note shows on its own card, never in a
   day. uw plan --force keeps each day's note.
   Geometry and "id" cannot be changed here (re-run add-point for a different place).
-  A source_url that \`uw cite\` read (in the last hours) and that does not name the place is said at once: that page is
-  not its source; cite the place's own page. A new source_url that \`uw cite\` did not read (or could not: HTTP 404,
-  refused) is refused (exit 2, "cite it first", with the uw cite to run; nothing changed), and so is an address uw
-  cite found is not a page (an image, a PDF).
+  A new source_url that \`uw cite\` did not read (or could not: HTTP 404, refused) is refused (exit 2, "cite it first",
+  with the uw cite to run; nothing changed), and so is an address uw cite found is not a page (an image, a PDF), a page
+  read that does not name the place, and a page another place already cites (exit 2, "cite its own page", as uw
+  validate judges them).
   A new source_url or source goes to the place's items in the plan's days too (the Plan tab's link under it), so the
   days stay as they are: no new uw plan. An item that links another page is left as it is.
   Text with an apostrophe or quotes: --props-file - <<'JSON', the object on the next line, then JSON (no shell quoting).`;
@@ -66,7 +69,7 @@ export async function run(argv) {
       if (!changed.length) return { f, changed, dayItems: 0 };
       // a new page no uw cite read (or one it found is not a page) is not the place's source yet: refused, nothing
       // written (cmd-cite.mjs sourceNotRead)
-      const notRead = changed.includes('source_url') ? sourceNotRead(f.properties.source_url) : null;
+      const notRead = changed.includes('source_url') ? sourceNotRead(f.properties.source_url) ?? sourceNotOwn(site, layer, f) : null;
       if (notRead) return { f, changed: [], refused: notRead };
       // a new page: when it was set (uw validate judges a page no uw cite read for a place this turn gave a source)
       if (changed.includes('source_url') || changed.includes('-source_url')) sourceStamp(f.properties, before);
@@ -78,8 +81,8 @@ export async function run(argv) {
   });
   const { f, changed, dayItems, refused } = done;
   if (refused) {
-    const { lines, refused: why, next } = sourceNotReadRefusal(refused, f.properties.name_en || f.properties.name || id, 'Nothing was changed.');
-    if (out.json) process.stdout.write(JSON.stringify({ ok: false, refused: why, layer, id, source_url: refused.url, next }, null, 2) + '\n');
+    const { lines, refused: why, next } = sourceNotReadRefusal(refused, f.properties.name_en || f.properties.name || id, 'Nothing was changed.', args._[0]);
+    if (out.json) process.stdout.write(JSON.stringify({ ok: false, refused: why, layer, id, source_url: refused.url, next, ...(refused.shared ? { cited_by: refused.shared } : {}) }, null, 2) + '\n');
     console.error(lines.join('\n'));
     return 2;
   }
@@ -146,6 +149,37 @@ function setDayNote(args, out, site, ref) {
 /** Does the site's own page draw a day's note (its engine/ui.js, copied from the pack when the map was made)? */
 function dayNotesShown(site) {
   try { return fs.readFileSync(path.join(site.dir, 'engine', 'ui.js'), 'utf8').includes('uw-day-note'); } catch { return false; }
+}
+
+/** A new source_url that is not the place's own page, judged as `uw validate` judges a plan's places (cmd-validate.mjs:
+ *  "2 places cite one page", then "1 place cites a page that does not name it"): the page another place cites
+ *  ({ url, shared: { ref, name }, by? }), or a page read here that names none of the place's names ({ url, name,
+ *  not_named, by }). `uw add-point` and `uw set` refuse it before anything is written, while the turn can cite the
+ *  place's own page: both were met only at validate, and a turn replied after its last error. Another place: one of
+ *  the layers validate judges this one with (the plan's sight layers when it is in one; before the days are planned,
+ *  its own layer, unless it is a place to stay, an area or a stop), by validate's own match (the page without its #
+ *  part; one place pinned twice is one place). `f`: the place as it would be written. No network. */
+export function sourceNotOwn(site, layer, f) {
+  const pr = f?.properties || {};
+  const url = pr.source_url;
+  if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return null;
+  const read = cacheOff() ? null : readPage(url);
+  const sights = site.config?.plan?.sights;
+  const layers = Array.isArray(sights) && sights.length ? (sights.includes(layer) ? sights : [])
+    : isAreaPin(pr) || isLodging({ kind: pr.kind, layer }) || Number.isInteger(pr.nights) ? [] : [layer];
+  const page = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u) ? u.replace(/#.*$/, '') : null);
+  // a layer that cannot be read is uw validate's to name, never a reason to refuse this place
+  const features = (lid) => { try { return loadLayer(site, lid, { required: false })?.features || []; } catch { return []; } };
+  const others = layers.flatMap((lid) => features(lid)
+    .filter((g) => !(lid === layer && String(g?.properties?.id) === String(pr.id))).map((g) => ({ lid, g })));
+  const place = placeIndex([f, ...others.map((x) => x.g)]);
+  const other = others.find(({ g }, i) => place[i + 1] !== place[0] && page(g?.properties?.source_url) === page(url));
+  if (other) {
+    const o = other.g.properties;
+    return { url, ...(read ? { by: read.by } : {}), shared: { ref: `${other.lid}:${o.id}`, name: String(o.name_en || o.name || o.id) } };
+  }
+  const miss = read && !read.not_page ? unnamedSource(pr, [], read) : null;
+  return miss ? { ...miss, not_named: true, by: read.by } : null;
 }
 
 /** A place's items in the plan's days (`ref` = this place) link the page it cites, as uw plan wrote them (`url` =

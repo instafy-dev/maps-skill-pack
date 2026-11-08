@@ -31,6 +31,27 @@ All notable changes to this pack. Versions follow [semantic versioning](https://
   are the days planned while a place lookup still runs on the site: what it finds is not counted yet, and the plan
   names it (wait, then plan again). The plan's own lines that asked for places after writing such days are gone, and
   `uw validate`'s fix for a day with nothing to see runs the plan when a stop has two places for each of its days.
+- **A page that does not name a place, or that another place already cites, is refused when the place gets it.** Two
+  places on one page, and a page that does not name its place, were met only at `uw validate`, the last check of a
+  turn: a trip's map moved a cathedral off its own site after the archive beside it had cited the same page, and the
+  reply went out while one place still cited a page that did not name it. `uw add-point` and `uw set` only warned about
+  the second, and said nothing about the first. Both now refuse such a `source_url` (exit 2, "cite its own page", with
+  the `uw cite` to run), judged exactly as `uw validate` judges them: what `uw cite` read there names none of the
+  place's names, or another place cites the same page (its `#` part aside; one place pinned twice is one place), among
+  the places validate judges together: the plan's places to see, or, before the days are planned, the place's own layer
+  (never a place to stay, an area or a stop). Nothing is added or changed, and a place refused so is not "Not found
+  yet". When the page is the other place's, the refusal says that place's source is the one to change. A note, a name
+  or any other change that gives no new page is taken as before, on a map made before too; a `uw handoff --apply` step
+  keeps its own source check and the warning, as before.
+- **A place not found under its name says how to pin it so it is not "Not found yet" beside its own pin.** A sight not
+  found under its name was pinned by its OpenStreetMap object under the name OpenStreetMap gives it and a new id, and
+  the map then listed it as "Not found yet" next to its own pin: the entry goes only when the place is pinned under the
+  id or name it was looked up by. The refusal's last line now names that command (`uw add-point … --osm <its osm id>
+  --id <that id> --name "<that name>"`), and so does its line for objects with that name as an old or other name.
+- **A reload after a change keeps a view on the Plan tab on the Plan.** A day of the Plan selects its base with no card;
+  after the reload a saved change sends, the base's card opened over the Plan (the address keeps the selection, not
+  whether its card was open). The reload now keeps that too: a closed card stays closed, the selection stays, and a
+  card that was open stays open (a map made before takes it with `uw upgrade`).
 - A map made before keeps its days and its sources: a later turn's note to a day works as before, and `uw validate`
   only warns about what the earlier turn left.
 
