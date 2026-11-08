@@ -4,9 +4,9 @@
 //  - a full day takes 2-3 sourced places: with --sights, a day with one fails `uw validate` as a day with none does,
 //    in the turn that planned the days while its clock leaves more than about 3 minutes; with less, or in a later turn
 //    (which keeps the days the person changed: a place moved or dropped), it is a warning that names the days for the
-//    reply; a plan made for one place a day (--per-day 1, only for a person who asked for that) is warned too, and the
-//    fix adds places near the day's base instead of spreading the stop's places one a day; a place the lookup cannot pin
-//    goes on its day as a link;
+//    reply; a plan made for one place a day (--per-day 1, only for a person who asked for that) is warned too in the
+//    turn that planned it, and the fix, unless the person asked for one place a day, adds places near the day's base
+//    instead of spreading the stop's places one a day; a place the lookup cannot pin goes on its day as a link;
 //  - the trip guide asks for 2-3 a full day, and a sight cites the venue's own site where the turn found one;
 //  - a square the search found is a square: an artwork of its name on it is not the square mapped twice; a dwelling,
 //    a farm or a plot is one building or holding, so the hotel or museum of its name there is the place;
@@ -28,6 +28,8 @@ const SKILL = path.join(HERE, '..', 'skills', 'interactive-map');
 const UW = path.join(SKILL, 'scripts', 'uw.mjs');
 const { haversine } = await import(pathToFileURL(path.join(SKILL, 'scripts', 'lib', 'util.mjs')).href);
 const { kindLabel } = await import(pathToFileURL(path.join(SKILL, 'starter', 'engine', 'util.js')).href);
+const { emptyPlanDays } = await import(pathToFileURL(path.join(SKILL, 'scripts', 'lib', 'cmd-plan.mjs')).href);
+const { clockAdvice } = await import(pathToFileURL(path.join(SKILL, 'scripts', 'lib', 'turn-advice.mjs')).href);
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'uw-full-days-'));
 
@@ -287,7 +289,10 @@ test('a later turn keeps the days the person changed: a place moved off a day wa
 // A "3 days in Seville" turn had three sights for three days, one each, and `uw validate` failed the days. Its fix
 // offered "One a day only when the person asked for it: uw plan … --per-day 1"; the turn planned the days again with
 // --per-day 1, nobody having asked, and the check passed with six minutes left. One place a day stays the person's call
-// (uw plan keeps it), but every such day is named, with the fix that fills it: places near the base, not one a day.
+// (uw plan keeps it), but every such day is named, with the fix that fills it unless the person asked for one place a
+// day: places near the base, not one a day. Nothing else pushes against a person who did ask: the turn clock does not
+// count those days as thin (it would send the turn on, into a new turn, to add places), a later turn or one out of time
+// says nothing of them, and uw plan's help never says how one a day gets past the check.
 test('a plan made for one place a day still warns on each day with one place: add places near the base, not one a day', async () => {
   const site = 'sv-pace';
   await newTrip(site);
@@ -305,12 +310,26 @@ test('a plan made for one place a day still warns on each day with one place: ad
   const w = v.json.warnings.filter((x) => x.path === '$.plan.days');
   assert.deepEqual(w.map((x) => x.message), ['3 of 3 full days have one place to see (a full day takes 2-3 sourced places): Mon 2 Nov · Seville, Tue 3 Nov · Seville, Wed 4 Nov · Seville']);
   const fix = (also) => `add one or two places near the base to each of those days, rather than spreading the places you have one a day: each from its own page (its own site, else its Wikipedia article): uw cite <page> --grep "<its name>", never a browser card; then uw add-point sv-pace --layer sights --near ${base.geometry.coordinates.join(',')} … with {"stop":…,"source_url":…}, one place per command (reference/itinerary.md Phase B step 1), then uw plan sv-pace … --sights sights --force${also}; a place the lookup cannot pin goes on its day as {"text": "<name>", "url": "<its page>", "source": "<site>"}`;
-  assert.equal(w[0].fix, fix(' (without --per-day 1)'));
-  // the text form and the clock line count those days as thin
+  assert.equal(w[0].fix, `unless the person asked for one place a day, ${fix(' (without --per-day 1)')}`);
+  // the text form names them; the clock line does not count them as thin, so it never sends a person who asked for one
+  // place a day into another turn to add places
   const text = await uw(['validate', site, '--signal'], { clock: turn });
   assert.equal(text.code, 0, text.out + text.err);
   assert.match(text.out, /^warn  map\.config\.json \$\.plan\.days: 3 of 3 full days have one place to see/m);
-  assert.match(text.err, /3 of 3 full days have fewer than 2 sourced sights\./);
+  assert.doesNotMatch(text.err, /fewer than 2 sourced sights/);
+  const gaps = emptyPlanDays(cfgOf(site).plan);
+  assert.equal(gaps.thin, 0);
+  assert.doesNotMatch(clockAdvice(480, gaps, 480, { continuation: true }), /INSTAFY_TURN_CONTINUE_FILE|sourced sights/);
+  // out of time in that turn, or in a later turn, nothing is said of those days: no reply offers to add places
+  for (const clock of [hostClock(450), hostClock(0)]) {
+    const quiet = await uw(['validate', site, '--signal', '--json'], { clock });
+    assert.equal(quiet.code, 0, JSON.stringify(quiet.json?.errors ?? quiet.out, null, 1));
+    assert.deepEqual(quiet.json.warnings.filter((x) => x.path === '$.plan.days'), []);
+  }
+  // uw plan's help keeps one place a day for a person who asked for it, and never says it gets past the check
+  const help = (await uw(['plan', '--help'])).out.replace(/\s+/g, ' ');
+  assert.match(help, /--per-day 1 \(kept as "per_day"\) is only for a person who asked for one place a day\./);
+  assert.doesNotMatch(help, /so does a plan made with --per-day 1/);
   // without it, the same three places fail in the turn that planned them, with the same fix
   assert.equal((await plan(site, ['--stays', 'stays', '--sights', 'sights'], { clock: turn })).code, 0);
   assert.equal(cfgOf(site).plan.per_day, undefined);

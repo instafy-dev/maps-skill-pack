@@ -568,11 +568,14 @@ export async function host(argv) {
   // where `instafy bind command <site>` finds this host, as it finds `instafy bind serve`: each site's own .bind/ holds
   // this host's loopback address, the site with the prefix the binder's client puts before __bind/ ("" for the folder
   // served, "/<sub>" in a gallery) and the site's admin token. In the site's own folder, never the gallery's: a space's
-  // top folder served as one would otherwise answer for every page below it. A folder that cannot be written still
-  // serves; the space's reload then reaches none of its viewers
+  // top folder served as one would otherwise answer for every page below it. Only a map's: a page that is not a map
+  // (one `instafy bind` made, in a space's sites/ beside the maps) listens on its own binder, never on __uw/events, and
+  // its binder's record stays where the space's reload of it finds it. A folder that cannot be written still serves;
+  // the space's reload then reaches none of its viewers
   const unbind = [];
   const loopback = `http://${hostName === '::1' ? '[::1]' : '127.0.0.1'}:${port}`;
   for (const s of sites) {
+    if (!exists(path.join(s.dir, 'map.config.json'))) continue;
     try {
       s.token = adminToken(s.dir);
       unbind.push(writeServerState(s.dir, { url: loopback, started_at: new Date().toISOString(), server: 'uw host',

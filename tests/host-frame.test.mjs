@@ -452,3 +452,34 @@ test('a folder of maps: each map takes its own reload, a map with no bound.json 
   await h.exited;
   for (const name of ['porto', 'lisbon']) assert.equal(fs.existsSync(path.join(gallery, name, '.bind', 'server.json')), false, name);
 });
+
+// A space's sites/ holds every chat's pages, and a page made with `instafy bind` has its own binder, whose record in the
+// page's .bind/ is where the space's reload of that page goes. `uw host` serving such a folder keeps the binder's record
+// only in its maps' folders: a page that is not a map listens on its own binder (it never takes `uw host`'s channel), so
+// its record, and its folder, stay as they are while `uw host` runs and after it stops.
+test('a folder of sites: a page that is not a map keeps its own binder\'s record, and nothing of uw host is written in it', async () => {
+  const sitesDir = path.join(tmp, 'sites-of-a-space');
+  fs.mkdirSync(sitesDir);
+  assert.equal((await run(['new', path.join('sites-of-a-space', 'trip'), '--title', 'Trip', '--center', '-8.61,41.15', '--zoom', '13'])).code, 0);
+  const page = path.join(sitesDir, 'compare');
+  fs.mkdirSync(path.join(page, '.bind'), { recursive: true });
+  fs.writeFileSync(path.join(page, 'index.html'), '<!doctype html><title>Compare</title>');
+  fs.writeFileSync(path.join(page, 'bound.json'), JSON.stringify({ intents: {} }));
+  // its binder runs (this test's own process stands in for it)
+  const record = JSON.stringify({ pid: process.pid, url: 'http://127.0.0.1:9', started_at: '2026-11-08T00:00:00.000Z', sites: [{ name: 'compare', prefix: '', dir: page }] }, null, 2) + '\n';
+  fs.writeFileSync(path.join(page, '.bind', 'server.json'), record);
+  fs.writeFileSync(path.join(page, '.bind', 'admin-token'), 'binder-own-admin-token-0123456789\n');
+  const before = fs.readdirSync(path.join(page, '.bind')).sort();
+  const port = await freePort();
+  const h = startHost('sites-of-a-space', port);
+  assert.ok(await waitFor(async () => (await get(port, '/trip/__uw/health')).status === 200), h.log());
+  // the map takes the space's reload; the page's reload still goes to its own binder
+  assert.equal(JSON.parse(fs.readFileSync(path.join(sitesDir, 'trip', '.bind', 'server.json'), 'utf8')).pid, h.host.pid);
+  assert.equal(fs.readFileSync(path.join(page, '.bind', 'server.json'), 'utf8'), record);
+  assert.deepEqual(fs.readdirSync(path.join(page, '.bind')).sort(), before);
+  assert.equal((await post(port, '/compare/__bind/command', { name: 'reload', args: {} }, { authorization: 'Bearer binder-own-admin-token-0123456789' })).status, 401);
+  h.host.kill('SIGTERM');
+  await h.exited;
+  assert.equal(fs.readFileSync(path.join(page, '.bind', 'server.json'), 'utf8'), record);
+  assert.equal(fs.existsSync(path.join(sitesDir, 'trip', '.bind', 'server.json')), false);
+});
