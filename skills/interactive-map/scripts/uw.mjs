@@ -264,8 +264,9 @@ async function main() {
   }
   // validate and plan are told when this turn started and what its clock has left (nothing with the turn budget off: no
   // limit): a day with one place to see fails in the turn that planned the days, and plan refuses days short of places,
-  // while there is time to add places (lib/turn-advice.mjs REPLY_WITHIN_S)
-  const clocked = cmd === 'validate' || cmd === 'plan';
+  // while there is time to add places (lib/turn-advice.mjs REPLY_WITHIN_S); add-point and set refuse a place's page
+  // only where and when validate fails it (lib/cmd-set.mjs sourceNotOwn), by the same clock
+  const clocked = cmd === 'validate' || cmd === 'plan' || cmd === 'add-point' || cmd === 'set';
   const turnLeftS = clocked && clock && TURN_BUDGET_S > 0 ? (await import('./lib/turn-advice.mjs')).secondsLeft(clock.elapsedS, TURN_BUDGET_S) : null;
   const code = clocked ? await mod[entry[1]](rest, { turnLeftS, turnStartedMs: clock ? (HOST_STARTED_MS ?? clock.startedMs) : null }) : await mod[entry[1]](rest);
   if (typeof code === 'number') process.exitCode = code;

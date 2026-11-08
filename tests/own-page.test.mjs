@@ -6,9 +6,10 @@
 //    fix ends at `uw set`, which gives each place's own page to its items in the days, so the days the person changed
 //    stay (a new plan groups them by area again);
 //  - `uw set` and `uw add-point` refuse a source_url that is a page `uw cite` read that does not name the place (one
-//    place alone on such a page too), or a page another place cites, from what uw cite kept: no second request ("cite
-//    its own page"; nothing added or changed); one it did not read is refused too; a map an earlier pack left with
-//    places on one page still validates, names them, and takes a note;
+//    place alone on such a page too), or a page another place cites, from what uw cite kept, where and when validate
+//    fails it (a trip's places to see, an area to stay in that says why, while the turn has time to cite): no second
+//    request ("cite its own page"; nothing added or changed); one it did not read is refused too; a map an earlier pack
+//    left with places on one page still validates, names them, and takes a note;
 //  - a day with nothing to see names the reader: uw cite on each place's own page in this turn, never a browser card.
 // Offline: the place search and the web pages are a local mock in this file.
 // Run: node --test tests/own-page.test.mjs
@@ -183,7 +184,7 @@ test('a later turn: places on one page fail while it has time, and the fix keeps
 
 test('add-point and set refuse a page uw cite read that does not name the place, one place alone on it too: cite its own page; nothing added or changed; no second request', async () => {
   const site = 'cited';
-  assert.equal((await uw(['new', site, '--title', 'Seville', '--center', CITY.join(','), '--zoom', '13'])).code, 0);
+  await newTrip(site);
   const routes = `${mock.url}/en/city-routes/`, own = `${mock.url}/en/plaza-de-espana`;
   const file = path.join(tmp, site, 'data', 'sights.geojson');
   const c = await uw(['cite', routes, '--grep', 'Plaza de España']);
@@ -276,6 +277,113 @@ test('add-point and set refuse a page another place already cites: cite its own 
   assert.equal(area.code, 0, area.out + area.err);
   const v = await uw(['validate', site, '--json']);
   assert.deepEqual([...v.json.errors, ...v.json.warnings].filter((e) => /cite one page|does not name/.test(e.message)), []);
+});
+
+// A step refuses only what `uw validate` fails, and everything it fails: a trip's places to see, judged among the places
+// the plan takes (before the days are planned, every pinned place but the stops and the places to stay), and an area to
+// stay in that says why, while the turn has time to cite. Elsewhere validate judges no page, and the step only says so
+const pageMsgs = (v) => [...(v.json?.errors || []), ...(v.json?.warnings || [])].filter((e) => /cite one page|does not name/.test(e.message)).map((e) => e.message);
+const pinTo = (site, layer, s, page, more = {}, env = {}) => uw(['add-point', site, '--layer', layer, '--at', s.at.join(','), '--name', s.name, '--id', s.id, ...(s.kind ? ['--kind', s.kind] : []), '--props-file', '-', '--json'],
+  { input: JSON.stringify({ stop: 'seville', ...more, ...(page ? { source_url: page, source: new URL(page).hostname.replace(/^www\./, '') } : {}) }), env });
+
+test('a map that is not a trip: a page two places share, or one that does not name a place, is said and taken, as uw validate judges neither', async () => {
+  const site = 'cafes';
+  assert.equal((await uw(['new', site, '--title', 'Cafes in Seville', '--center', CITY.join(','), '--zoom', '13'])).code, 0);
+  const list = 'https://cafes.example.org/best-cafes', hours = 'https://cafes.example.org/opening-hours';
+  read(list, 'The best cafes\nCafe Alpha roasts its own coffee.\nCafe Beta bakes the cakes.');
+  read(hours, 'Opening hours\nMonday to Friday, 8 to 18.');
+  const cafe = (s, page) => pinTo(site, 'cafes', s, page, { stop: undefined });
+  assert.equal((await cafe({ id: 'alpha', name: 'Cafe Alpha', at: [-5.9905, 37.3881] }, list)).code, 0);
+  const beta = await cafe({ id: 'beta', name: 'Cafe Beta', at: [-5.9921, 37.3893] }, list);
+  assert.equal(beta.code, 0, beta.out + beta.err);
+  assert.doesNotMatch(beta.err, /REFUSED|cites too/);
+  const gamma = await cafe({ id: 'gamma', name: 'Cafe Gamma', at: [-5.9942, 37.3871] }, hours);
+  assert.equal(gamma.code, 0, gamma.out + gamma.err);
+  assert.deepEqual(gamma.json.source_not_named, { url: hours, name: 'Cafe Gamma' });
+  assert.match(gamma.err, /does not name "Cafe Gamma": it is not this place's source\. Cite the place's own page/);
+  assert.equal((await uw(['set', site, 'cafes:gamma', '--props-file', '-'], { input: JSON.stringify({ source_url: list, source: 'cafes.example.org' }) })).code, 0);
+  const v = await uw(['validate', site, '--json']);
+  assert.equal(v.code, 0, JSON.stringify(v.json?.errors ?? v.out));
+  assert.deepEqual(pageMsgs(v), []);
+});
+
+test('a trip not planned yet: a page a place in another layer cites is refused, as uw validate fails it once the plan takes both; a place to stay, or a layer the plan does not take, is not judged', async () => {
+  const site = 'layers';
+  await newTrip(site);
+  const quarter = 'https://www.triana.example.org/guide', market = 'https://www.mercado.example.org/', booking = 'https://www.booking.example.org/rooms';
+  read(quarter, 'The Triana guide\nThe Castle of San Jorge stands by the bridge.\nMercado de Triana sells fish.');
+  read(market, 'Mercado de Triana\nStalls, fish and tapas.');
+  read(booking, 'Book a room\nRooms from 80 euros a night.');
+  const castle = { id: 'castle', name: 'Castle of San Jorge', at: [-6.0029, 37.3866] }, stall = { id: 'market', name: 'Mercado de Triana', at: [-6.0035, 37.3857] };
+  assert.equal((await pinTo(site, 'sights', castle, quarter)).code, 0);
+  const shared = await pinTo(site, 'food', stall, quarter);
+  assert.equal(shared.code, 2, shared.out + shared.err);
+  assert.deepEqual([shared.json.refused, shared.json.cited_by], ['source_shared', { ref: 'sights:castle', name: 'Castle of San Jorge' }]);
+  assert.match(shared.err, /it is Castle of San Jorge's source that is wrong: give that place its own page \(uw set layers sights:castle --props-file - /);
+  // a place to stay is never judged with the places to see: its booking page that does not name it is said, not refused
+  const hotel = await pinTo(site, 'hotels', { id: 'uno', name: 'Hotel Uno', at: [-5.9912, 37.3874], kind: 'hotel' }, booking);
+  assert.equal(hotel.code, 0, hotel.out + hotel.err);
+  assert.deepEqual(hotel.json.source_not_named, { url: booking, name: 'Hotel Uno' });
+  assert.equal((await pinTo(site, 'food', stall, market)).code, 0);
+  for (const s of [SIGHTS[0], SIGHTS[1]]) { read(s.page, `${s.name}\nOpening hours and tickets.`); assert.equal((await pin(site, s)).code, 0); }
+  assert.equal((await uw(['plan', site, '--stops', 'stops', '--ids', 'seville', '--nights', '3', '--start', '2026-11-02', '--sights', 'sights,food', '--force'], { clock: hostClock(450) })).code, 0);
+  assert.deepEqual(pageMsgs(await uw(['validate', site, '--json'])), []);
+  // the days planned with sights and food: a day trip's layer is not judged with them, and a food place is
+  const trip = await pinTo(site, 'daytrips', { id: 'carmona', name: 'Carmona', at: [-5.6413, 37.4712] }, quarter);
+  assert.equal(trip.code, 0, trip.out + trip.err);
+  assert.deepEqual(trip.json.source_not_named, { url: quarter, name: 'Carmona' });
+  const food = await uw(['set', site, 'food:market', '--props-file', '-', '--json'], { input: JSON.stringify({ source_url: `${quarter}#market`, source: 'triana.example.org' }) });
+  assert.equal(food.code, 2, food.out + food.err);
+  assert.deepEqual([food.json.refused, food.json.cited_by], ['source_shared', { ref: 'sights:castle', name: 'Castle of San Jorge' }]);
+  // what the steps took, validate takes; what they refused, it fails
+  assert.deepEqual(pageMsgs(await uw(['validate', site, '--json'])), []);
+  const file = path.join(tmp, site, 'data', 'food.geojson');
+  const fc = JSON.parse(fs.readFileSync(file, 'utf8'));
+  fc.features[0].properties.source_url = quarter;
+  fs.writeFileSync(file, JSON.stringify(fc));
+  assert.deepEqual(pageMsgs(await uw(['validate', site, '--json'])), [`2 places cite one page (${quarter}): Castle of San Jorge, Mercado de Triana. A page about a whole city or a list of places says which are worth it; it is not their source`]);
+});
+
+test('with too little time left to cite, add-point and set take the page and say the reply names the place as not checked, as uw validate only warns then', async () => {
+  const site = 'late-step';
+  await newTrip(site);
+  const [cathedral, alcazar, pilatos] = [SIGHTS[0], SIGHTS[1], SIGHTS[4]];
+  for (const s of [cathedral, alcazar, pilatos]) { read(s.page, `${s.name}\nOpening hours and tickets.`); assert.equal((await pin(site, s)).code, 0); }
+  const late = hostClock(540);
+  assert.equal((await plan(site, { clock: late })).code, 0);
+  const s = await uw(['set', site, 'sights:pilatos', '--props-file', '-', '--json'], { input: JSON.stringify({ source_url: cathedral.page, source: 'catedraldesevilla.es' }), clock: late });
+  assert.equal(s.code, 0, s.out + s.err);
+  assert.ok(s.err.includes(`warning: ${cathedral.page} (read by uw cite) is the page Cathedral of Seville (sights:cathedral) cites too: it is not this place's source. Too little time is left to cite its own page in this turn: the reply names "Casa de Pilatos" as not checked on a page of its own.`), s.err);
+  const v = await uw(['validate', site, '--json'], { clock: late });
+  assert.equal(v.code, 0, JSON.stringify(v.json?.errors ?? v.out));
+  assert.deepEqual(pageMsgs(v), [`2 places cite one page (${cathedral.page}): Cathedral of Seville, Casa de Pilatos. A page about a whole city or a list of places says which are worth it; it is not their source`]);
+  const unnamed = 'https://www.sevilla.example.org/what-to-see';
+  read(unnamed, 'What to see\nThe river and its bridges.');
+  const a = await pinTo(site, 'sights', { id: 'giralda', name: 'La Giralda', at: [-5.99258, 37.38634] }, unnamed, {}, { INSTAFY_TURN_STARTED_AT: late.started, INSTAFY_TURN_DEADLINE: late.deadline });
+  assert.equal(a.code, 0, a.out + a.err);
+  assert.ok(a.json.warnings.includes(`${unnamed} (read by uw cite) does not name "La Giralda": it is not this place's source. Too little time is left to cite its own page in this turn: the reply names "La Giralda" as not checked on a page of its own.`), a.err);
+  // the next turn has time: the same page is refused, as validate now fails it
+  const next = hostClock(0);
+  assert.equal((await uw(['set', site, 'sights:alcazar', '--props-file', '-'], { input: JSON.stringify({ source_url: cathedral.page, source: 'catedraldesevilla.es' }), clock: next })).code, 2);
+  assert.equal((await uw(['validate', site, '--json'], { clock: next })).code, 1);
+});
+
+test('an area to stay in that says why is refused a page that does not name it, as uw validate fails it; with no reason given it is said and taken', async () => {
+  const site = 'area-why';
+  await newTrip(site);
+  const advice = 'https://www.stay.example.org/where-to-stay';
+  read(advice, 'Where to stay\nStay near the river, close to the bridges.');
+  const area = { id: 'santa-cruz', name: 'Santa Cruz', at: [-5.9901, 37.3858], kind: 'area' };
+  const why = await pinTo(site, 'stays', area, advice, { note: 'Area to stay in: quiet lanes near the sights.' });
+  assert.equal(why.code, 2, why.out + why.err);
+  assert.equal(why.json.refused, 'source_not_named');
+  const bare = await pinTo(site, 'stays', area, advice);
+  assert.equal(bare.code, 0, bare.out + bare.err);
+  assert.deepEqual(bare.json.source_not_named, { url: advice, name: 'Santa Cruz' });
+  assert.deepEqual(pageMsgs(await uw(['validate', site, '--json'])), []);
+  // given its reason by a step judged elsewhere (uw handoff's), validate fails it
+  assert.equal((await pinTo(site, 'stays', area, advice, { note: 'Area to stay in: quiet lanes near the sights.' }, STEP)).code, 0);
+  assert.deepEqual(pageMsgs(await uw(['validate', site, '--json'])), [`the area Santa Cruz (stays:santa-cruz) says why to stay there ("Area to stay in: quiet lanes near the sights.") but cites a page that does not name it (${advice})`]);
 });
 
 test('validate: a day with nothing to see names the reader, uw cite on each place\'s own page in this turn, never a browser card', async () => {

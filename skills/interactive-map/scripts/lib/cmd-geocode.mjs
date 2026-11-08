@@ -8,7 +8,7 @@ import { emojiFor } from './kinds.mjs';
 import { fitView } from './cmd-site.mjs';
 import { isLodging, registrySearch, acceptable, fmtRegistryCand, registryProps, queryLabel, slugFor } from './registry-geo.mjs';
 import { adapterFor, adapterNamedIn, adapterForArea } from '../adapters/lib/areas.mjs';
-import { unnamedSource, unnamedSourceLine, sourceStamp, sourceNotRead, sourceNotReadRefusal } from './cmd-cite.mjs';
+import { unnamedSource, unnamedSourceLine, lateSourceLine, sourceStamp, sourceNotRead, sourceNotReadRefusal } from './cmd-cite.mjs';
 import { withDayItems, sourceNotOwn } from './cmd-set.mjs';
 import { handoffStep } from './running.mjs';
 
@@ -55,8 +55,9 @@ add-point <dir> --layer <id> --at lng,lat --name "Label" [...]     (only for coo
   A source_url (in --props) that \`uw cite\` did not read in the last hours (or could not: HTTP 404, refused) is refused
   before any lookup (exit 2, "cite it first", with the uw cite to run; nothing added): cite the page, then run the same
   add-point again. So is an address uw cite found is not a page (an image, a PDF), and, once the place is found, a page
-  read that does not name it or a page another place already cites (exit 2, "cite its own page", as uw validate judges
-  them; nothing added).
+  read that does not name it or a page another place already cites, where uw validate fails it: a trip's places to
+  see, an area to stay in that says why (exit 2, "cite its own page"; nothing added). Elsewhere, or with under about 3
+  minutes left on the turn's clock, it is said and the place added.
   --country: only candidates in that country (an ISO code like JP, or its name).
   Taiwan lodging (a hotel/hostel/旅館/飯店/民宿 query, --kind hotel, or a layer like "hotels", in Taiwan by --near or the
   view): when the search's match is missing, far or unsure, Taiwan's lodging registers are searched by name (registered name,
@@ -520,8 +521,9 @@ export async function geocode(argv) {
   if (!near) out.warn('no --near given: results are not biased to your area; double-check the country/city.');
 }
 
-export async function addPoint(argv) {
-  const ctx = {};
+/** `turn`: the turn's clock, as uw.mjs gives it to validate ({ turnLeftS, turnStartedMs }). */
+export async function addPoint(argv, turn = {}) {
+  const ctx = { turn };
   try { return await addPointRun(argv, ctx); } catch (e) {
     // out of time or unavailable (the search / Overpass busy or down): the place is still listed as "Not found yet", so the reply can say so
     if (isSkip(e) && ctx.site && ctx.args?.query) {
@@ -944,15 +946,12 @@ async function addPointRun(argv, ctx) {
   Object.assign(props, extra);
   props.id = id; // --props cannot change the id silently
   const feature = { type: 'Feature', geometry: { type: 'Point', coordinates: chosen.coord.map(round6) }, properties: props };
-  // its source_url is a page uw cite read that does not name it (by its name, or the name it was looked up by): that page
-  // is not its source, said now while the turn can cite the place's own page
-  const sourceMiss = unnamedSource(props, [args.name]);
 
   // the register's licence credit is loaded before the write lock is taken (no waiting inside it)
   const { ATTRIBUTION } = regUsed ? await import('../adapters/tw-hotels.mjs') : {};
   // read, change and write the layer and map.config.json under the site's write lock: another command (another stop
   // of handoff --apply) may write them at the same time
-  const { rel, replaced, cfgChanges, def, cfg, pinned, unlisted, dayItems, notOwn } = withSiteLock(site, () => {
+  const { rel, replaced, cfgChanges, def, cfg, pinned, unlisted, dayItems, notOwn, lateOwn, sourceMiss } = withSiteLock(site, () => {
     const p = layerPath(site, layer);
     let fc = { type: 'FeatureCollection', features: [] };
     if (exists(p)) {
@@ -982,20 +981,23 @@ async function addPointRun(argv, ctx) {
       return { pinned: others[0], unlisted };
     }
     if (others.length && !ownIsIt) { id = String(others[0].properties.id); props.id = id; }
-    // a page that does not name the place, or that another place cites, is not its source: refused before anything is
-    // written, as uw validate would fail it (cmd-set.mjs sourceNotOwn; a uw handoff step's places were judged by its own
-    // source check, and keep the line below)
-    const notOwn = handoffStep() ? null : sourceNotOwn(site, layer, feature);
-    if (notOwn) return { notOwn };
-    if (others.length && ownIsIt) warnings.push(`the same place is also pinned in this layer as ${others.map((f) => `${layer}:${f.properties.id}`).join(', ')}: one place, one pin: ${others.map((f) => `uw set ${args._[0]} ${layer}:${f.properties.id} --remove`).join('; ')}`);
     const i = fc.features.findIndex((f) => String(f?.properties?.id) === id);
     const replaced = i >= 0;
     const prev = replaced ? fc.features[i] : null;
+    // Same place again: keep metrics/notes added later (enrich, hand edits); moved: drop them (they are stale).
+    const prevC = prev?.geometry?.type === 'Point' ? prev.geometry.coordinates : null;
+    const same = !!prevC && haversine(prevC, feature.geometry.coordinates) < 25;
+    if (same) feature.properties = { ...prev.properties, ...feature.properties };
+    // a page uw validate fails as not the place's own (it does not name the place, or another place cites it) is
+    // refused before anything is written, judged with the place as it is written (cmd-set.mjs sourceNotOwn; a uw
+    // handoff step's places were judged by its own source check). Anywhere else, or with too little time left to cite,
+    // it is said: by its name, or the name it was looked up by, while the turn can still cite the place's own page
+    const notOwn = handoffStep() ? null : sourceNotOwn(site, layer, feature, { ...ctx.turn, stamps: true });
+    if (notOwn && !notOwn.late) return { notOwn };
+    const sourceMiss = unnamedSource(feature.properties, [args.name]);
+    if (others.length && ownIsIt) warnings.push(`the same place is also pinned in this layer as ${others.map((f) => `${layer}:${f.properties.id}`).join(', ')}: one place, one pin: ${others.map((f) => `uw set ${args._[0]} ${layer}:${f.properties.id} --remove`).join('; ')}`);
     if (replaced) {
-      // Same place again: keep metrics/notes added later (enrich, hand edits); moved: drop them (they are stale).
-      const prevC = prev?.geometry?.type === 'Point' ? prev.geometry.coordinates : null;
-      if (prevC && haversine(prevC, feature.geometry.coordinates) < 25) feature.properties = { ...prev.properties, ...feature.properties };
-      else if (Object.keys(prev?.properties || {}).length > Object.keys(feature.properties).length) warnings.push(`${id} moved; its old metrics were dropped. Re-run enrich for ${layer}.`);
+      if (!same && Object.keys(prev?.properties || {}).length > Object.keys(feature.properties).length) warnings.push(`${id} moved; its old metrics were dropped. Re-run enrich for ${layer}.`);
       fc.features[i] = feature;
     } else fc.features.push(feature);
     // when its source was set: a page no uw cite read is judged only for a place whose source this turn set (uw validate)
@@ -1034,7 +1036,7 @@ async function addPointRun(argv, ctx) {
       if (!list.includes(ATTRIBUTION)) { cfg.attribution = [...list, ATTRIBUTION]; cfgChanges.push('added the Taiwan open-data credit'); }
     }
     writeJSON(site.cfgPath, cfg, { pretty: true });
-    return { rel, replaced, cfgChanges, def, cfg, dayItems };
+    return { rel, replaced, cfgChanges, def, cfg, dayItems, lateOwn: notOwn, sourceMiss };
   });
   if (pinned) {
     const ref = `${layer}:${pinned.properties.id}`;
@@ -1056,7 +1058,8 @@ async function addPointRun(argv, ctx) {
     console.error(lines.join('\n'));
     return 2;
   }
-  if (sourceMiss) warnings.push(unnamedSourceLine(sourceMiss, args._[0], `${layer}:${id}`));
+  if (lateOwn) warnings.push(lateSourceLine(lateOwn));
+  else if (sourceMiss) warnings.push(unnamedSourceLine(sourceMiss, args._[0], `${layer}:${id}`));
   let view = null;
   const isOption = def.tier === 'option' || cfg.question?.options?.layer === layer;
   if (isOption && !args['no-fit']) {

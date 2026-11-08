@@ -31,18 +31,22 @@ All notable changes to this pack. Versions follow [semantic versioning](https://
   are the days planned while a place lookup still runs on the site: what it finds is not counted yet, and the plan
   names it (wait, then plan again). The plan's own lines that asked for places after writing such days are gone, and
   `uw validate`'s fix for a day with nothing to see runs the plan when a stop has two places for each of its days.
-- **A page that does not name a place, or that another place already cites, is refused when the place gets it.** Two
-  places on one page, and a page that does not name its place, were met only at `uw validate`, the last check of a
-  turn: a trip's map moved a cathedral off its own site after the archive beside it had cited the same page, and the
-  reply went out while one place still cited a page that did not name it. `uw add-point` and `uw set` only warned about
-  the second, and said nothing about the first. Both now refuse such a `source_url` (exit 2, "cite its own page", with
-  the `uw cite` to run), judged exactly as `uw validate` judges them: what `uw cite` read there names none of the
-  place's names, or another place cites the same page (its `#` part aside; one place pinned twice is one place), among
-  the places validate judges together: the plan's places to see, or, before the days are planned, the place's own layer
-  (never a place to stay, an area or a stop). Nothing is added or changed, and a place refused so is not "Not found
-  yet". When the page is the other place's, the refusal says that place's source is the one to change. A note, a name
-  or any other change that gives no new page is taken as before, on a map made before too; a `uw handoff --apply` step
-  keeps its own source check and the warning, as before.
+- **A page that does not name a place, or that another place already cites, is refused when the place gets it, where
+  `uw validate` fails it.** Two places on one page, and a page that does not name its place, were met only at
+  `uw validate`, the last check of a turn: a trip's map moved a cathedral off its own site after the archive beside it
+  had cited the same page, and the reply went out while one place still cited a page that did not name it.
+  `uw add-point` and `uw set` only warned about the second, and said nothing about the first. Both now refuse such a
+  `source_url` (exit 2, "cite its own page", with the `uw cite` to run) where and when validate fails it, with its match
+  (what `uw cite` read there names none of the place's names, or another place cites the same page, its `#` part
+  aside; one place pinned twice is one place): among a trip's places to see (the plan's, or, before the days are
+  planned with them, every pinned place but the stops and the places to stay, as the trip guide plans them), and an
+  area to stay in that says why, by its own page. Nothing is added or changed, and a place refused so is not "Not found
+  yet". When the page is the other place's, the refusal says that place's source is the one to change. Where validate
+  judges no page (a map that is not a trip, a place to stay, a layer the plan does not take), a page that does not name
+  the place is said, as before; with under about 3 minutes left on the turn's clock, when validate only warns, the
+  place is taken and the line says the reply names it as not checked on a page of its own. A note, a name or any other
+  change that gives no new page is taken as before, on a map made before too; a `uw handoff --apply` step keeps its own
+  source check and the warning, as before.
 - **A place not found under its name says how to pin it so it is not "Not found yet" beside its own pin.** A sight not
   found under its name was pinned by its OpenStreetMap object under the name OpenStreetMap gives it and a new id, and
   the map then listed it as "Not found yet" next to its own pin: the entry goes only when the place is pinned under the

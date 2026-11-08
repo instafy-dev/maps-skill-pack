@@ -400,6 +400,13 @@ export function unnamedSourceLine(miss, site, ref) {
   return `${miss.url} (read by uw cite) ${what}: it is not this place's source. Cite the place's own page (its own site, else its Wikipedia article): `
     + `uw cite <that page> --grep "${dq(miss.name)}", then uw set ${site} ${ref} --props-file - with {"source_url":"<that page>","source":"<site>"}`;
 }
+/** What `uw add-point` and `uw set` say when they take a page that is not the place's own (cmd-set.mjs sourceNotOwn's)
+ *  with too little time left on the turn's clock to cite another: uw validate only warns then, and the reply names
+ *  the place as not checked on a page of its own. */
+export function lateSourceLine(miss) {
+  const what = miss.shared ? `is the page ${miss.shared.name} (${miss.shared.ref}) cites too` : `does not name "${miss.name}"`;
+  return `${miss.url}${miss.by ? ` (read by ${miss.by})` : ''} ${what}: it is not this place's source. Too little time is left to cite its own page in this turn: the reply names "${miss.name}" as not checked on a page of its own.`;
+}
 
 const refuse = (out, url, reason) => {
   out.result({ ok: false, url, refused: reason, tell: `This URL only: give the user the plain link and try a different source. ${url}` },

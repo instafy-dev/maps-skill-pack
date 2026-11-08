@@ -3,10 +3,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs, makeOut, readJSON, writeJSON, writeGeoJSON, propsArg, UsageError, UserError } from './util.mjs';
 import { openSite, loadLayer, layerPath, withSiteLock, placeIndex } from './site.mjs';
-import { unnamedSource, unnamedSourceLine, sourceStamp, sourceNotRead, sourceNotReadRefusal, readPage } from './cmd-cite.mjs';
+import { unnamedSource, unnamedSourceLine, lateSourceLine, sourceStamp, sourceNotRead, sourceNotReadRefusal, readPage } from './cmd-cite.mjs';
 import { cacheOff } from './net.mjs';
 import { isAreaPin } from './stays.mjs';
 import { isLodging } from './registry-geo.mjs';
+import { expectOf } from './expect.mjs';
+import { REPLY_WITHIN_S } from './turn-advice.mjs';
 
 export const help = `set <dir> <layer>:<id> [--note "…"] [--name "…"] [--emoji 🏨] [--props '{"price":120}' | --props-file <file|->] [--unset key1,key2] [--remove] [--json]
 set <dir> plan:day<N> --note "…" | --unset note [--json]
@@ -18,14 +20,16 @@ set <dir> plan:day<N> --note "…" | --unset note [--json]
   day. uw plan --force keeps each day's note.
   Geometry and "id" cannot be changed here (re-run add-point for a different place).
   A new source_url that \`uw cite\` did not read (or could not: HTTP 404, refused) is refused (exit 2, "cite it first",
-  with the uw cite to run; nothing changed), and so is an address uw cite found is not a page (an image, a PDF), a page
-  read that does not name the place, and a page another place already cites (exit 2, "cite its own page", as uw
-  validate judges them).
+  with the uw cite to run; nothing changed), and so is an address uw cite found is not a page (an image, a PDF), and a
+  page read that does not name the place or that another place already cites, where uw validate fails it: a trip's
+  places to see, an area to stay in that says why (exit 2, "cite its own page"). Elsewhere, or with under about 3
+  minutes left on the turn's clock, it is said and taken.
   A new source_url or source goes to the place's items in the plan's days too (the Plan tab's link under it), so the
   days stay as they are: no new uw plan. An item that links another page is left as it is.
   Text with an apostrophe or quotes: --props-file - <<'JSON', the object on the next line, then JSON (no shell quoting).`;
 
-export async function run(argv) {
+/** `turn`: the turn's clock, as uw.mjs gives it to validate ({ turnLeftS, turnStartedMs }). */
+export async function run(argv, turn = {}) {
   const args = parseArgs(argv, { note: 'string', name: 'string', emoji: 'string', props: 'string', 'props-file': 'string', unset: 'string', remove: 'bool' },
     { positionals: [2, 2], command: 'set' });
   if (args.help) return console.log(help);
@@ -47,7 +51,7 @@ export async function run(argv) {
     }
     const f = fc.features[i];
     const before = { ...f.properties };
-    let changed = [];
+    let changed = [], late = null;
     if (args.remove) {
       fc.features.splice(i, 1);
       changed = ['(removed)'];
@@ -67,19 +71,21 @@ export async function run(argv) {
         if (k in f.properties) { delete f.properties[k]; changed.push('-' + k); }
       }
       if (!changed.length) return { f, changed, dayItems: 0 };
-      // a new page no uw cite read (or one it found is not a page) is not the place's source yet: refused, nothing
-      // written (cmd-cite.mjs sourceNotRead)
-      const notRead = changed.includes('source_url') ? sourceNotRead(f.properties.source_url) ?? sourceNotOwn(site, layer, f) : null;
-      if (notRead) return { f, changed: [], refused: notRead };
+      // a new page no uw cite read (or one it found is not a page), or one uw validate fails as not the place's own,
+      // is not its source: refused, nothing written (cmd-cite.mjs sourceNotRead, sourceNotOwn below). With too little
+      // time left to cite, validate only warns about the latter: taken, and said
+      const notRead = changed.includes('source_url') ? sourceNotRead(f.properties.source_url) ?? sourceNotOwn(site, layer, f, turn) : null;
+      if (notRead && !notRead.late) return { f, changed: [], refused: notRead };
+      late = notRead;
       // a new page: when it was set (uw validate judges a page no uw cite read for a place this turn gave a source)
       if (changed.includes('source_url') || changed.includes('-source_url')) sourceStamp(f.properties, before);
     }
     writeGeoJSON(layerPath(site, layer), fc);
     // the place's items in the days link the page it cites (uw plan copied it there): a new page goes to them too
     const dayItems = !args.remove && changed.some((k) => /^-?source(_url)?$/.test(k)) ? withDayItems(site, layer, id, before, f.properties) : 0;
-    return { f, changed, dayItems };
+    return { f, changed, dayItems, late };
   });
-  const { f, changed, dayItems, refused } = done;
+  const { f, changed, dayItems, refused, late } = done;
   if (refused) {
     const { lines, refused: why, next } = sourceNotReadRefusal(refused, f.properties.name_en || f.properties.name || id, 'Nothing was changed.', args._[0]);
     if (out.json) process.stdout.write(JSON.stringify({ ok: false, refused: why, layer, id, source_url: refused.url, next, ...(refused.shared ? { cited_by: refused.shared } : {}) }, null, 2) + '\n');
@@ -94,7 +100,8 @@ export async function run(argv) {
     args.remove ? `Removed ${layer}:${id} (${f.properties.name || ''}). Re-run enrich / legs / routes that used it.` : `Updated ${layer}:${id}: ${changed.join(', ')}.`,
     dayItems ? `Its ${dayItems === 1 ? 'item' : `${dayItems} items`} in the plan's days link${dayItems === 1 ? 's' : ''} ${f.properties.source_url ? 'that page now' : 'no page now'}; the days are as they were.` : null,
   ]);
-  if (miss) out.warn(unnamedSourceLine(miss, args._[0], `${layer}:${id}`));
+  if (late) out.warn(lateSourceLine(late));
+  else if (miss) out.warn(unnamedSourceLine(miss, args._[0], `${layer}:${id}`));
   return 0;
 }
 
@@ -151,35 +158,80 @@ function dayNotesShown(site) {
   try { return fs.readFileSync(path.join(site.dir, 'engine', 'ui.js'), 'utf8').includes('uw-day-note'); } catch { return false; }
 }
 
-/** A new source_url that is not the place's own page, judged as `uw validate` judges a plan's places (cmd-validate.mjs:
- *  "2 places cite one page", then "1 place cites a page that does not name it"): the page another place cites
- *  ({ url, shared: { ref, name }, by? }), or a page read here that names none of the place's names ({ url, name,
- *  not_named, by }). `uw add-point` and `uw set` refuse it before anything is written, while the turn can cite the
- *  place's own page: both were met only at validate, and a turn replied after its last error. Another place: one of
- *  the layers validate judges this one with (the plan's sight layers when it is in one; before the days are planned,
- *  its own layer, unless it is a place to stay, an area or a stop), by validate's own match (the page without its #
- *  part; one place pinned twice is one place). `f`: the place as it would be written. No network. */
-export function sourceNotOwn(site, layer, f) {
+/** A new source_url that `uw validate` fails as not the place's own page (cmd-validate.mjs: "2 places cite one page",
+ *  "1 place cites a page that does not name it", "the area … says why … but cites a page that does not name it"),
+ *  judged where and when validate judges it, with its match: the page without its # part, one place pinned twice is
+ *  one place, the place's names in what uw cite read there. `uw add-point` and `uw set` refuse it before anything is
+ *  written, while the turn can cite the place's own page: both were met only at validate, and a turn replied after its
+ *  last error. Validate judges a page:
+ *  - among the plan's places to see (`uw plan --sights`), for a place of one of those layers;
+ *  - on a trip whose days are not planned with places to see yet, among the places a plan takes then: every layer of
+ *    pinned places but the stops' and the places to stay's (the trip guide plans --sights sights,food,daytrips), for
+ *    a place that is not itself a stop, a place to stay or an area;
+ *  - for an area to stay in that says why (a note or why), on its own page, in the turn that pins it.
+ *  Anywhere else it judges no page, and this returns null: the command says what it says of a page that does not name
+ *  the place, as before. Returns the page another place cites ({ url, name, shared: { ref, name }, by? }) or a page
+ *  read that names none of the place's names ({ url, name, not_named, by }), `late` when the turn's clock leaves too
+ *  little time to cite (validate only warns then, and the reply names the place as not checked): the place is taken.
+ *  `f`: the place as it would be written; `turn`: the clock uw.mjs gives validate; `stamps`: this command stamps its
+ *  layer as written now (add-point). No network. */
+export function sourceNotOwn(site, layer, f, { turnLeftS = null, turnStartedMs = null, stamps = false } = {}) {
   const pr = f?.properties || {};
   const url = pr.source_url;
   if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return null;
-  const read = cacheOff() ? null : readPage(url);
-  const sights = site.config?.plan?.sights;
-  const layers = Array.isArray(sights) && sights.length ? (sights.includes(layer) ? sights : [])
-    : isAreaPin(pr) || isLodging({ kind: pr.kind, layer }) || Number.isInteger(pr.nights) ? [] : [layer];
-  const page = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u) ? u.replace(/#.*$/, '') : null);
-  // a layer that cannot be read is uw validate's to name, never a reason to refuse this place
-  const features = (lid) => { try { return loadLayer(site, lid, { required: false })?.features || []; } catch { return []; } };
-  const others = layers.flatMap((lid) => features(lid)
-    .filter((g) => !(lid === layer && String(g?.properties?.id) === String(pr.id))).map((g) => ({ lid, g })));
-  const place = placeIndex([f, ...others.map((x) => x.g)]);
-  const other = others.find(({ g }, i) => place[i + 1] !== place[0] && page(g?.properties?.source_url) === page(url));
-  if (other) {
-    const o = other.g.properties;
-    return { url, ...(read ? { by: read.by } : {}), shared: { ref: `${other.lid}:${o.id}`, name: String(o.name_en || o.name || o.id) } };
+  // the map as validate reads it: map.config.json now (another command may have planned the days), its layers, what
+  // wrote each, and this place as it would be written. A layer that cannot be read is validate's to name
+  let cfg = site.config || {};
+  try { cfg = readJSON(site.cfgPath); } catch { /* the one openSite read */ }
+  const now = { ...site, config: cfg };
+  const layers = new Map();
+  for (const l of Array.isArray(cfg.layers) ? cfg.layers : []) {
+    if (typeof l?.id !== 'string' || layers.has(l.id)) continue;
+    let fc = null;
+    try { fc = l.data && typeof l.data === 'object' ? l.data : loadLayer(now, l.id, { required: false }); } catch { /* */ }
+    if (Array.isArray(fc?.features)) layers.set(l.id, { features: fc.features, uw: fc.uw && typeof fc.uw === 'object' ? fc.uw : {} });
   }
-  const miss = read && !read.not_page ? unnamedSource(pr, [], read) : null;
-  return miss ? { ...miss, not_named: true, by: read.by } : null;
+  const mine = layers.get(layer) || { features: [], uw: {} };
+  layers.set(layer, { features: [...mine.features.filter((g) => String(g?.properties?.id) !== String(pr.id)), f],
+    uw: stamps ? { ...mine.uw, cmd: mine.uw.cmd || 'add-point', updated_at: new Date().toISOString() } : mine.uw });
+  // a trip's stops and places to stay, as validate finds them
+  const staysBy = (lid) => layers.get(lid).uw.cmd === 'stay' || isLodging({ layer: lid });
+  const nights = new Set([...layers.keys()].filter((lid) => !staysBy(lid)
+    && layers.get(lid).features.some((g) => Number.isInteger(g?.properties?.nights) && g.properties.nights >= 1 && g.properties.id != null)));
+  const days = Array.isArray(cfg.plan?.days) ? cfg.plan.days : null;
+  const stays = new Set([...layers.keys()].filter((lid) => !nights.has(lid) && (staysBy(lid) || (days || []).some((d) => d?.focus?.layer === lid))));
+  const read = cacheOff() ? null : readPage(url);
+  const by = read ? { by: read.by } : {};
+  const name = String(pr.name_en || pr.name || pr.id);
+  const timeToCite = turnLeftS == null || turnLeftS > REPLY_WITHIN_S;
+  const sights = cfg.plan?.sights;
+  let judged = null;
+  if (Array.isArray(sights) && sights.length) { if (days && sights.includes(layer)) judged = sights; }
+  else if ((expectOf(cfg).length || nights.size) && !isAreaPin(pr) && !isLodging({ kind: pr.kind, layer }) && !Number.isInteger(pr.nights)) {
+    judged = [...layers.keys()].filter((lid) => layers.get(lid).uw.cmd === 'add-point' && !nights.has(lid) && !stays.has(lid));
+    if (!judged.includes(layer)) judged = null;
+  }
+  if (judged) {
+    const all = judged.flatMap((lid) => (layers.get(lid)?.features || []).map((g) => ({ lid, g })));
+    const place = placeIndex(all.map((x) => x.g));
+    const me = place[all.findIndex((x) => x.g === f)];
+    const page = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u) ? u.replace(/#.*$/, '') : null);
+    const other = all.find(({ g }, i) => place[i] !== me && page(g?.properties?.source_url) === page(url));
+    const late = timeToCite ? {} : { late: true };
+    if (other) {
+      const o = other.g.properties;
+      return { url, name, ...by, shared: { ref: `${other.lid}:${o.id}`, name: String(o.name_en || o.name || o.id) }, ...late };
+    }
+    const miss = read && !read.not_page ? unnamedSource(pr, [], read) : null;
+    return miss ? { ...miss, not_named: true, ...by, ...late } : null;
+  }
+  // an area to stay in that says why: validate fails a page that does not name it in the turn that built the trip's
+  // stops or stays, while the clock leaves time (later, or with less, it warns, as the command does)
+  if (!nights.size || !stays.has(layer) || !isAreaPin(pr) || !['note', 'why'].some((k) => typeof pr[k] === 'string' && pr[k].trim())) return null;
+  const thisTurn = (iso) => { const t = Date.parse(iso ?? ''); return Number.isFinite(t) && (turnStartedMs == null || t >= turnStartedMs); };
+  const builtNow = turnStartedMs == null || [...nights, ...stays].some((lid) => thisTurn(layers.get(lid).uw.updated_at));
+  const miss = builtNow && timeToCite && read && !read.not_page ? unnamedSource(pr, [], read) : null;
+  return miss ? { ...miss, not_named: true, ...by } : null;
 }
 
 /** A place's items in the plan's days (`ref` = this place) link the page it cites, as uw plan wrote them (`url` =
