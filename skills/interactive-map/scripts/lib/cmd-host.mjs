@@ -3,8 +3,8 @@
 //   POST <site>/__uw/intent   → validate (declared, handler, params schema, ≤ 4 KB, same origin) → 202 queued job
 //   GET  <site>/__uw/events   → Server-Sent Events: ack / progress / results / done / error for EVERY viewer
 //   GET  <site>/__uw/jobs     → the last 50 jobs (debug)
-//   POST <site>/__bind/command → a command for every viewer (the reload Instafy sends a site after a saved change or
-//                                an Undo), from `instafy bind command` on this machine, as `instafy bind serve` takes it
+//   POST <site>/__bind/command → a command for every viewer (the reload Instafy sends a site whose files changed), from
+//                                `instafy bind command` on this machine, as `instafy bind serve` takes it
 // Jobs run handlers (pack:<name> → scripts/handlers/<name>.mjs, or a site-relative .mjs) as child processes; the host
 // does the apply step (schema check, source + lane check, stamp prov.intent/job, merge into target.records, bump
 // data/version.json) and broadcasts the accepted records. This mirrors the Instafy "apply, no model" step.
@@ -57,11 +57,11 @@ export const help = `host <site|gallery-dir> [--port 4173] [--host 127.0.0.1|0.0
   --public-url <url>  also answer __uw/* for this host (a tunnel other than Instafy's; repeatable; or UW_PUBLIC_URL).
              __uw/* answers only localhost, IP addresses, Instafy tunnels/previews of this port and these (no DNS
              rebinding); POST __uw/intent also needs the page's own Origin. Files carry no CORS header.
-  Open views follow every saved change: Instafy sends a site it saved or undid \`instafy bind command <site> reload '{}'\`,
-  which finds this host as it finds \`instafy bind serve\`, by <site>/.bind/server.json and the admin token beside it
-  (.bind/ stays on this machine: never served, never saved), and the host pushes it to every viewer as a "command"
-  event: each reloads in place, keeping its camera, selection, lens, layers, sheet and tab. POST __bind/command answers
-  only this computer's own address, with that token.`;
+  Open views follow the site's changes: Instafy sends an open site whose files changed (an Undo, a saved change)
+  \`instafy bind command <site> reload '{}'\`, which finds this host as it finds \`instafy bind serve\`, by
+  <site>/.bind/server.json and the admin token beside it (.bind/ stays on this machine: never served, never saved),
+  and the host pushes it to every viewer as a "command" event: each reloads in place, keeping its camera, selection,
+  lens, layers, sheet and tab. POST __bind/command answers only this computer's own address, with that token.`;
 export const helps = { host: help };
 
 const MAX_BODY = 4096, RING = 200, MAX_JOBS = 2, COALESCE_MS = 60000;
@@ -86,8 +86,8 @@ export function coolKey(name, ref, params) {
 /** what other viewers may see of a job's params (where a map search ran), never more */
 const publicParams = (p) => Object.fromEntries(Object.entries(p || {}).filter(([k, v]) => ['at', 'radius_m', 'max'].includes(k) && (typeof v === 'number' || Array.isArray(v))));
 
-// The reload Instafy sends a site after a saved change or an Undo is `instafy bind command <site> reload '{}'`, run
-// from the space's folder. Instafy's binder client finds whoever serves <site> by the nearest .bind/server.json at or
+// The reload Instafy sends an open site whose files changed is `instafy bind command <site> reload '{}'`, run from the
+// space's folder. Instafy's binder client finds whoever serves <site> by the nearest .bind/server.json at or
 // above it ({ pid, url, sites: [{ name, prefix, dir }] }), reads the admin token beside it (.bind/admin-token) and
 // posts { name, args } to <url><prefix>/__bind/command with it. `uw host` keeps both files as `instafy bind serve`
 // does, and answers that call as it does: on this computer's own address only, with the token. .bind/ is mode 0700
@@ -181,8 +181,8 @@ class SiteHost {
     return made;
   }
   runnable() { const b = this.bound(); return Object.entries(b?.intents || {}).filter(([, d]) => this.resolveHandler(d)).map(([n]) => n); }
-  // POST __bind/command, from `instafy bind command <site> <name> '<args>'` on this computer: Instafy's reload after a
-  // saved change or an Undo goes to every open viewer, who reloads in place (bind.js COMMANDS "reload" → engine
+  // POST __bind/command, from `instafy bind command <site> <name> '<args>'` on this computer: Instafy's reload of a
+  // changed site goes to every open viewer, who reloads in place (bind.js COMMANDS "reload" → engine
   // softReload: hash, sheet and tab kept). Checked and answered as `instafy bind serve` answers it; the runtime reads
   // "viewers" from the answer.
   async command(req, res) {

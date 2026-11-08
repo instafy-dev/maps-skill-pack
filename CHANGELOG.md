@@ -5,11 +5,11 @@ All notable changes to this pack. Versions follow [semantic versioning](https://
 
 ## 0.1.35 (2026-11-08)
 
-- **Open maps follow every saved change and every Undo.** A note added to a trip's day, made by hand in
+- **Open maps take the reload Instafy sends a changed site.** A note added to a trip's day, made by hand in
   `map.config.json`, showed in neither open view of the map, and neither did its Undo, until each was reloaded by hand:
   `uw host` reloaded its viewers only when `uw reload`'s stamp in `data/version.json` changed, and nothing else wrote
-  it. Instafy sends every open site it saves or undoes `instafy bind command <site> reload '{}'`; no server took it for
-  a map. `uw host` now takes it as `instafy bind serve` does: it keeps the site's `.bind/server.json` (its loopback
+  it. Instafy sends an open site whose files changed (an Undo, for one) `instafy bind command <site> reload '{}'`; no
+  server took it for a map. `uw host` now takes it as `instafy bind serve` does: it keeps the site's `.bind/server.json` (its loopback
   address) and admin token, which the binder's client reads, and answers `POST __bind/command` on that address only,
   with the token, pushing the command to every viewer over `__uw/events`. `.bind/` is mode 0700 with a `.gitignore` of
   `*`: never served, never in the space's saved files. In a folder of maps each map keeps its own, and every map in it

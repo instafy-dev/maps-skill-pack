@@ -402,7 +402,7 @@ test('the reload Instafy sends a saved or undone site reaches every open viewer 
   assert.equal(r.code, 2);
   assert.match(r.err, /unknown command "reload"/);
   r = await run(['help', 'host']);
-  assert.match(r.out, /Open views follow every saved change: Instafy sends a site it saved or undid `instafy bind command <site> reload '\{\}'`/);
+  assert.match(r.out.replace(/\s+/g, ' '), /Open views follow the site's changes: Instafy sends an open site whose files changed \(an Undo, a saved change\) `instafy bind command <site> reload '\{\}'`/);
 
   // the host stops: its record goes with it (the token stays, for the next one), and the reload finds no server
   h.host.kill('SIGTERM');

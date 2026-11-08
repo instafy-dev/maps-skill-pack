@@ -17,8 +17,8 @@ import { fmtClock } from './util.js';
 import { fromBindRecord } from './records.js';
 
 const HOST_TYPES = ['hello', 'ack', 'progress', 'results', 'done', 'error', 'command'];
-// reload: the site changed (the reload Instafy sends after a saved change or an Undo, which `uw host` pushes over SSE, or
-// the host's ↻): soft reload in place.
+// reload: the site changed (the reload Instafy sends a changed site, which `uw host` pushes over SSE, or the host's ↻):
+// soft reload in place.
 // "layout" (insets, title, caps) is not a bind message: host.js reads it straight from the parent frame; one that
 // arrives on the host's MessagePort is handed to host.js (E.hostLayout).
 const COMMANDS = ['select', 'flyTo', 'setLens', 'setTime', 'highlight', 'reload', 'navigate'];
