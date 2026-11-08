@@ -193,6 +193,35 @@ test('a 3-day trip: uw plan refuses one sight a day while the turn has time, nam
   assert.deepEqual(ok.json.warnings.filter((w) => w.path === '$.plan.days'), []);
 });
 
+// The days are grouped by area, so a day trip's day takes its places from its own area: the refusal once sent the turn
+// to add places near the base for that day too, and they went to the base's days (two of them, and the third landed on
+// the day trip's day). A short day whose place lies out of the base's area is filled near that place; a day with none,
+// or one in the base's area, near the base
+test('a day trip short of places takes its places near the day trip, not near the base; then each full day has two', async () => {
+  const site = 'sv-daytrip';
+  await newTrip(site);
+  for (const s of SIGHTS.slice(0, 4)) assert.equal((await pin(site, s)).code, 0);
+  // a day trip 7 km out, with its own page
+  const italica = await uw(['add-point', site, '--layer', 'daytrips', '--at', '-6.0446,37.4434', '--name', 'Itálica', '--id', 'italica', '--props-file', '-'],
+    { input: JSON.stringify({ stop: 'seville', source_url: 'https://www.juntadeandalucia.es/cultura/enclaves/italica', source: 'juntadeandalucia.es', why: 'Roman city and amphitheatre' }) });
+  assert.equal(italica.code, 0, italica.out + italica.err);
+  const short = await plan(site, ['--sights', 'sights,daytrips']);
+  assert.equal(short.code, 2, short.out + short.err);
+  assert.deepEqual(short.json.short_days, [{ title: 'Wed 4 Nov · Seville', places: 1 }]);
+  assert.deepEqual(short.json.add, [{ name: 'Itálica', near: '-6.0446,37.4434', stop: 'seville', places: 1 }]);
+  assert.equal(short.json.next, 'Add 1 more place near Itálica (--near -6.0446,37.4434), each from its own page: uw cite <its page> --grep "<its name>", then uw add-point sv-daytrip --layer sights --near -6.0446,37.4434 … with {"stop":"seville","source_url":"<that page>","source":"<site>"}, one place per command (reference/itinerary.md Phase B step 1). Then run this command again.');
+  assert.equal(cfgOf(site).plan, undefined, 'nothing was written');
+  // as it says: a place there; the day trip's day has two, and the base's days keep theirs
+  const amphitheatre = await uw(['add-point', site, '--layer', 'sights', '--at', '-6.0459,37.4446', '--name', 'Anfiteatro de Itálica', '--id', 'anfiteatro', '--props-file', '-'],
+    { input: JSON.stringify({ stop: 'seville', source_url: 'https://www.juntadeandalucia.es/cultura/enclaves/italica/anfiteatro', source: 'juntadeandalucia.es', why: 'one of the largest Roman amphitheatres' }) });
+  assert.equal(amphitheatre.code, 0, amphitheatre.out + amphitheatre.err);
+  const ok = await plan(site, ['--sights', 'sights,daytrips']);
+  assert.equal(ok.code, 0, ok.out + ok.err);
+  const days = cfgOf(site).plan.days.map((d) => d.items.filter((it) => ['sights', 'daytrips'].includes(it.ref?.layer)).map((it) => it.ref.id).sort());
+  assert.deepEqual(days.slice(0, 3).map((d) => d.length), [2, 2, 2]);
+  assert.deepEqual(days[2], ['anfiteatro', 'italica']);
+});
+
 test('with under ~3 minutes left the days are written as they are, and a day with one place is a warning that names them for the reply; a day with none still fails', async () => {
   const site = 'sv-late';
   await newTrip(site);

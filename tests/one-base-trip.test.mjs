@@ -324,7 +324,9 @@ test('validate: a plan made with --sights fails while the arrival day has nothin
   const refused = await run([...plan, '--json']);
   assert.equal(refused.code, 2, refused.out + refused.err);
   assert.deepEqual(refused.json.short_days, [{ title: 'Fri 30 Oct · Lisbon', places: 0 }, { title: 'Sat 31 Oct · Lisbon', places: 1 }, { title: 'Sun 1 Nov · Lisbon', places: 1 }]);
-  assert.equal(refused.json.add[0].places, 4);
+  // three near the base (the arrival day's two, the castle's day's one) and one near the tower, in Belém, a ride away:
+  // the days are grouped by area, so a place added near the base never reaches the tower's day
+  assert.deepEqual(refused.json.add.map((a) => [a.name, a.places]), [['Hotel in Baixa', 3], ['Torre de Belém', 1]]);
   // written as they are with too little time left, uw validate fails them
   assert.equal((await run(plan, late())).code, 0);
   assert.equal((await run(['fit', 'lx-arrive'])).code, 0);

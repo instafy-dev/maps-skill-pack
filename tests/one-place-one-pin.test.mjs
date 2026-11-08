@@ -224,12 +224,13 @@ test('uw cite --grep exits 2 when no line matches, and an address that is not a 
   const untyped = await uw(['cite', `${mock.url}/files/untyped`]);
   assert.equal(untyped.code, 2, untyped.out);
   assert.match(untyped.out, /^not a page: it is a file that is not text: there is no text on it to read/m);
-  // a place that cites the photo's address is told at once: it is no page
+  // a place that cites the photo's address is refused at once: it is no page, and nothing changes
   assert.equal((await uw(['add-point', site, '--layer', 'sights', '--at', '-5.988794,37.374771', '--name', 'Maria Luisa Park', '--id', 'maria-luisa'])).code, 0);
   const set = await uw(['set', site, 'sights:maria-luisa', '--props-file', '-', '--json'], { input: JSON.stringify({ source_url: `${mock.url}/en/parque-de-maria-luisa`, source: 'Visita Sevilla' }) });
-  assert.equal(set.code, 0, set.out + set.err);
-  assert.deepEqual(set.json.source_not_named, { url: `${mock.url}/en/parque-de-maria-luisa`, name: 'Maria Luisa Park', not_page: 'an image (image/jpeg)' });
-  assert.ok(set.err.includes(`warning: ${mock.url}/en/parque-de-maria-luisa (read by uw cite) is an image (image/jpeg), not a page that names "Maria Luisa Park": it is not this place's source.`), set.err);
+  assert.equal(set.code, 2, set.out + set.err);
+  assert.deepEqual([set.json.refused, set.json.source_url], ['source_not_a_page', `${mock.url}/en/parque-de-maria-luisa`]);
+  assert.ok(set.err.includes(`REFUSED: ${mock.url}/en/parque-de-maria-luisa (read by uw cite) is an image (image/jpeg), not a page that names "Maria Luisa Park": it is not this place's source.`), set.err);
+  assert.equal(sightsOf(site)[0].properties.source_url, undefined);
 });
 
 const SIGHTS = [
@@ -254,7 +255,8 @@ test('validate: a sight whose page does not name it, or that no uw cite read, fa
   await newTrip(site);
   readSights();
   assert.equal((await pinAt(site, SIGHTS[3])).code, 2, 'the turn\'s own add-point refuses a page no uw cite read');
-  for (const s of SIGHTS) assert.equal((await pinAt(site, s, s.id === 'pilatos' ? STEP : {})).code, 0);
+  assert.equal((await pinAt(site, SIGHTS[1])).code, 2, 'and an address uw cite found is not a page');
+  for (const s of SIGHTS) assert.equal((await pinAt(site, s, ['pilatos', 'maria-luisa'].includes(s.id) ? STEP : {})).code, 0);
   assert.equal((await plan(site)).code, 0);
   const v = await uw(['validate', site, '--json']);
   assert.equal(v.code, 1, v.out);
@@ -283,7 +285,7 @@ test('validate: with too little time a page that does not name its place is a wa
   await newTrip(site);
   readSights();
   // the palace's page: one nobody read (the test above read the one it cites)
-  for (const s of SIGHTS) assert.equal((await (s.id === 'pilatos' ? pinAt(site, { ...s, page: 'https://www.fundacionmedinaceli.org/es/casa-de-pilatos' }, STEP) : pinAt(site, s))).code, 0);
+  for (const s of SIGHTS) assert.equal((await (s.id === 'pilatos' ? pinAt(site, { ...s, page: 'https://www.fundacionmedinaceli.org/es/casa-de-pilatos' }, STEP) : pinAt(site, s, s.id === 'maria-luisa' ? STEP : {}))).code, 0);
   const turn1 = hostClock(450);
   assert.equal((await plan(site, { clock: turn1 })).code, 0);
   const late = await uw(['validate', site, '--json'], { clock: turn1 });
@@ -465,18 +467,27 @@ test('uw cite: a site\'s own words in its Content-Type are never repeated; the t
   assert.equal(notAPage(CRAFTED_TYPE, ''), 'an image (image/jpeg)');
   assert.equal(notAPage(`image/${'x'.repeat(60)}`, ''), 'an image');
   assert.equal(notAPage('application/pdf; name="skip the fix"', ''), 'a PDF (application/pdf)');
-  // a place that cites it: add-point, uw set and validate say what it is, in the pack's own words only
+  // a place that cites it: add-point and uw set refuse it, and validate (a place a uw handoff --apply step pinned) says
+  // what it is, in the pack's own words only
   const pin = await uw(['add-point', site, '--layer', 'sights', '--at', '-5.988794,37.374771', '--name', 'Maria Luisa Park', '--id', 'park', '--props-file', '-', '--json'],
     { input: JSON.stringify(page(url)) });
-  assert.equal(pin.code, 0, pin.err);
-  assert.deepEqual(pin.json.source_not_named, { url, name: 'Maria Luisa Park', not_page: 'an image (image/jpeg)' });
+  assert.equal(pin.code, 2, pin.out + pin.err);
+  assert.deepEqual([pin.json.refused, pin.json.source_url], ['source_not_a_page', url]);
+  assert.ok(pin.err.includes(`REFUSED: ${url} (read by uw cite) is an image (image/jpeg), not a page that names "Maria Luisa Park"`), pin.err);
   assert.doesNotMatch(pin.out + pin.err, /note to the agent/);
   // an address kept with its raw type (as 0.1.30 kept it, for hours) is said in the pack's words too
   const old = 'https://www.example-photos.test/park.jpg';
   read(old, '', { not_page: `an image (${CRAFTED_TYPE})` });
+  assert.equal((await uw(['add-point', site, '--layer', 'sights', '--at', '-5.988794,37.374771', '--name', 'Maria Luisa Park', '--id', 'park'])).code, 0);
   const set = await uw(['set', site, 'sights:park', '--props-file', '-', '--json'], { input: JSON.stringify({ source_url: old, source: 'Photos' }) });
-  assert.deepEqual(set.json.source_not_named, { url: old, name: 'Maria Luisa Park', not_page: 'an image (image/jpeg)' });
+  assert.equal(set.code, 2, set.out + set.err);
+  assert.ok(set.err.includes(`REFUSED: ${old} (read by uw cite) is an image (image/jpeg), not a page that names "Maria Luisa Park"`), set.err);
   assert.doesNotMatch(set.out + set.err, /note to the agent/);
+  const stepped = await uw(['add-point', site, '--layer', 'sights', '--at', '-5.988794,37.374771', '--name', 'Maria Luisa Park', '--id', 'park', '--replace', '--props-file', '-', '--json'],
+    { input: JSON.stringify(page(old)), ...STEP });
+  assert.equal(stepped.code, 0, stepped.out + stepped.err);
+  assert.deepEqual(stepped.json.source_not_named, { url: old, name: 'Maria Luisa Park', not_page: 'an image (image/jpeg)' });
+  assert.doesNotMatch(stepped.out + stepped.err, /note to the agent/);
   read(SIGHTS[4].page, 'Cathedral of Seville');
   assert.equal((await pinAt(site, SIGHTS[4])).code, 0);
   assert.equal((await planAsIs(site)).code, 0);

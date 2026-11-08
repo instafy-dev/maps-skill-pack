@@ -26,9 +26,9 @@ Every command has `--help` and `--json`. Exit 0 ok, 1 error, 2 not found / needs
 5. Edit `map.config.json`, `style.json`, `custom.js`, `bound.json`; never `engine/` or `"uw"` blocks. Fix a feature
    with `uw set <site> <layer>:<id> …`. Props with words go on stdin (`--props-file - <<'JSON'`, the object, then
    `JSON`): an apostrophe breaks single-quoted JSON.
-6. Facts come from pages you read (`instafy web read <url>`, skill `instafy-web-research`; else `uw cite <url>
-   --grep <what>`); unsourced = unverified. `uw` only places pins, routes: one network command at a time, small
-   areas; no Google APIs, Nominatim, scraping. Sign-in, CAPTCHA, 429: stop.
+6. Facts come from pages you read (`instafy web read <url>`, skill `instafy-web-research`; a pin's `source_url` and
+   else: `uw cite <url> --grep <what>`); unsourced = unverified. `uw` only places pins, routes: one network command
+   at a time, small areas; no Google APIs, Nominatim, scraping. Sign-in, CAPTCHA, 429: stop.
 7. Never type a price or licence number. Never present a filed rate as a price, permitted hours as opening hours,
    or one register's answer as all.
 8. A trip's stops with nights only: `uw new … --expect "Lisbon:3"` (days: `uw plan`, stays: `uw stay`);
@@ -80,8 +80,8 @@ After each: re-run the step-7 command and `uw validate <site> --signal`. Exit 4:
   `uw isochrone <site> --layer walk --from layer:hotels --minutes 10`, `uw feel <site> --around hotels`,
   `uw enrich <site> --layer hotels --feel --feel-within walk`,
   `uw areas <site> --lens quiet_night,lively_night --within walk --options hotels`.
-- `uw doorstep <site> --layer hotels` (faces the door), `uw photos <site> --layer hotels` (30-60 s).
-- Also `lines`, `route`, `legs`, `wiki`, `air` when they help.
+- `uw doorstep <site> --layer hotels`, `uw photos <site> --layer hotels` (30-60 s).
+- Also `lines`, `route`, `legs`, `wiki`, `air`.
 
 **Phase C: reply** in 3-6 lines, even if your host asks for one sentence. No paths, "validates",
 commands, services or exit codes (Overpass, Photon, OSRM, "exit 4"): say it plainly ("the place search was busy");

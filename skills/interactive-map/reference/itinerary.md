@@ -171,7 +171,8 @@ open site in place; then `uw validate`, SKILL.md step 9, the reply.
   items in the same edit, so no item contradicts the new text (`uw validate` warns about an item that repeats a
   day's text).
 - Places you recommend (a food spot, a day-trip destination, a transfer point) go on the map, each with the page
-  that names it: `uw add-point <site> --layer food|daytrips|sights --query "<local name>" --country "<Country>"
+  that names it, read with `uw cite <page> --grep "<its name>"` (`uw add-point` refuses a page it did not read):
+  `uw add-point <site> --layer food|daytrips|sights --query "<local name>" --country "<Country>"
   --strict-name --near <base lng,lat> --props-file - <<'JSON'`, then `{"stop":"<station id>","source_url":"https://…","source":"<site>"}`
   and `JSON` on their own lines (a day trip adds `--max-km 80`; put the page's reason in `"why"`), then into the day as `{"text": "…", "ref":
   {"layer": "food", "id": "…"}, "url": "…"}` and rewrite that day's text to include it. Many days at once:

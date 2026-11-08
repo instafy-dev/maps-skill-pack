@@ -43,6 +43,8 @@ before(async () => {
       return;
     }
     hits.pages.push(u.pathname);
+    // a photo of the palace, not a page
+    if (u.pathname === '/patio.jpg') { res.writeHead(200, { 'content-type': 'image/jpeg' }); res.end(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 16, 74, 70, 73, 70, 0, 1])); return; }
     if (PAGES[u.pathname]) { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(PAGES[u.pathname]); return; }
     // the site's /en/ page is gone
     res.writeHead(404, { 'content-type': 'text/html' }); res.end('<html><body>Not found</body></html>');
@@ -134,6 +136,38 @@ test('uw set refuses a new source_url no uw cite read (nothing changed); a page 
   assert.deepEqual(ok.json.changed, ['source_url', 'source']);
 });
 
+// uw cite read an address that is not a page (a photo): it exits 2, "not a page … it is not the source of anything", and
+// keeps it as such. A place that cites it was pinned with a warning and failed only uw validate, at the end of the turn:
+// now it is refused at once, as a page nobody read is, with the place's own page to cite instead (nothing added or
+// changed)
+test('uw add-point and uw set refuse a source uw cite found is not a page (an image), naming what it is; nothing added or changed', async () => {
+  const site = 'sv-photo';
+  assert.equal((await uw(['new', site, '--title', 'Seville', '--center', CITY.join(','), '--zoom', '13'])).code, 0);
+  const photo = `${mock.url}/patio.jpg`;
+  const cite = await uw(['cite', photo, '--grep', 'Alcázar']);
+  assert.equal(cite.code, 2, cite.out + cite.err);
+  assert.match(cite.out, /not a page: it is an image \(image\/jpeg\)/);
+  const search = hits.search;
+  const add = await addAlcazar(site, photo, ['--json']);
+  assert.equal(add.code, 2, add.out + add.err);
+  assert.deepEqual(add.json, { ok: false, refused: 'source_not_a_page', layer: 'sights', id: 'alcazar', source_url: photo, next: 'uw cite <its own page> --grep "Real Alcázar de Sevilla"' });
+  assert.deepEqual(add.err.trim().split('\n'), [
+    `REFUSED: ${photo} (read by uw cite) is an image (image/jpeg), not a page that names "Real Alcázar de Sevilla": it is not this place's source. Cite its own page first (its own site, else its Wikipedia article), then run this command again with that page as its source_url:`,
+    '  uw cite <its own page> --grep "Real Alcázar de Sevilla"',
+    'Nothing was added.',
+  ]);
+  assert.equal(hits.search, search, 'no lookup ran');
+  assert.equal(fs.existsSync(sightsFile(site)), false, 'nothing was written');
+  // uw set the same: refused, the place as it was
+  assert.equal((await uw(['add-point', site, '--layer', 'sights', '--at', '-5.990183,37.383211', '--name', 'Real Alcázar', '--id', 'alcazar'])).code, 0);
+  const before = fs.readFileSync(sightsFile(site), 'utf8');
+  const set = await uw(['set', site, 'sights:alcazar', '--props-file', '-', '--json'], { input: JSON.stringify({ source_url: photo, source: 'alcazarsevilla.org' }) });
+  assert.equal(set.code, 2, set.out + set.err);
+  assert.deepEqual([set.json.refused, set.json.source_url, set.json.next], ['source_not_a_page', photo, 'uw cite <its own page> --grep "Real Alcázar"']);
+  assert.match(set.err, /^Nothing was changed\.$/m);
+  assert.equal(fs.readFileSync(sightsFile(site), 'utf8'), before, 'nothing was changed');
+});
+
 test('with every cache off nothing read is kept, so nothing is refused; a uw handoff --apply step is judged by the handoff\'s source check', async () => {
   const site = 'sv-off';
   assert.equal((await uw(['new', site, '--title', 'Seville', '--center', CITY.join(','), '--zoom', '13'])).code, 0);
@@ -148,11 +182,35 @@ test('with every cache off nothing read is kept, so nothing is refused; a uw han
   assert.equal(own.code, 2, own.out + own.err);
 });
 
+// Where what uw cite reads cannot be kept (a cache folder this process may not write, as in a sandbox that allows
+// writes only in its workspace), uw cite still reads, but nothing it read is found again: a page it read would be
+// refused as unread, and every place with a page with it. As with every cache off, nothing is refused there
+test('where nothing uw cite reads can be kept, a page it read is not refused as unread', { skip: process.getuid?.() === 0 ? 'root writes a read-only folder' : false }, async () => {
+  const site = 'sv-kept';
+  assert.equal((await uw(['new', site, '--title', 'Seville', '--center', CITY.join(','), '--zoom', '13'])).code, 0);
+  const locked = path.join(tmp, 'locked-cache');
+  fs.mkdirSync(locked);
+  fs.chmodSync(locked, 0o555);
+  try {
+    const env = { UW_CACHE: locked };
+    const home = `${mock.url}/`;
+    assert.equal((await uw(['cite', home, '--grep', 'Real Alcázar'], { env })).code, 0);
+    const add = await addAlcazar(site, home, [], { env });
+    assert.equal(add.code, 0, add.out + add.err);
+    assert.doesNotMatch(add.err, /REFUSED/);
+  } finally { fs.chmodSync(locked, 0o755); }
+});
+
 test('the skill, the trip guide and the commands\' help say to cite a place\'s page before pinning it', async () => {
   const flat = (f) => fs.readFileSync(path.join(SKILL, f), 'utf8').replace(/\s+/g, ' ');
   assert.match(flat('SKILL.md'), /On exit 2 retry once \(better `--query`, `--pick N`, `--osm <id>`\), unless "already pinned": it is on the map, never pin it again\. "Cite it first": cite, rerun\./);
   assert.match(flat('reference/itinerary.md'), /`uw add-point` and `uw set` refuse a `source_url` no `uw cite` read \("cite it first"\)/);
+  // a pin's page is read with uw cite, in Instafy too, where facts are read with instafy web read: the skill's rule for
+  // reading, the sources reference and a later change's places say so, so no page is fetched twice
+  assert.match(flat('SKILL.md'), /Facts come from pages you read \(`instafy web read <url>`, skill `instafy-web-research`; a pin's `source_url` and else: `uw cite <url> --grep <what>`\)/);
+  assert.match(flat('reference/data-sources.md'), /A pin's `source_url` is a page `uw cite` read, in Instafy too: `uw add-point` and `uw set` refuse any other \("cite it first"\), and an image or a PDF is no page\./);
+  assert.match(flat('reference/itinerary.md'), /Places you recommend [^.]*, each with the page that names it, read with `uw cite <page> --grep "<its name>"` \(`uw add-point` refuses a page it did not read\)/);
   const help = (cmd) => uw([cmd, '--help']).then((r) => r.out.replace(/\s+/g, ' '));
-  assert.match(await help('add-point'), /One that `uw cite` did not read in the last hours \(or could not: HTTP 404, refused\) is refused before any lookup \(exit 2, "cite it first"/);
-  assert.match(await help('set'), /A new source_url that `uw cite` did not read \(or could not: HTTP 404, refused\) is refused \(exit 2, "cite it first"/);
+  assert.match(await help('add-point'), /One that `uw cite` did not read in the last hours \(or could not: HTTP 404, refused\) is refused before any lookup \(exit 2, "cite it first"[^.]*\. So is an address uw cite found is not a page \(an image, a PDF\)/);
+  assert.match(await help('set'), /A new source_url that `uw cite` did not read \(or could not: HTTP 404, refused\) is refused \(exit 2, "cite it first"[^)]*\), and so is an address uw cite found is not a page \(an image, a PDF\)/);
 });

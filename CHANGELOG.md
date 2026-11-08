@@ -10,18 +10,26 @@ All notable changes to this pack. Versions follow [semantic versioning](https://
   the page nobody had read only at the end of the turn, and the map went out with it. `uw add-point` now refuses a
   `source_url` that no `uw cite` read in the last hours (exit 2, "cite it first", with the `uw cite` to run) before any
   lookup: nothing is added, and the place is not listed as "Not found yet". `uw set` refuses a new `source_url` the
-  same way, and changes nothing. A page `uw cite` cannot read (HTTP 404, a refusal) is never the source. With every
-  cache off (`UW_NO_CACHE`) nothing read is kept, so nothing is refused; a step `uw handoff --apply` runs itself keeps
-  its researchers' pages, which its own source check judges, as before. SKILL.md's rule for an exit 2 of `uw add-point`
-  says so ("cite it first": cite, rerun), in room made by words its other lines already say.
+  same way, and changes nothing. A page `uw cite` cannot read (HTTP 404, a refusal) is never the source, and an
+  address it found is not a page (an image, a PDF) is refused in the same step, in the pack's own words for what it
+  is, with the place's own page to cite instead. With every cache off (`UW_NO_CACHE`), or where what `uw cite` reads
+  cannot be kept (a cache folder the process may not write), nothing read is found again, so nothing is refused; a
+  step `uw handoff --apply` runs itself keeps its researchers' pages, which its own source check judges, as before.
+  SKILL.md's rule for an exit 2 of `uw add-point` says so ("cite it first": cite, rerun), and its rule for reading says
+  a pin's `source_url` is read with `uw cite`, in Instafy too, where facts are read with `instafy web read` (so is the
+  sources reference, and the trip guide's places for a later change): no page is read twice. The room is made by words
+  its other lines already say.
 - **Each full day gets its places before the days are written.** Three sights for three days were planned one a day,
   and `uw validate` failed those days with almost seven minutes left, at the end of the turn: the reply went out with
   the map unfinished. With `--sights`, `uw plan` now refuses days with fewer than two places that have their own page
   (one with `--per-day 1`, only for a person who asked for one place a day) while the turn clock shows more than about
   3 minutes left and the place search answers: nothing is written, and it names those days and how many places to add
-  near each base, with the commands (exit 2). With less time left, or the place search down, the days are written as
-  they are and `uw validate` names them for the reply, as before; so are a `uw handoff --apply` step's, whose report
-  sends the turn to fill them. The plan's own lines that asked for places after writing such days are gone, and
+  near each base, with the commands (exit 2); a day whose place lies out of the base's area (a day trip, a district a
+  ride away) takes them near that place, since the days are grouped by area and places added near the base never
+  reached it. With less time left, or the place search down, the days are written as they are and `uw validate` names
+  them for the reply, as before; so are a `uw handoff --apply` step's, whose report sends the turn to fill them, and so
+  are the days planned while a place lookup still runs on the site: what it finds is not counted yet, and the plan
+  names it (wait, then plan again). The plan's own lines that asked for places after writing such days are gone, and
   `uw validate`'s fix for a day with nothing to see runs the plan when a stop has two places for each of its days.
 - A map made before keeps its days and its sources: a later turn's note to a day works as before, and `uw validate`
   only warns about what the earlier turn left.

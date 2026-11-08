@@ -16,7 +16,8 @@ set <dir> plan:day<N> --note "…" | --unset note [--json]
   Geometry and "id" cannot be changed here (re-run add-point for a different place).
   A source_url that \`uw cite\` read (in the last hours) and that does not name the place is said at once: that page is
   not its source; cite the place's own page. A new source_url that \`uw cite\` did not read (or could not: HTTP 404,
-  refused) is refused (exit 2, "cite it first", with the uw cite to run; nothing changed).
+  refused) is refused (exit 2, "cite it first", with the uw cite to run; nothing changed), and so is an address uw
+  cite found is not a page (an image, a PDF).
   A new source_url or source goes to the place's items in the plan's days too (the Plan tab's link under it), so the
   days stay as they are: no new uw plan. An item that links another page is left as it is.
   Text with an apostrophe or quotes: --props-file - <<'JSON', the object on the next line, then JSON (no shell quoting).`;
@@ -63,8 +64,10 @@ export async function run(argv) {
         if (k in f.properties) { delete f.properties[k]; changed.push('-' + k); }
       }
       if (!changed.length) return { f, changed, dayItems: 0 };
-      // a new page no uw cite read is not the place's source yet: refused, nothing written (cmd-cite.mjs sourceNotRead)
-      if (changed.includes('source_url') && sourceNotRead(f.properties.source_url)) return { f, changed: [], refused: f.properties.source_url };
+      // a new page no uw cite read (or one it found is not a page) is not the place's source yet: refused, nothing
+      // written (cmd-cite.mjs sourceNotRead)
+      const notRead = changed.includes('source_url') ? sourceNotRead(f.properties.source_url) : null;
+      if (notRead) return { f, changed: [], refused: notRead };
       // a new page: when it was set (uw validate judges a page no uw cite read for a place this turn gave a source)
       if (changed.includes('source_url') || changed.includes('-source_url')) sourceStamp(f.properties, before);
     }
@@ -75,8 +78,8 @@ export async function run(argv) {
   });
   const { f, changed, dayItems, refused } = done;
   if (refused) {
-    const { lines, next } = sourceNotReadRefusal(refused, f.properties.name_en || f.properties.name || id, 'Nothing was changed.');
-    if (out.json) process.stdout.write(JSON.stringify({ ok: false, refused: 'source_not_read', layer, id, source_url: refused, next }, null, 2) + '\n');
+    const { lines, refused: why, next } = sourceNotReadRefusal(refused, f.properties.name_en || f.properties.name || id, 'Nothing was changed.');
+    if (out.json) process.stdout.write(JSON.stringify({ ok: false, refused: why, layer, id, source_url: refused.url, next }, null, 2) + '\n');
     console.error(lines.join('\n'));
     return 2;
   }
