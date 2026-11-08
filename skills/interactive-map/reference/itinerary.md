@@ -61,7 +61,7 @@ instead of steps 2-5:
    note cites no page `uw cite` read.
 3. **Places by area**, before the plan: per day an area worth the day (a neighbourhood, a district a ride away, a day
    trip), 2-3 sourced places in it (Phase B step 1, with `"stop":"<slug>"`). Never put a place on a day because a
-   list had room. Every full day gets its places before the reply: `uw validate` fails while one has fewer than two.
+   list had room. Every full day gets its places before the plan: `uw plan` refuses one with fewer than two.
 4. **Plan**: `uw plan <site> --stops stops --ids <slug> --nights N --start <date> --stays stays --sights sights,food,daytrips`.
    Every day is a loop from the base: a stop's places are grouped by area (the closest share a day, in walking
    order, the area nearest the base first; every day, the arrival day too, gets a place before any gets a second).
@@ -77,9 +77,10 @@ nearer another day's (`day places: "<place>" (<day>) is 3.1 km from that day's o
 ## Phase B: make it worth following (one step at a time, while the turn clock shows more than ~3 min left)
 
 A plan whose full days say only "Day in …" is not finished. When the ask is what to see or do each day (a trip of
-days: "3 days in Lisbon", "what to see each day"), build the plan with `--sights`: then `uw validate` fails while a
-full day has fewer than two sourced places (one: in the turn that planned the days, while its clock shows more than
-~3 min left; a later turn keeps the days the person changed), as it fails for a stop asked for that is not on the map.
+days: "3 days in Lisbon", "what to see each day"), build the plan with `--sights`: `uw plan` refuses fewer than two
+a day while there is time, and `uw validate` fails while a full day has fewer than two sourced places (one: in the turn
+that planned the days, while its clock shows more than ~3 min left; a later turn keeps the days the person changed),
+as it fails for a stop asked for that is not on the map.
 One place a day only when the person asked for it: `uw plan … --per-day 1`. Without `--sights` it warns when most
 full days are empty, and the turn clock prints how many are empty or thin. While any is and time is left, add sights
 rather than reply. Sights come from `uw cite` in this turn, never from a browser card. Step 1 comes first.
@@ -91,8 +92,9 @@ rather than reply. Sights come from `uw cite` in this turn, never from a browser
    search "<its name>" --chain reference-search --json` lists. Its Wikipedia article only where the turn found no such
    site that names it and can be read. Checked for being current (closures, renovations, seasonal
    hours); that page is its `source_url`, read in this turn (`uw validate` fails while places share one, or while one
-   cites a page `uw cite` did not read or that does not name it; `uw set` and `uw add-point` say at once when a page
-   `uw cite` read does not name the place; an image is no page). A refused site (it bans agents, robots.txt, a bot
+   cites a page `uw cite` did not read or that does not name it; `uw add-point` and `uw set` refuse a `source_url` no
+   `uw cite` read ("cite it first"), and say at once when a page `uw cite` read does not name the place; an image is
+   no page). A refused site (it bans agents, robots.txt, a bot
    check) is a plain link, never fetched another way. At most about 2 pages a sight. One place, one pin: a day short of
    places takes another place (`uw add-point` refuses one already pinned, naming its pin). Then each sight in a command
    of its own, one `uw add-point` per command (chained, one slow lookup held back the sights after it and the plan):
@@ -169,7 +171,8 @@ open site in place; then `uw validate`, SKILL.md step 9, the reply.
   items in the same edit, so no item contradicts the new text (`uw validate` warns about an item that repeats a
   day's text).
 - Places you recommend (a food spot, a day-trip destination, a transfer point) go on the map, each with the page
-  that names it: `uw add-point <site> --layer food|daytrips|sights --query "<local name>" --country "<Country>"
+  that names it, read with `uw cite <page> --grep "<its name>"` (`uw add-point` refuses a page it did not read):
+  `uw add-point <site> --layer food|daytrips|sights --query "<local name>" --country "<Country>"
   --strict-name --near <base lng,lat> --props-file - <<'JSON'`, then `{"stop":"<station id>","source_url":"https://…","source":"<site>"}`
   and `JSON` on their own lines (a day trip adds `--max-km 80`; put the page's reason in `"why"`), then into the day as `{"text": "…", "ref":
   {"layer": "food", "id": "…"}, "url": "…"}` and rewrite that day's text to include it. Many days at once:

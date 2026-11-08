@@ -94,6 +94,14 @@ export function sharedCacheRoot(env = process.env) {
   return path.join(os.homedir(), '.cache', 'uw');
 }
 export const sharedCacheDir = (sub) => path.join(sharedCacheRoot(), sub);
+/** Can a value be kept under `sub` of the shared cache (every cache on, and a folder this process may write: a sandbox
+ *  may allow writes only in its workspace)? One small file, written and removed. */
+export function keepsShared(sub) {
+  if (noCache) return false;
+  const d = sharedCacheDir(sub);
+  const probe = path.join(d, `.probe.${process.pid}.${Math.random().toString(36).slice(2)}`);
+  try { fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(probe, ''); fs.unlinkSync(probe); return true; } catch { return false; }
+}
 /** fetchJSON's cache options for a provider: its declared cache policy (lookup-providers.json "cache": { allowed,
  *  ttl_s }, set from each service's caching terms), else `fallbackMs`. */
 export function cacheFor(p, fallbackMs) {

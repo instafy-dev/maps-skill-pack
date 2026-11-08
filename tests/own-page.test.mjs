@@ -6,7 +6,7 @@
 //    fix ends at `uw set`, which gives each place's own page to its items in the days, so the days the person changed
 //    stay (a new plan groups them by area again);
 //  - `uw set` and `uw add-point` say at once when a source_url is a page `uw cite` read that does not name the place
-//    (one place alone on such a page too), from what uw cite kept: no second request;
+//    (one place alone on such a page too), from what uw cite kept: no second request; one it did not read is refused;
 //  - a day with nothing to see names the reader: uw cite on each place's own page in this turn, never a browser card.
 // Offline: the place search and the web pages are a local mock in this file.
 // Run: node --test tests/own-page.test.mjs
@@ -198,25 +198,27 @@ test('add-point and set say at once when a page uw cite read does not name the p
   assert.equal(fixed.code, 0, fixed.out + fixed.err);
   assert.equal(fixed.json.source_not_named, undefined);
   assert.doesNotMatch(fixed.err, /does not name/);
-  // a page uw cite did not read is not judged, and not read
+  // a page uw cite did not read is no source yet: refused at once ("cite it first"), and not read
   const before = hits.length;
   const unread = await uw(['set', site, 'sights:pilatos', '--props-file', '-', '--json'], { input: JSON.stringify({ source_url: `${mock.url}/en/casa-de-pilatos`, source: 'Visita Sevilla' }) });
-  assert.equal(unread.code, 0);
-  assert.equal(unread.json.source_not_named, undefined);
+  assert.equal(unread.code, 2, unread.out + unread.err);
+  assert.equal(unread.json.refused, 'source_not_read');
   assert.equal(hits.length, before, 'set makes no request');
 });
 
 test('validate: a day with nothing to see names the reader, uw cite on each place\'s own page in this turn, never a browser card', async () => {
   const site = 'bare';
   await newTrip(site);
-  // pinned with no page, as the first turn did
+  // pinned with no page, as the first turn did; the plan written with too little time left to add places (with more,
+  // it refuses days with fewer than two places that have their own page)
   for (const s of SIGHTS.slice(0, 5)) assert.equal((await pin(site, { ...s, page: null })).code, 0);
-  assert.equal((await plan(site)).code, 0);
+  assert.equal((await plan(site)).code, 2);
+  assert.equal((await plan(site, { clock: hostClock(450) })).code, 0);
   const v = await uw(['validate', site, '--json']);
   assert.equal(v.code, 1, v.out);
   const e = v.json.errors.find((x) => x.path === '$.plan.days');
   assert.equal(e.message, '3 of 3 full days have nothing to see (no sourced place): Mon 2 Nov · Seville, Tue 3 Nov · Seville, Wed 4 Nov · Seville');
-  assert.equal(e.fix, 'uw plan bare … --sights sights --force spreads the places already pinned over every day, the arrival day too: run it first when a stop has as many places as days. '
+  assert.equal(e.fix, 'uw plan bare … --sights sights --force spreads the places already pinned over every day, the arrival day too: run it first when a stop has two places for each of its days. '
     + 'Else cite 2-3 places for each of those days in this turn, each from its own page (its own site, else its Wikipedia article): uw cite <page> --grep "<its name>", never a browser card; '
     + 'then uw add-point bare --layer sights … with {"stop":…,"source_url":…}; the 5 places pinned with no page: uw set bare <layer>:<id> --props-file - with {"source_url":…,"source":…} '
     + '(reference/itinerary.md Phase B step 1), then run it; a place the lookup cannot pin goes on its day as {"text": "<name>", "url": "<its page>", "source": "<site>"}');

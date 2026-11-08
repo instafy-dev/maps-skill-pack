@@ -247,11 +247,15 @@ test('a day text keeps whole places within 140 characters, the first with its re
 test('uw plan --sights takes several layers; validate flags a "Day in …" text on a day with sourced places', async () => {
   assert.equal((await uw(['new', 'days', '--title', 'Days', '--center', '-8.9,40', '--zoom', '6'])).code, 0);
   for (const [id, c] of Object.entries({ porto: PORTO, lisbon: LISBON })) assert.equal((await uw(['add-point', 'days', '--layer', 'stations', '--at', c.join(','), '--name', id, '--id', id])).code, 0);
+  // pinned with every cache off, so nothing uw cite read is judged (with it on, add-point takes only a page uw cite read)
+  const off = { UW_NO_CACHE: '1' };
   assert.equal((await uw(['add-point', 'days', '--layer', 'sights', '--at', '-8.6146,41.1469', '--name', 'Livraria Lello', '--id', 'lello',
-    '--props', JSON.stringify({ stop: 'porto', why: 'the 1906 bookshop', source_url: 'https://www.livrarialello.pt/', source: 'livrarialello.pt' })])).code, 0);
+    '--props', JSON.stringify({ stop: 'porto', why: 'the 1906 bookshop', source_url: 'https://www.livrarialello.pt/', source: 'livrarialello.pt' })], off)).code, 0);
   assert.equal((await uw(['add-point', 'days', '--layer', 'food', '--at', '-8.6094,41.1497', '--name', 'Mercado do Bolhão', '--id', 'bolhao',
-    '--props', JSON.stringify({ stop: 'porto', source_url: 'https://mercadobolhao.pt/', source: 'mercadobolhao.pt' })])).code, 0);
-  const r = await uw(['plan', 'days', '--stops', 'stations', '--ids', 'porto,lisbon', '--nights', '3,2', '--start', '2027-05-07', '--sights', 'sights,food']);
+    '--props', JSON.stringify({ stop: 'porto', source_url: 'https://mercadobolhao.pt/', source: 'mercadobolhao.pt' })], off)).code, 0);
+  // a turn with under ~3 minutes left for tool work (a 100 s budget): the days are written as they are (with more time,
+  // uw plan refuses days with fewer than two places that have their own page)
+  const r = await uw(['plan', 'days', '--stops', 'stations', '--ids', 'porto,lisbon', '--nights', '3,2', '--start', '2027-05-07', '--sights', 'sights,food'], { UW_TURN_BUDGET: '100' });
   assert.equal(r.code, 0, r.err);
   const days = cfgOf('days').plan.days;
   const refs = days.flatMap((d) => d.items || []).map((it) => it.ref?.layer).filter(Boolean);

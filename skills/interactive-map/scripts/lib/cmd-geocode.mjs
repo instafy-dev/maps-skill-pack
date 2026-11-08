@@ -8,8 +8,9 @@ import { emojiFor } from './kinds.mjs';
 import { fitView } from './cmd-site.mjs';
 import { isLodging, registrySearch, acceptable, fmtRegistryCand, registryProps, queryLabel, slugFor } from './registry-geo.mjs';
 import { adapterFor, adapterNamedIn, adapterForArea } from '../adapters/lib/areas.mjs';
-import { unnamedSource, unnamedSourceLine, sourceStamp } from './cmd-cite.mjs';
+import { unnamedSource, unnamedSourceLine, sourceStamp, sourceNotRead, sourceNotReadRefusal } from './cmd-cite.mjs';
 import { withDayItems } from './cmd-set.mjs';
+import { handoffStep } from './running.mjs';
 
 export const helps = {
   geocode: `geocode "<query>" [--near lng,lat] [--country <name|code>] [--limit 5] [--lang en|de|fr|default] [--source auto|osm|registry] [--json]
@@ -51,7 +52,10 @@ add-point <dir> --layer <id> --at lng,lat --name "Label" [...]     (only for coo
   check the list, then --pick N or --allow-mismatch. Query words that only name the area (the city, region or country
   the candidates are in) do not count as a name match. --strict-name: refuse unless a candidate's own name carries the
   query's name (use it for a researched place: a wrong hotel with the right reason is worse than "not found").
-  A source_url (in --props) that \`uw cite\` read and that does not name the place is said at once: not its source.
+  A source_url (in --props) that \`uw cite\` read and that does not name the place is said at once: not its source. One
+  that \`uw cite\` did not read in the last hours (or could not: HTTP 404, refused) is refused before any lookup (exit 2,
+  "cite it first", with the uw cite to run; nothing added): cite the page, then run the same add-point again. So is
+  an address uw cite found is not a page (an image, a PDF): cite the place's own page.
   --country: only candidates in that country (an ISO code like JP, or its name).
   Taiwan lodging (a hotel/hostel/旅館/飯店/民宿 query, --kind hotel, or a layer like "hotels", in Taiwan by --near or the
   view): when the search's match is missing, far or unsure, Taiwan's lodging registers are searched by name (registered name,
@@ -542,6 +546,16 @@ async function addPointRun(argv, ctx) {
   const source = sourceArg(args.source);
   if (args.source && !args.query) throw new UsageError('--source only applies to --query');
   if (args.tier && !TIERS.includes(args.tier)) throw new UsageError('--tier must be option, support or context');
+  // a source_url no uw cite read (or one it found is not a page) is not the place's source yet: refused before any
+  // lookup, while the turn can still cite (cmd-cite.mjs sourceNotRead). Nothing is written, and the place is not "not
+  // found yet"
+  const notRead = handoffStep() ? null : sourceNotRead(extra.source_url);
+  if (notRead) {
+    const { lines, refused, next } = sourceNotReadRefusal(notRead, args.name || queryLabel(args.query || '') || extra.name || '<its name>', 'Nothing was added.');
+    if (out.json) process.stdout.write(JSON.stringify({ ok: false, refused, layer, id: args.id || null, source_url: extra.source_url, next }, null, 2) + '\n');
+    console.error(lines.join('\n'));
+    return 2;
+  }
 
   let chosen, cands = [], skipped = [], warnings = [], reg = null, regUsed = false;
   const tried = [];

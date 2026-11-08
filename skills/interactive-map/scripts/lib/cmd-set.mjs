@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs, makeOut, readJSON, writeJSON, writeGeoJSON, propsArg, UsageError, UserError } from './util.mjs';
 import { openSite, loadLayer, layerPath, withSiteLock } from './site.mjs';
-import { unnamedSource, unnamedSourceLine, sourceStamp } from './cmd-cite.mjs';
+import { unnamedSource, unnamedSourceLine, sourceStamp, sourceNotRead, sourceNotReadRefusal } from './cmd-cite.mjs';
 
 export const help = `set <dir> <layer>:<id> [--note "…"] [--name "…"] [--emoji 🏨] [--props '{"price":120}' | --props-file <file|->] [--unset key1,key2] [--remove] [--json]
 set <dir> plan:day<N> --note "…" | --unset note [--json]
@@ -15,7 +15,9 @@ set <dir> plan:day<N> --note "…" | --unset note [--json]
   day. uw plan --force keeps each day's note.
   Geometry and "id" cannot be changed here (re-run add-point for a different place).
   A source_url that \`uw cite\` read (in the last hours) and that does not name the place is said at once: that page is
-  not its source; cite the place's own page.
+  not its source; cite the place's own page. A new source_url that \`uw cite\` did not read (or could not: HTTP 404,
+  refused) is refused (exit 2, "cite it first", with the uw cite to run; nothing changed), and so is an address uw
+  cite found is not a page (an image, a PDF).
   A new source_url or source goes to the place's items in the plan's days too (the Plan tab's link under it), so the
   days stay as they are: no new uw plan. An item that links another page is left as it is.
   Text with an apostrophe or quotes: --props-file - <<'JSON', the object on the next line, then JSON (no shell quoting).`;
@@ -62,6 +64,10 @@ export async function run(argv) {
         if (k in f.properties) { delete f.properties[k]; changed.push('-' + k); }
       }
       if (!changed.length) return { f, changed, dayItems: 0 };
+      // a new page no uw cite read (or one it found is not a page) is not the place's source yet: refused, nothing
+      // written (cmd-cite.mjs sourceNotRead)
+      const notRead = changed.includes('source_url') ? sourceNotRead(f.properties.source_url) : null;
+      if (notRead) return { f, changed: [], refused: notRead };
       // a new page: when it was set (uw validate judges a page no uw cite read for a place this turn gave a source)
       if (changed.includes('source_url') || changed.includes('-source_url')) sourceStamp(f.properties, before);
     }
@@ -70,7 +76,13 @@ export async function run(argv) {
     const dayItems = !args.remove && changed.some((k) => /^-?source(_url)?$/.test(k)) ? withDayItems(site, layer, id, before, f.properties) : 0;
     return { f, changed, dayItems };
   });
-  const { f, changed, dayItems } = done;
+  const { f, changed, dayItems, refused } = done;
+  if (refused) {
+    const { lines, refused: why, next } = sourceNotReadRefusal(refused, f.properties.name_en || f.properties.name || id, 'Nothing was changed.');
+    if (out.json) process.stdout.write(JSON.stringify({ ok: false, refused: why, layer, id, source_url: refused.url, next }, null, 2) + '\n');
+    console.error(lines.join('\n'));
+    return 2;
+  }
   if (!changed.length) { out.result({ ok: true, layer, id, changed: [] }, [`Nothing changed on ${layer}:${id}.`]); return 0; }
   // a page uw cite read that does not name the place is not its source: said now, while the turn can cite its own page
   // (two places once cited a routes page that named neither, and the reply vouched for it)

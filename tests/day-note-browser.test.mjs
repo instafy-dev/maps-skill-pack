@@ -1,5 +1,6 @@
 // A day's own note (`uw set <site> plan:day1 --note "…"`) is shown under that day in the Plan tab: under the day's text,
-// above its places, as Instafy's timeline page shows a day's note; another day shows none, and it is plain text.
+// above its places, as Instafy's timeline page shows a day's note; another day shows none, and it is plain text. The map
+// is an old one: its days were planned one sight each, as packs before 0.1.36 did, and it still loads and takes a note.
 // Needs Playwright (UW_PLAYWRIGHT=/path/to/playwright, optionally UW_BROWSER_CHANNEL=chrome); skipped without it.
 // Run: UW_PLAYWRIGHT=… node --test tests/day-note-browser.test.mjs
 import { test, after } from 'node:test';
@@ -24,7 +25,7 @@ after(async () => { for (const c of closers.reverse()) { try { await c(); } catc
 
 const env = { ...process.env, UW_NO_CACHE: '1', UW_TURN_BUDGET: '0' };
 for (const k of ['INSTAFY_CACHE_DIR', 'INSTAFY_TURN_STARTED_AT', 'INSTAFY_TURN_DEADLINE']) delete env[k];
-const uw = (args) => spawnSync(process.execPath, [UW, ...args], { cwd: tmp, env, encoding: 'utf8' });
+const uw = (args, extra = {}) => spawnSync(process.execPath, [UW, ...args], { cwd: tmp, env: { ...env, ...extra }, encoding: 'utf8' });
 const pt = (id, c, p) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: c }, properties: { id, ...p } });
 
 function makeSite() {
@@ -45,14 +46,18 @@ function makeSite() {
     { id: 'sights', title: 'Sights', type: 'points', data: 'data/sights.geojson', list: true },
   ];
   fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
-  const plan = uw(['plan', dir, '--stops', 'stops', '--ids', 'seville', '--nights', '2', '--start', '2026-11-06', '--stays', 'stays', '--sights', 'sights']);
+  // one sight a day: this pack's uw plan refuses that while the turn has time, and writes the days as they are with too
+  // little time left (a 100 s turn budget), as an older pack wrote them
+  const args = ['plan', dir, '--stops', 'stops', '--ids', 'seville', '--nights', '2', '--start', '2026-11-06', '--stays', 'stays', '--sights', 'sights'];
+  assert.equal(uw(args).status, 2);
+  const plan = uw(args, { UW_TURN_BUDGET: '100' });
   assert.equal(plan.status, 0, plan.stdout + plan.stderr);
   const set = uw(['set', dir, 'plan:day1', '--note', 'Book the Alcázar tickets <b>ahead</b>.']);
   assert.equal(set.status, 0, set.stdout + set.stderr);
   return dir;
 }
 
-test('the Plan tab shows day 1\'s own note under its text, above its places, as plain text; day 2 shows none', { skip: pw ? false : 'Playwright not found (set UW_PLAYWRIGHT)', timeout: 120000 }, async () => {
+test('an old map loads, and its Plan tab shows day 1\'s own note under its text, above its places, as plain text; day 2 shows none', { skip: pw ? false : 'Playwright not found (set UW_PLAYWRIGHT)', timeout: 120000 }, async () => {
   const dir = makeSite();
   const server = createStaticServer(dir);
   const port = await listen(server, 0, '127.0.0.1');

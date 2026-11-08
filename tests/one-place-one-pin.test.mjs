@@ -10,7 +10,9 @@
 //    address led to); --grep is accent-insensitive;
 //  - uw validate checks every sight's page against what uw cite read: one that does not name its place (or is not a
 //    page) fails while the turn has time; one no uw cite read fails in the turn that planned the days, with the
-//    commands that read it; one place pinned twice is its own error, whose fix removes the later pin.
+//    commands that read it (the turn's own add-point and set refuse such a page: tests/cite-first.test.mjs; a place a
+//    `uw handoff --apply` step pins carries its researcher's page); one place pinned twice is its own error, whose fix
+//    removes the later pin.
 // Offline: the place search and the web pages are a local mock in this file; pages at https:// addresses (the plan's
 // links must be https) are put in the shared cache as uw cite keeps what it read.
 // Run: node --test tests/one-place-one-pin.test.mjs
@@ -87,11 +89,12 @@ after(() => {
 });
 
 // `clock`: a host turn's clock (when it started and its deadline); none: the pack's own
-const uw = (args, { input = null, clock = null, cache = CACHE } = {}) => new Promise((resolve) => {
+const uw = (args, { input = null, clock = null, cache = CACHE, env: extra = {} } = {}) => new Promise((resolve) => {
   const env = { ...process.env, ...NO_WIKIPEDIA, UW_CACHE: cache, UW_PHOTON: mock.url, UW_OVERPASS: `${mock.url}/api/interpreter`, UW_OSRM: mock.url,
     UW_ALLOW_LOCAL: '1', INSTAFY_LOOKUP_STATE: path.join(tmp, 'lookups.json'), UW_RETRY_PAUSE_MS: '0' };
   for (const k of ['UW_NO_CACHE', 'UW_TURN_BUDGET', 'UW_TURN_GAP', 'INSTAFY_CACHE_DIR', 'INSTAFY_TURN_STARTED_AT', 'INSTAFY_TURN_DEADLINE', 'INSTAFY_TURN_CONTINUE_FILE', 'INSTAFY_STEP_TIMINGS_FILE', 'INSTAFY_JOB_DEADLINE', 'UW_RUN_ID']) delete env[k];
   if (clock) Object.assign(env, { INSTAFY_TURN_STARTED_AT: clock.started, INSTAFY_TURN_DEADLINE: clock.deadline });
+  Object.assign(env, extra);
   const p = spawn(process.execPath, [UW, ...args], { cwd: tmp, env });
   let out = '', err = '';
   p.stdout.on('data', (d) => { out += d; }); p.stderr.on('data', (d) => { err += d; });
@@ -106,10 +109,16 @@ const newTrip = async (site) => {
   assert.equal((await uw(['add-point', site, '--layer', 'stops', '--at', CITY.join(','), '--name', 'Seville', '--kind', 'city', '--id', 'seville', '--props', '{"nights":3}'])).code, 0);
 };
 const page = (url) => ({ stop: 'seville', source_url: url, source: new URL(url).hostname.replace(/^www\./, '') });
-const pinAt = (site, s) => uw(['add-point', site, '--layer', 'sights', '--at', s.at.join(','), '--name', s.name, '--id', s.id, '--props-file', '-'], { input: JSON.stringify(page(s.page)) });
+const pinAt = (site, s, opts = {}) => uw(['add-point', site, '--layer', 'sights', '--at', s.at.join(','), '--name', s.name, '--id', s.id, '--props-file', '-'], { input: JSON.stringify(page(s.page)), ...opts });
+/** A step `uw handoff --apply` runs itself: its places carry the research lanes' pages, which its own source check
+ *  judges (the turn's own add-point refuses a page no uw cite read) */
+const STEP = { env: { UW_HANDOFF_STEP: '1' } };
 const pinSquare = (site, id, url, more = [], opts = {}) => uw(['add-point', site, '--layer', 'sights', '--query', 'Plaza de España, Seville', '--near', CITY.join(','), '--id', id, ...more, '--props-file', '-', '--json'],
   { input: JSON.stringify({ ...page(url), ...(opts.why ? { why: opts.why } : {}) }) });
 const plan = (site, opts = {}) => uw(['plan', site, '--stops', 'stops', '--ids', 'seville', '--nights', '3', '--start', '2026-11-03', '--sights', 'sights', '--force'], opts);
+/** The days as they are, with too little time left in the turn to add places (with more, uw plan refuses days short of
+ *  them): these tests are about the places' pages and pins, not how many a day has */
+const planAsIs = (site, opts = {}) => plan(site, { clock: hostClock(450), ...opts });
 const cfgOf = (site) => JSON.parse(fs.readFileSync(path.join(tmp, site, 'map.config.json'), 'utf8'));
 const sightsOf = (site) => JSON.parse(fs.readFileSync(path.join(tmp, site, 'data', 'sights.geojson'), 'utf8')).features;
 const itemsOf = (site, id) => cfgOf(site).plan.days.flatMap((d) => d.items || []).filter((it) => it.ref?.id === id);
@@ -129,6 +138,7 @@ const ROUTES = 'https://www.visitasevilla.es/en/city-routes/';
 test('add-point: the same place again under another id is refused, naming its pin; --replace replaces that pin and keeps its id', async () => {
   const site = 'twice';
   await newTrip(site);
+  read(OWN, 'Plaza de España\nFramed in the Maria Luisa Park.');
   const first = await pinSquare(site, 'plaza-espana', OWN, [], { why: 'See the 1929 square.' });
   assert.equal(first.code, 0, first.out + first.err);
   // a third day short of places: the same square again under a new id
@@ -160,9 +170,12 @@ test('add-point: the same place again under another id is refused, naming its pi
 test('add-point again under a place\'s own id after the days were planned: its items in the days link its new page, the days stay', async () => {
   const site = 'again';
   await newTrip(site);
+  read(ROUTES, 'City routes\nRoute of the water\nRoute of the kings');
+  read(OWN, 'Plaza de España\nFramed in the Maria Luisa Park.');
+  read('https://www.catedraldesevilla.es/en/', 'Cathedral of Seville');
   assert.equal((await pinSquare(site, 'plaza-espana', ROUTES)).code, 0);
   assert.equal((await pinAt(site, { id: 'cathedral', name: 'Cathedral of Seville', at: [-5.993141, 37.385915], page: 'https://www.catedraldesevilla.es/en/' })).code, 0);
-  assert.equal((await plan(site)).code, 0);
+  assert.equal((await planAsIs(site)).code, 0);
   assert.deepEqual(itemsOf(site, 'plaza-espana').map((it) => [it.url, it.source]), [[ROUTES, 'visitasevilla.es']]);
   const days = daysOf(site);
   // pinned again under its id with its own page
@@ -211,12 +224,13 @@ test('uw cite --grep exits 2 when no line matches, and an address that is not a 
   const untyped = await uw(['cite', `${mock.url}/files/untyped`]);
   assert.equal(untyped.code, 2, untyped.out);
   assert.match(untyped.out, /^not a page: it is a file that is not text: there is no text on it to read/m);
-  // a place that cites the photo's address is told at once: it is no page
+  // a place that cites the photo's address is refused at once: it is no page, and nothing changes
   assert.equal((await uw(['add-point', site, '--layer', 'sights', '--at', '-5.988794,37.374771', '--name', 'Maria Luisa Park', '--id', 'maria-luisa'])).code, 0);
   const set = await uw(['set', site, 'sights:maria-luisa', '--props-file', '-', '--json'], { input: JSON.stringify({ source_url: `${mock.url}/en/parque-de-maria-luisa`, source: 'Visita Sevilla' }) });
-  assert.equal(set.code, 0, set.out + set.err);
-  assert.deepEqual(set.json.source_not_named, { url: `${mock.url}/en/parque-de-maria-luisa`, name: 'Maria Luisa Park', not_page: 'an image (image/jpeg)' });
-  assert.ok(set.err.includes(`warning: ${mock.url}/en/parque-de-maria-luisa (read by uw cite) is an image (image/jpeg), not a page that names "Maria Luisa Park": it is not this place's source.`), set.err);
+  assert.equal(set.code, 2, set.out + set.err);
+  assert.deepEqual([set.json.refused, set.json.source_url], ['source_not_a_page', `${mock.url}/en/parque-de-maria-luisa`]);
+  assert.ok(set.err.includes(`REFUSED: ${mock.url}/en/parque-de-maria-luisa (read by uw cite) is an image (image/jpeg), not a page that names "Maria Luisa Park": it is not this place's source.`), set.err);
+  assert.equal(sightsOf(site)[0].properties.source_url, undefined);
 });
 
 const SIGHTS = [
@@ -240,7 +254,9 @@ test('validate: a sight whose page does not name it, or that no uw cite read, fa
   const site = 'sources';
   await newTrip(site);
   readSights();
-  for (const s of SIGHTS) assert.equal((await pinAt(site, s)).code, 0);
+  assert.equal((await pinAt(site, SIGHTS[3])).code, 2, 'the turn\'s own add-point refuses a page no uw cite read');
+  assert.equal((await pinAt(site, SIGHTS[1])).code, 2, 'and an address uw cite found is not a page');
+  for (const s of SIGHTS) assert.equal((await pinAt(site, s, ['pilatos', 'maria-luisa'].includes(s.id) ? STEP : {})).code, 0);
   assert.equal((await plan(site)).code, 0);
   const v = await uw(['validate', site, '--json']);
   assert.equal(v.code, 1, v.out);
@@ -269,7 +285,7 @@ test('validate: with too little time a page that does not name its place is a wa
   await newTrip(site);
   readSights();
   // the palace's page: one nobody read (the test above read the one it cites)
-  for (const s of SIGHTS) assert.equal((await pinAt(site, s.id === 'pilatos' ? { ...s, page: 'https://www.fundacionmedinaceli.org/es/casa-de-pilatos' } : s)).code, 0);
+  for (const s of SIGHTS) assert.equal((await (s.id === 'pilatos' ? pinAt(site, { ...s, page: 'https://www.fundacionmedinaceli.org/es/casa-de-pilatos' }, STEP) : pinAt(site, s, s.id === 'maria-luisa' ? STEP : {}))).code, 0);
   const turn1 = hostClock(450);
   assert.equal((await plan(site, { clock: turn1 })).code, 0);
   const late = await uw(['validate', site, '--json'], { clock: turn1 });
@@ -299,7 +315,7 @@ test('a page that names a place as it was looked up names it: add-point keeps th
   assert.deepEqual(sightsOf(site).map((f) => [f.properties.name, f.properties.looked_up_as]), [['Real Alcázar de Sevilla', 'Alcázar']]);
   read(SIGHTS[4].page, 'Cathedral of Seville');
   assert.equal((await pinAt(site, SIGHTS[4])).code, 0);
-  assert.equal((await plan(site)).code, 0);
+  assert.equal((await planAsIs(site)).code, 0);
   const v = await uw(['validate', site, '--json']);
   assert.deepEqual(v.json.errors.filter((e) => e.path === '$.plan.sights'), []);
   // a name the place is not looked up by is no name: the same page for the cathedral does not name it
@@ -320,7 +336,7 @@ test('validate: one place pinned twice is its own error, whose fix removes the l
   const fc = JSON.parse(fs.readFileSync(file, 'utf8'));
   fc.features.push({ ...fc.features[0], properties: { ...fc.features[0].properties, id: 'espanola' } });
   fs.writeFileSync(file, JSON.stringify(fc));
-  assert.equal((await plan(site)).code, 0);
+  assert.equal((await planAsIs(site)).code, 0);
   assert.ok(itemsOf(site, 'espanola').length, 'the second pin is on a day of its own');
   const v = await uw(['validate', site, '--json']);
   assert.equal(v.code, 1, v.out);
@@ -330,7 +346,7 @@ test('validate: one place pinned twice is its own error, whose fix removes the l
   assert.deepEqual(v.json.errors.filter((e) => /cite one page/.test(e.message)), [], 'one place is not "places that cite one page"');
   // as the fix says
   assert.equal((await uw(['set', site, 'sights:espanola', '--remove'])).code, 0);
-  assert.equal((await plan(site)).code, 0);
+  assert.equal((await planAsIs(site)).code, 0);
   const ok = await uw(['validate', site, '--json']);
   assert.deepEqual(ok.json.errors.filter((e) => /pinned|cite/.test(e.message)), []);
 });
@@ -388,7 +404,7 @@ test('validate: two pins of one place under the same name, a few steps apart, ar
   const fc = JSON.parse(fs.readFileSync(file, 'utf8'));
   fc.features.push({ ...fc.features[0], geometry: { type: 'Point', coordinates: WAY.geometry.coordinates }, properties: { ...fc.features[0].properties, id: 'espanola', osm_id: 'osm-w40671558' } });
   fs.writeFileSync(file, JSON.stringify(fc));
-  assert.equal((await plan(site)).code, 0);
+  assert.equal((await planAsIs(site)).code, 0);
   const v = await uw(['validate', site, '--json']);
   assert.equal(v.code, 1, v.out);
   assert.deepEqual(v.json.errors.filter((e) => /pinned/.test(e.message)).map((e) => e.message), ['one place is pinned 2 times: Plaza de España (sights:plaza-espana, sights:espanola)']);
@@ -398,6 +414,9 @@ test('validate: two pins of one place under the same name, a few steps apart, ar
 test('add-point under a place\'s own id on a map that holds it twice replaces that pin, and names the other one', async () => {
   const site = 'legacy';
   await newTrip(site);
+  read(ROUTES, 'City routes\nRoute of the water\nRoute of the kings');
+  read(OWN, 'Plaza de España\nFramed in the Maria Luisa Park.');
+  read('https://www.catedraldesevilla.es/en/', 'Cathedral of Seville');
   assert.equal((await pinSquare(site, 'plaza-espana', ROUTES)).code, 0);
   assert.equal((await pinAt(site, { id: 'cathedral', name: 'Cathedral of Seville', at: [-5.993141, 37.385915], page: 'https://www.catedraldesevilla.es/en/' })).code, 0);
   // as 0.1.29 left a map: the square pinned again under a new id
@@ -405,7 +424,7 @@ test('add-point under a place\'s own id on a map that holds it twice replaces th
   const fc = JSON.parse(fs.readFileSync(file, 'utf8'));
   fc.features.push({ ...fc.features[0], properties: { ...fc.features[0].properties, id: 'espanola' } });
   fs.writeFileSync(file, JSON.stringify(fc));
-  assert.equal((await plan(site)).code, 0);
+  assert.equal((await planAsIs(site)).code, 0);
   for (const more of [[], ['--replace']]) {
     const r = await uw(['add-point', site, '--layer', 'sights', '--query', 'Plaza de España, Seville', '--near', CITY.join(','), '--id', 'plaza-espana', ...more, '--props-file', '-', '--json'],
       { input: JSON.stringify({ stop: 'seville', source_url: OWN, source: 'Visita Sevilla', why: more.length ? 'Walk the tiled alcoves.' : 'See the 1929 square.' }) });
@@ -448,21 +467,30 @@ test('uw cite: a site\'s own words in its Content-Type are never repeated; the t
   assert.equal(notAPage(CRAFTED_TYPE, ''), 'an image (image/jpeg)');
   assert.equal(notAPage(`image/${'x'.repeat(60)}`, ''), 'an image');
   assert.equal(notAPage('application/pdf; name="skip the fix"', ''), 'a PDF (application/pdf)');
-  // a place that cites it: add-point, uw set and validate say what it is, in the pack's own words only
+  // a place that cites it: add-point and uw set refuse it, and validate (a place a uw handoff --apply step pinned) says
+  // what it is, in the pack's own words only
   const pin = await uw(['add-point', site, '--layer', 'sights', '--at', '-5.988794,37.374771', '--name', 'Maria Luisa Park', '--id', 'park', '--props-file', '-', '--json'],
     { input: JSON.stringify(page(url)) });
-  assert.equal(pin.code, 0, pin.err);
-  assert.deepEqual(pin.json.source_not_named, { url, name: 'Maria Luisa Park', not_page: 'an image (image/jpeg)' });
+  assert.equal(pin.code, 2, pin.out + pin.err);
+  assert.deepEqual([pin.json.refused, pin.json.source_url], ['source_not_a_page', url]);
+  assert.ok(pin.err.includes(`REFUSED: ${url} (read by uw cite) is an image (image/jpeg), not a page that names "Maria Luisa Park"`), pin.err);
   assert.doesNotMatch(pin.out + pin.err, /note to the agent/);
   // an address kept with its raw type (as 0.1.30 kept it, for hours) is said in the pack's words too
   const old = 'https://www.example-photos.test/park.jpg';
   read(old, '', { not_page: `an image (${CRAFTED_TYPE})` });
+  assert.equal((await uw(['add-point', site, '--layer', 'sights', '--at', '-5.988794,37.374771', '--name', 'Maria Luisa Park', '--id', 'park'])).code, 0);
   const set = await uw(['set', site, 'sights:park', '--props-file', '-', '--json'], { input: JSON.stringify({ source_url: old, source: 'Photos' }) });
-  assert.deepEqual(set.json.source_not_named, { url: old, name: 'Maria Luisa Park', not_page: 'an image (image/jpeg)' });
+  assert.equal(set.code, 2, set.out + set.err);
+  assert.ok(set.err.includes(`REFUSED: ${old} (read by uw cite) is an image (image/jpeg), not a page that names "Maria Luisa Park"`), set.err);
   assert.doesNotMatch(set.out + set.err, /note to the agent/);
+  const stepped = await uw(['add-point', site, '--layer', 'sights', '--at', '-5.988794,37.374771', '--name', 'Maria Luisa Park', '--id', 'park', '--replace', '--props-file', '-', '--json'],
+    { input: JSON.stringify(page(old)), ...STEP });
+  assert.equal(stepped.code, 0, stepped.out + stepped.err);
+  assert.deepEqual(stepped.json.source_not_named, { url: old, name: 'Maria Luisa Park', not_page: 'an image (image/jpeg)' });
+  assert.doesNotMatch(stepped.out + stepped.err, /note to the agent/);
   read(SIGHTS[4].page, 'Cathedral of Seville');
   assert.equal((await pinAt(site, SIGHTS[4])).code, 0);
-  assert.equal((await plan(site)).code, 0);
+  assert.equal((await planAsIs(site)).code, 0);
   const v = await uw(['validate', site]);
   assert.match(v.out + v.err, /1 place cites a page that does not name it: Maria Luisa Park \(sights:park: https:\/\/www\.example-photos\.test\/park\.jpg is an image \(image\/jpeg\), not a page\)/);
   assert.doesNotMatch(v.out + v.err, /note to the agent/);
@@ -489,7 +517,7 @@ test('validate: a later turn that plans the days again judges only the pages of 
   read(SIGHTS[0].page, 'The Alcázar of Seville is a royal palace.');
   read(SIGHTS[4].page, 'Cathedral of Seville\nThe Gothic cathedral.');
   for (const s of [SIGHTS[0], SIGHTS[4]]) assert.equal((await uw(['add-point', site, '--layer', 'sights', '--at', s.at.join(','), '--name', s.name, '--id', s.id, '--props-file', '-'], { input: JSON.stringify(page(s.page)), clock: turn1 })).code, 0);
-  assert.equal((await plan(site, { clock: turn1 })).code, 0);
+  assert.equal((await planAsIs(site)).code, 0);
   const first = await uw(['validate', site, '--json'], { clock: turn1 });
   assert.deepEqual(first.json.errors.filter((e) => e.path === '$.plan.sights'), []);
   // hours later, on another machine (nothing of what the first turn read is kept): food spots, then the days again
@@ -499,22 +527,24 @@ test('validate: a later turn that plans the days again judges only the pages of 
   const pin = await uw(['add-point', site, '--layer', 'food', '--at', '-6.002979,37.386201', '--name', 'Mercado de Triana', '--id', 'triana', '--props-file', '-'],
     { input: JSON.stringify(page(food)), clock: turn2, cache: cache2 });
   assert.equal(pin.code, 0, pin.err);
-  const again = await uw(['plan', site, '--stops', 'stops', '--ids', 'seville', '--nights', '3', '--start', '2026-11-03', '--sights', 'sights,food', '--force'], { clock: turn2, cache: cache2 });
+  const again = await uw(['plan', site, '--stops', 'stops', '--ids', 'seville', '--nights', '3', '--start', '2026-11-03', '--sights', 'sights,food', '--force'], { clock: hostClock(450), cache: cache2 });
   assert.equal(again.code, 0, again.out + again.err);
   const later = await uw(['validate', site, '--json'], { clock: turn2, cache: cache2 });
   assert.deepEqual([...later.json.errors, ...later.json.warnings].filter((e) => e.path === '$.plan.sights').map((e) => e.message), [], 'the earlier turn\'s places are not judged unread');
-  // a place this turn pins with a page nobody read is
+  // a place this turn pins with a page nobody read is: the turn's own add-point refuses it, and one a uw handoff --apply
+  // step pins in this turn is judged
   const unread = 'https://www.example-guides.test/torre-del-oro';
-  const tower = await uw(['add-point', site, '--layer', 'sights', '--at', '-5.996245,37.382426', '--name', 'Torre del Oro', '--id', 'torre', '--props-file', '-'],
-    { input: JSON.stringify(page(unread)), clock: turn2, cache: cache2 });
-  assert.equal(tower.code, 0, tower.err);
-  assert.equal((await uw(['plan', site, '--stops', 'stops', '--ids', 'seville', '--nights', '3', '--start', '2026-11-03', '--sights', 'sights,food', '--force'], { clock: turn2, cache: cache2 })).code, 0);
+  const tower = (opts = {}) => uw(['add-point', site, '--layer', 'sights', '--at', '-5.996245,37.382426', '--name', 'Torre del Oro', '--id', 'torre', '--props-file', '-'],
+    { input: JSON.stringify(page(unread)), clock: turn2, cache: cache2, ...opts });
+  assert.equal((await tower()).code, 2);
+  assert.equal((await tower(STEP)).code, 0);
+  assert.equal((await uw(['plan', site, '--stops', 'stops', '--ids', 'seville', '--nights', '3', '--start', '2026-11-03', '--sights', 'sights,food', '--force'], { clock: hostClock(450), cache: cache2 })).code, 0);
   const now = await uw(['validate', site, '--json'], { clock: turn2, cache: cache2 });
   assert.deepEqual(now.json.errors.filter((e) => e.path === '$.plan.sights').map((e) => e.message), [`1 place cites a page no uw cite read: Torre del Oro (sights:torre: ${unread})`]);
-  // and so is an earlier place this turn gives another page with uw set
+  // and uw set refuses to give an earlier place another page nobody read: nothing changes
   const other = 'https://www.example-guides.test/alcazar';
-  assert.equal((await uw(['set', site, 'sights:alcazar', '--props-file', '-'], { input: JSON.stringify({ source_url: other, source: 'Guides' }), clock: turn2, cache: cache2 })).code, 0);
+  assert.equal((await uw(['set', site, 'sights:alcazar', '--props-file', '-'], { input: JSON.stringify({ source_url: other, source: 'Guides' }), clock: turn2, cache: cache2 })).code, 2);
+  assert.equal(sightsOf(site).find((f) => f.properties.id === 'alcazar').properties.source_url, SIGHTS[0].page);
   const moved = await uw(['validate', site, '--json'], { clock: turn2, cache: cache2 });
-  assert.deepEqual(moved.json.errors.filter((e) => e.path === '$.plan.sights').map((e) => e.message),
-    [`2 places cite pages no uw cite read: Alcázar of Seville (sights:alcazar: ${other}), Torre del Oro (sights:torre: ${unread})`]);
+  assert.deepEqual(moved.json.errors.filter((e) => e.path === '$.plan.sights').map((e) => e.message), [`1 place cites a page no uw cite read: Torre del Oro (sights:torre: ${unread})`]);
 });

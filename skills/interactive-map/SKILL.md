@@ -8,27 +8,27 @@ context_parent: instafy-skill-router
 # Interactive map sites
 
 A site is a folder: `index.html`, `map.config.json` (content), `style.json`, `custom.js`, `data/` (written by
-commands), `bound.json` (optional: buttons that ask an agent), `engine/` (kit-owned, never edit).
+commands), `bound.json` (optional: buttons that ask an agent), `engine/` (kit-owned).
 
 Run `uw <command>`: it is on PATH in every shell (on `uw: not found`, run `node <this skill's folder>/scripts/uw.mjs`).
 Every command has `--help` and `--json`. Exit 0 ok, 1 error, 2 not found / needs your decision, 3 snapshot skipped,
-**4 unavailable** (a service busy, slow or down; not a wrong name: the map is valid; go on).
+**4 unavailable** (a service busy or down, not a wrong name: the map is valid; go on).
 
 ## Hard rules
 
 1. Never type coordinates or invent places. Points, lines and areas come from commands; `--near`/`--center` from `geocode`.
 2. Check what `add-point` chose. On exit 2 retry once (better `--query`, `--pick N`, `--osm <id>`), unless "already
-   pinned": it is on the map, never pin it again. Still not found: keep going; the map shows it as "Not found yet".
-   Never stop early or leave an empty map.
+   pinned": it is on the map, never pin it again. "Cite it first": cite, rerun. Still not found: keep going (it shows
+   as "Not found yet"); never stop early or leave an empty map.
 3. Never write verdict, why or area text by hand without `cites`; every number comes from a metric or record.
    Estimates say "est.". Never call a place unsafe, dirty, illegal or unlicensed (a miss is "not found").
 4. Keep credits (`attribution`, photo and open-data credits).
 5. Edit `map.config.json`, `style.json`, `custom.js`, `bound.json`; never `engine/` or `"uw"` blocks. Fix a feature
    with `uw set <site> <layer>:<id> …`. Props with words go on stdin (`--props-file - <<'JSON'`, the object, then
    `JSON`): an apostrophe breaks single-quoted JSON.
-6. Facts come from pages you read (`instafy web read <url>`, skill `instafy-web-research`; else `uw cite <url>
-   --grep <what>`); unsourced = unverified. `uw` only places pins, routes: one network command at a time, small
-   areas; no Google APIs, Nominatim, scraping. Sign-in, CAPTCHA, 429: stop.
+6. Facts come from pages you read (`instafy web read <url>`, skill `instafy-web-research`; a pin's `source_url` and
+   else: `uw cite <url> --grep <what>`); unsourced = unverified. `uw` only places pins, routes: one network command
+   at a time, small areas; no Google APIs, Nominatim, scraping. Sign-in, CAPTCHA, 429: stop.
 7. Never type a price or licence number. Never present a filed rate as a price, permitted hours as opening hours,
    or one register's answer as all.
 8. A trip's stops with nights only: `uw new … --expect "Lisbon:3"` (days: `uw plan`, stays: `uw stay`);
@@ -80,8 +80,8 @@ After each: re-run the step-7 command and `uw validate <site> --signal`. Exit 4:
   `uw isochrone <site> --layer walk --from layer:hotels --minutes 10`, `uw feel <site> --around hotels`,
   `uw enrich <site> --layer hotels --feel --feel-within walk`,
   `uw areas <site> --lens quiet_night,lively_night --within walk --options hotels`.
-- `uw doorstep <site> --layer hotels` (faces the door), `uw photos <site> --layer hotels` (30-60 s).
-- Also `lines`, `route`, `legs`, `wiki`, `air` when they help.
+- `uw doorstep <site> --layer hotels`, `uw photos <site> --layer hotels` (30-60 s).
+- Also `lines`, `route`, `legs`, `wiki`, `air`.
 
 **Phase C: reply** in 3-6 lines, even if your host asks for one sentence. No paths, "validates",
 commands, services or exit codes (Overpass, Photon, OSRM, "exit 4"): say it plainly ("the place search was busy");
@@ -108,7 +108,7 @@ send its address).
 ## When things fail
 
 - "outside", "mismatch", "far": a wrong match; fix the query.
-- Exit 4: go on; retry a named item once, as printed.
+- Exit 4: retry a named item once, as printed.
 
 ## Reference
 

@@ -76,6 +76,7 @@ const ANSWERS = {
   'Casa de Pilatos': [hit([-5.987249, 37.390239], ['W', 7101, 'tourism', 'museum'], 'Casa de Pilatos', { district: 'Casco Antiguo' })],
   'Museo de Bellas Artes de Sevilla': [hit([-5.99952, 37.39291], ['W', 7102, 'tourism', 'museum'], 'Museo de Bellas Artes de Sevilla', { district: 'Casco Antiguo' })],
   'Torre del Oro': [hit([-5.99629, 37.38245], ['W', 7103, 'historic', 'tower'], 'Torre del Oro', { district: 'Casco Antiguo' })],
+  'Museo del Baile Flamenco': [hit([-5.991967, 37.387316], ['W', 7104, 'tourism', 'museum'], 'Museo del Baile Flamenco', { district: 'Casco Antiguo' })],
   // a place the search does not know: the one "Not found yet"
   'Casa de la Memoria': [],
   // the stop and the area to stay in
@@ -98,6 +99,7 @@ const SIGHTS = [
   { id: 'torre-del-oro', q: 'Torre del Oro', page: 'https://en.wikipedia.org/wiki/Torre_del_Oro', why: 'the 13th-century watchtower on the river' },
 ];
 const SLOW = { id: 'pilatos', q: 'Casa de Pilatos', page: 'https://en.wikipedia.org/wiki/Casa_de_Pilatos', why: 'Andalusian palace with tiled patios' };
+const SLOW_TOO = { id: 'flamenco', q: 'Museo del Baile Flamenco', page: 'https://www.museodelbaileflamenco.com/', why: 'flamenco shows in an 18th-century house' };
 const MISSED = { id: 'memoria', q: 'Casa de la Memoria', page: 'https://www.casadelamemoria.es/', why: 'flamenco in a palace courtyard' };
 
 const off = (c, dx, dy) => [Math.round((c[0] + dx / 88400) * 1e6) / 1e6, Math.round((c[1] + dy / 111000) * 1e6) / 1e6];
@@ -107,9 +109,10 @@ const LODGING = [
   { type: 'node', id: 803, c: off(SANTA_CRUZ, 350, -350), tags: { tourism: 'hotel', name: 'Hotel Murallas' } },
 ];
 
-// one query's answer can be held back: its lookup is still running until the test lets it answer
-const held = { query: SLOW.q, released: false, pending: [], arrived: null, arrive: null };
-held.arrived = new Promise((r) => { held.arrive = r; });
+// a query's answer can be held back: its lookup is still running until the test lets it answer
+const holdBack = (query) => { const h = { query, released: false, pending: [], arrived: null, arrive: null }; h.arrived = new Promise((r) => { h.arrive = r; }); return h; };
+const release = (h) => { h.released = true; for (const f of h.pending.splice(0)) f(); };
+const held = holdBack(SLOW.q), heldToo = holdBack(SLOW_TOO.q);
 
 let mock;
 before(async () => {
@@ -127,7 +130,8 @@ before(async () => {
       // a type search (osm_tag filters) finds nothing more: the name search is the one that answers
       const feats = u.searchParams.getAll('osm_tag').length ? [] : (ANSWERS[q] || []).map((f) => (en ? english(f) : f));
       const body = JSON.stringify({ type: 'FeatureCollection', features: feats.map((f) => ({ ...f, properties: Object.fromEntries(Object.entries(f.properties).filter(([, v]) => v !== undefined)) })) });
-      if (q === held.query && !en && !held.released) { held.pending.push(() => res.end(body)); held.arrive(); return; }
+      const h = [held, heldToo].find((x) => x.query === q);
+      if (h && !en && !h.released) { h.pending.push(() => res.end(body)); h.arrive(); return; }
       res.end(body);
       return;
     }
@@ -149,7 +153,7 @@ before(async () => {
   mock = { server, url: `http://127.0.0.1:${server.address().port}` };
 });
 after(() => {
-  held.released = true; for (const f of held.pending.splice(0)) f();
+  release(held); release(heldToo);
   mock?.server.close();
   fs.rmSync(tmp, { recursive: true, force: true });
 });
@@ -206,8 +210,7 @@ test('the run\'s own sights, one lookup per command and one slow: plan and valid
   // a lookup still running is not "Not found yet"
   assert.deepEqual(cfgOf('sv').missing.map((m) => m.name), [MISSED.q]);
 
-  held.released = true;
-  for (const f of held.pending.splice(0)) f();
+  release(held);
   const done = await slow;
   assert.equal(done.code, 0, done.out + done.err);
   // finished, but the days were planned while it ran: its place is on the map and in no day, and validate fails until
@@ -255,6 +258,35 @@ test('the run\'s own sights, one lookup per command and one slow: plan and valid
   const v3 = await uw(['validate', 'sv', '--signal', '--json']);
   assert.equal(v3.code, 0, JSON.stringify(v3.json?.errors ?? v3.out, null, 1));
   assert.deepEqual(v3.json.errors, []);
+});
+
+// uw plan --sights refuses days short of places while the turn has time to add them, but a place lookup still running
+// may be one of them: refused then, the turn was told to add places and never that the lookup was running. While one
+// runs, the days are written as they are and it is named (wait, then plan again), as before; once it has finished, the
+// same plan counts what it found and refuses the days still short, with how many places to add
+test('a plan made while a lookup still runs names it and writes the days as they are; once it has finished, days still short of places are refused', async () => {
+  const site = 'sv-short';
+  assert.equal((await uw(['new', site, '--title', 'Seville in 3 days', '--center', CITY.join(','), '--zoom', '13', '--expect', 'Seville:3'])).code, 0);
+  assert.equal((await uw(['add-point', site, '--layer', 'stops', '--at', CITY.join(','), '--name', 'Seville', '--kind', 'city', '--id', 'seville', '--props', '{"nights":3}'])).code, 0);
+  for (const s of SIGHTS.slice(0, 3)) assert.equal((await addSight(site, s)).code, 0, s.q);
+  const slow = addSight(site, SLOW_TOO);
+  await heldToo.arrived;
+  const p = await uw(['plan', site, ...PLAN, '--json']);
+  assert.equal(p.code, 0, p.out + p.err);
+  assert.equal(p.json.refused, undefined);
+  assert.equal(p.json.still_running.length, 1, JSON.stringify(p.json.still_running));
+  assert.match(p.json.next, /^Still running on this site: uw add-point --layer sights --query "Museo del Baile Flamenco" .* \(\d+ s so far\)\. What it finds is not in this plan yet: wait until it has finished \(an exit code; never start it again\), then run this command again with --force\.$/);
+  assert.deepEqual(cfgOf(site).plan.days.map((d) => d.items.filter((it) => it.ref?.layer === 'sights').length), [1, 1, 1]);
+  release(heldToo);
+  const done = await slow;
+  assert.equal(done.code, 0, done.out + done.err);
+  // finished: four places for three days, so two days still have one; refused, with the count, and nothing is running
+  const again = await uw(['plan', site, ...PLAN, '--force', '--json']);
+  assert.equal(again.code, 2, again.out + again.err);
+  assert.equal(again.json.refused, 'days_short_of_places');
+  assert.deepEqual(again.json.short_days.map((d) => d.places), [1, 1]);
+  assert.equal(again.json.add.reduce((n, a) => n + a.places, 0), 2);
+  assert.equal(again.json.still_running, undefined);
 });
 
 test('a trip of several stops lists its stops again', async () => {

@@ -424,7 +424,9 @@ the host name) under the item; `uw set` on a place's `source_url` or `source` gi
 pages: "Not checked · which trails are open · where to check ↗" (`check_url`, https). A trip's plan is written by
 `uw plan` (dates, nights, legs, stays, sights; see itinerary.md); add one short `text` per day by hand.
 `"sights": ["sights", "food"]` (written by `uw plan --sights`, with `"planned_at"`, when it planned the days, and
-`"per_day"` when `--per-day` was given) says the trip is about what to see each day: `uw validate` fails while a full
+`"per_day"` when `--per-day` was given) says the trip is about what to see each day: `uw plan` refuses to write days with
+fewer than two items with a `url` (one with `--per-day 1`) while the turn's clock shows more than about 3 minutes left,
+the place search answers and no uw command still runs on the site; `uw validate` fails while a full
 day has no item with a `url`; in the turn that planned the days, while its clock shows more than about 3 minutes left,
 also while one has only one (not with `"per_day": 1`: the person asked for one place a day); and while a place of those
 layers is in no day and not in `"unplaced"` (`uw plan` lists there the ones it put on no day: no room, or far from
