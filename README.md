@@ -56,8 +56,10 @@ uw validate my-map --signal && uw snapshot my-map --signal && uw serve my-map --
 ```
 
 `uw serve` prints a localhost address and, with `--host 0.0.0.0`, a LAN address to open on a phone on the same
-Wi-Fi. `uw host <site>` is `serve` plus the agent loop for the intents in the site's `bound.json`. With `--detach`
-both run in the background and print the command that starts the same server in the foreground. In Instafy a map is
+Wi-Fi. `uw host <site>` is `serve` plus the agent loop for the intents in the site's `bound.json`, and every open view
+of the site reloads in place when Instafy saves or undoes a change to it (`instafy bind command <site> reload '{}'`
+finds `uw host` as it finds `instafy bind serve`, by the site's `.bind/` folder, which never leaves the machine).
+With `--detach` both run in the background and print the command that starts the same server in the foreground. In Instafy a map is
 not detached: one `(cd <site> && instafy preview open --title "<title>" --serve-cmd "uw host . --port {port}" --start
 --json)`, run where `uw new` ran, picks its port, serves the site from its own folder and shows its preview card, which
 the space can start again after the server stops. A folder with no `index.html` answers 404, never a list of its files.
@@ -66,7 +68,7 @@ the space can start again after the server stops. A folder with no `index.html` 
 
 | Group | Commands |
 |---|---|
-| Site | `new`, `doctor`, `validate`, `fit`, `set`, `upgrade`, `serve`, `host`, `reload`, `snapshot`, `wait` |
+| Site | `new`, `doctor`, `validate`, `fit`, `set`, `upgrade`, `serve`, `host`, `snapshot`, `wait` |
 | Places and lines | `geocode`, `add-point`, `places`, `lines`, `station`, `wiki` |
 | Getting around | `route`, `isochrone`, `legs`, `transit`, `plan`, `handoff` |
 | Choosing | `stay`, `enrich`, `feel`, `areas`, `question`, `air` |

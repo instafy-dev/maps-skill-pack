@@ -49,11 +49,11 @@ Long commands: `--detach`, then `uw wait` (exit 75: again).
    (quiet, MRT walk, cafés…), lenses (sleep, night, move, morning).
    Write title, ask and notes in the user's language; Swedish: `--lang sv` in step 3.
 2. `uw geocode "<district, city>"` → `lng,lat`. Exit 4: go on without `--center`/`--near`.
-3. `uw new <site> --title "…" --ask "<ask>" --center <lng,lat> --zoom 13`, then its card at once, before any lookup
-   (a slow one costs content, never the card), where `uw new` ran: `(cd <site> && instafy preview open --title
-   "<title>" --serve-cmd "uw host . --port {port}" --start --json)`. It picks the port, starts the map (outlives the
-   turn; runs bound.json buttons) and posts the card; the card can restart it. Exit 2 names a log: read it, fix, rerun.
-   Never post a URL (not even localhost). Without `instafy`: `uw host <site> --detach`.
+3. `uw new sites/<slug> --title "…" --ask "<ask>" --center <lng,lat> --zoom 13` (`<site>` below), then its card at
+   once, before any lookup (a slow one costs content, never the card), where `uw new` ran: `(cd <site> && instafy
+   preview open --title "<title>" --serve-cmd "uw host . --port {port}" --start --json)`. It picks the port, starts
+   the map (outlives the turn; runs bound.json buttons) and posts the card; the card can restart it. Exit 2 names a
+   log: read it, fix, rerun. Never post a URL (not even localhost). Without `instafy`: `uw host <site> --detach`.
 4. `uw add-point <site> --layer hotels --query "<name>, <city>" --near <lng,lat> --id <slug>` per option. Keep each
    `Tell the user` line. Address sent later: `--query "延平北路三段 4號" --name "<name>" --kind hotel`.
 5. Places for the 1-2 things asked most, small radius:
@@ -67,9 +67,8 @@ Long commands: `--detach`, then `uw wait` (exit 75: again).
    criteria/lenses are "pending" and join on re-run. Letters follow the rank (A = best); the verdict is generated.
    "NOTHING MEASURED YET SEPARATES": say "too close to call so far"; run the step it names.
 8. `uw fit <site>`, then `uw validate <site> --signal`; fix every error.
-9. `uw reload <site>` (open viewers update), then `instafy preview check --port <port>` (the JSON's `port`;
-   refreshes the card's picture): fix every error it lists; open the PNGs it names. Public link only on request
-   (`instafy-frontend-previews`).
+9. `instafy preview check --port <port>` (the JSON's `port`; refreshes the card's picture): fix every error it lists;
+   open the PNGs it names. Public link only on request (`instafy-frontend-previews`).
 
 **Phase B: refine (in order, one at a time, while the time printed by question/validate allows)**
 After each: re-run the step-7 command and `uw validate <site> --signal`. Exit 4: note it for Phase C.
@@ -86,7 +85,8 @@ After each: re-run the step-7 command and `uw validate <site> --signal`. Exit 4:
 
 **Phase C: reply** in 3-6 lines, even if your host asks for one sentence. No paths, "validates",
 commands, services or exit codes (Overpass, Photon, OSRM, "exit 4"): say it plainly ("the place search was busy");
-sources by publisher (OpenStreetMap, Wikipedia) in one line; say what is unverified. Start with the
+sources by publisher (OpenStreetMap, Wikipedia) in one line; say what is unverified; never where the map is
+("in the Studio preview": its card is under the reply). Start with the
 verdict as `uw question` printed it (the pick and why, by name, no map letter; then the persona line),
 the `Assumed:` line, what is estimated or partial (PARTIAL: "may be incomplete"), every `Tell the user` line
 (a register match: name the listing, never ask to confirm), anything "Not found yet" (what was searched; they can
@@ -95,9 +95,8 @@ send its address).
 ## Config and later changes
 
 - **The message names an open surface** (the prompt's "Open surface" block): edit that site in place (never a new
-  site or card), `uw validate <site>`, then step 9 with `uw reload <site> --note "<what changed>"`. Same after any
-  later change to a site someone may have open. Trips: `reference/itinerary.md` "Later changes to a trip"; a day's
-  note: `uw set <site> plan:day1 --note "…"`.
+  site or card), `uw validate <site>`, then step 9. Same after any later change to a site someone may have open.
+  Trips: `reference/itinerary.md` "Later changes to a trip"; a day's note: `uw set <site> plan:day1 --note "…"`.
 - With a question, other layers become dots. If S1/S2 fail, give the busiest layer `"tier": "context"`.
 - Do things (only if planned): `bound.json` intents + `"bind": true`; handlers `pack:check_registry`,
   `pack:find_hotels_nearby` or your own `handlers/<name>.mjs` (recipe 27).

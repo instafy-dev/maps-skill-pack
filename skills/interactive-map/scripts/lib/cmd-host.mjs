@@ -3,20 +3,23 @@
 //   POST <site>/__uw/intent   → validate (declared, handler, params schema, ≤ 4 KB, same origin) → 202 queued job
 //   GET  <site>/__uw/events   → Server-Sent Events: ack / progress / results / done / error for EVERY viewer
 //   GET  <site>/__uw/jobs     → the last 50 jobs (debug)
+//   POST <site>/__bind/command → a command for every viewer (the reload Instafy sends a site after a saved change or
+//                                an Undo), from `instafy bind command` on this machine, as `instafy bind serve` takes it
 // Jobs run handlers (pack:<name> → scripts/handlers/<name>.mjs, or a site-relative .mjs) as child processes; the host
 // does the apply step (schema check, source + lane check, stamp prov.intent/job, merge into target.records, bump
 // data/version.json) and broadcasts the accepted records. This mirrors the Instafy "apply, no model" step.
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
+import crypto from 'node:crypto';
 import readline from 'node:readline';
 import { spawn } from 'node:child_process';
 import { parseArgs, makeOut, readJSON, exists, UserError } from './util.mjs';
-import { staticHandler, listen, lanAddresses, remoteHint, detach, stop, readState, alive, registerServer } from './cmd-serve.mjs';
+import { staticHandler, listen, lanAddresses, remoteHint, detach, stop, registerServer } from './cmd-serve.mjs';
 import { folderId } from './state-dir.mjs';
 import { SCRIPTS_DIR } from './site.mjs';
 import { validate, applyDefaults, fmtErrors } from './schema-lite.mjs';
-import { normalizeRecord, validateRecord, writeRecords, bumpVersion, readVersion, versionPath, stampReload, RECORDS_PATH_RE } from './records.mjs';
+import { normalizeRecord, validateRecord, writeRecords, bumpVersion, RECORDS_PATH_RE } from './records.mjs';
 import { uwCacheRoot } from './cmd-adapter.mjs';
 import { safeEnv } from './safe-env.mjs';
 import { hostRefusal, originRefusal, publicHostnames } from './host-check.mjs';
@@ -42,9 +45,9 @@ export const help = `host <site|gallery-dir> [--port 4173] [--host 127.0.0.1|0.0
   data/version.json (jobs[id] = { state, name, ref, error, summary }), then broadcasts results + done.
   A gallery folder (e.g. examples/) serves each site at <sub>/ and nothing else of the folder (its own address, its
   other files and folders answer 404, as instafy bind serve's gallery does), and gets <sub>/__uw/* for every subfolder
-  with a bound.json. A folder with no map (map.config.json) or bound site (bound.json) in it or in a subfolder is
-  refused (exit 2), naming the maps' own folders below it: serving it would put every file in it on the web (a space's
-  top folder, every chat's files).
+  that is a map or a bound site. A folder with no map (map.config.json) or bound site (bound.json) in it or in a
+  subfolder is refused (exit 2), naming the maps' own folders below it: serving it would put every file in it on the
+  web (a space's top folder, every chat's files).
   --confirm  each job waits for "y" on this terminal first (simulates the Instafy confirm tray; ack needs_confirm).
   --log      log every request.
   --no-warm  skip warming handler datasets at start (handlers that support UW_WARM=1 download them in the background).
@@ -54,16 +57,12 @@ export const help = `host <site|gallery-dir> [--port 4173] [--host 127.0.0.1|0.0
   --public-url <url>  also answer __uw/* for this host (a tunnel other than Instafy's; repeatable; or UW_PUBLIC_URL).
              __uw/* answers only localhost, IP addresses, Instafy tunnels/previews of this port and these (no DNS
              rebinding); POST __uw/intent also needs the page's own Origin. Files carry no CORS header.
-  \`uw reload <site>\` (data/version.json "reload") is pushed to every viewer as a "command" event: they reload in place.`;
-
-export const reloadHelp = `reload <site> [--note "<what changed>"] [--json]
-  After you changed a site that people may have open (map.config.json, style.json, custom.js, data/, bound.json):
-  every open viewer reloads in place and keeps its camera, selection, lens, layers, sheet and tab, with a short
-  "↻ <note>" toast (≤ 80 chars; default "Map updated"). Run \`uw validate <site>\` first.
-  How: stamps data/version.json "reload"; a running \`uw host\` pushes it to viewers over __uw/events at once, and
-  viewers that only poll data/version.json pick it up on their next poll. Prints how many viewers are connected.
-  Served with \`uw serve\` (no live channel): restart with \`uw host <site> --detach\` (or viewers press ↻).`;
-export const helps = { host: help, reload: reloadHelp };
+  Open views follow every saved change: Instafy sends a site it saved or undid \`instafy bind command <site> reload '{}'\`,
+  which finds this host as it finds \`instafy bind serve\`, by <site>/.bind/server.json and the admin token beside it
+  (.bind/ stays on this machine: never served, never saved), and the host pushes it to every viewer as a "command"
+  event: each reloads in place, keeping its camera, selection, lens, layers, sheet and tab. POST __bind/command answers
+  only this computer's own address, with that token.`;
+export const helps = { host: help };
 
 const MAX_BODY = 4096, RING = 200, MAX_JOBS = 2, COALESCE_MS = 60000;
 // a records file stays under this many bytes (the engine reads at most 200 KB of a file): the oldest results go first
@@ -87,12 +86,66 @@ export function coolKey(name, ref, params) {
 /** what other viewers may see of a job's params (where a map search ran), never more */
 const publicParams = (p) => Object.fromEntries(Object.entries(p || {}).filter(([k, v]) => ['at', 'radius_m', 'max'].includes(k) && (typeof v === 'number' || Array.isArray(v))));
 
+// The reload Instafy sends a site after a saved change or an Undo is `instafy bind command <site> reload '{}'`, run
+// from the space's folder. Instafy's binder client finds whoever serves <site> by the nearest .bind/server.json at or
+// above it ({ pid, url, sites: [{ name, prefix, dir }] }), reads the admin token beside it (.bind/admin-token) and
+// posts { name, args } to <url><prefix>/__bind/command with it. `uw host` keeps both files as `instafy bind serve`
+// does, and answers that call as it does: on this computer's own address only, with the token. .bind/ is mode 0700
+// with a .gitignore of "*": never served (no dot folder is), never in the space's saved files or its history.
+const BIND_DIR = '.bind';
+const TOKEN_RE = /^[A-Za-z0-9_-]{16,128}$/;
+// the binder's command names (Instafy's bind protocol): the engine acts on select, highlight and reload
+const COMMAND_NAMES = ['select', 'highlight', 'toast', 'reload'];
+function bindDir(root) {
+  const dir = path.join(root, BIND_DIR);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  try { fs.chmodSync(dir, 0o700); } catch { /* an unusual file system */ }
+  const ignore = path.join(dir, '.gitignore');
+  if (!exists(ignore)) fs.writeFileSync(ignore, '# uw host: the admin token and the server record stay on this machine\n*\n', { mode: 0o600 });
+  return dir;
+}
+/** The admin token in <root>/.bind/admin-token, made on first use and kept across restarts (one `instafy bind serve`
+ *  made there is used as it is). */
+function adminToken(root) {
+  const file = path.join(bindDir(root), 'admin-token');
+  try { const t = fs.readFileSync(file, 'utf8').trim(); if (TOKEN_RE.test(t)) return t; } catch { /* made below */ }
+  const token = crypto.randomBytes(24).toString('base64url');
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, token + '\n', { mode: 0o600 });
+  fs.renameSync(tmp, file);
+  fs.chmodSync(file, 0o600);
+  return token;
+}
+/** Writes <root>/.bind/server.json for this process; returns the function that removes it again (only while it is
+ *  still this process's: a server started on the folder after it keeps its own). */
+function writeServerState(root, state) {
+  const file = path.join(bindDir(root), 'server.json');
+  fs.writeFileSync(file, JSON.stringify({ pid: process.pid, ...state }, null, 2) + '\n', { mode: 0o600 });
+  return () => { try { if (readJSON(file).pid === process.pid) fs.rmSync(file, { force: true }); } catch { /* gone */ } };
+}
+const LOOPBACK_SOCKET = /^(127\.|::1$)/;
+const LOOPBACK_NAME = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
+/** Why an admin call (`instafy bind command` on this computer) is refused, as [status, reason], or null: it comes from a
+ *  loopback socket, to a loopback name, through no proxy (a tunnel's client keeps the public name; a preview's proxy
+ *  adds x-forwarded-*), with the admin token. */
+function adminRefusal(req, token) {
+  const socket = String(req.socket?.remoteAddress || '').replace(/^::ffff:/, '');
+  if (!LOOPBACK_SOCKET.test(socket) || req.headers['x-forwarded-for'] || req.headers['x-forwarded-host'] || !LOOPBACK_NAME.test(String(req.headers.host || '')))
+    return [403, "admin calls are only accepted on the host's loopback address"];
+  const auth = String(req.headers.authorization || '');
+  const offered = Buffer.from(auth.startsWith('Bearer ') ? auth.slice(7).trim() : String(req.headers['x-bind-admin'] || ''));
+  const own = Buffer.from(String(token || ''));
+  if (!token || offered.length !== own.length || !crypto.timingSafeEqual(offered, own)) return [401, 'admin token required'];
+  return null;
+}
+
 class SiteHost {
   constructor(dir, prefix, opts) {
     this.dir = dir; this.prefix = prefix; this.opts = opts;
     this.events = []; this.seq = 0; this.clients = new Set();
     this.jobs = new Map(); this.byIntent = new Map(); this.cooldown = new Map(); this.queue = []; this.running = 0; this.jobSeq = 0;
     this._bound = null; this._boundMtime = 0;
+    this.token = null; // the admin token `instafy bind command` posts with (its .bind/admin-token)
   }
   log(...m) { console.error(`[${stamp()}]${this.prefix !== '/' ? ' ' + this.prefix : ''}`, ...m); }
   bound() {
@@ -128,22 +181,29 @@ class SiteHost {
     return made;
   }
   runnable() { const b = this.bound(); return Object.entries(b?.intents || {}).filter(([, d]) => this.resolveHandler(d)).map(([n]) => n); }
-  // `uw reload <site>` stamps data/version.json "reload": push it to every open viewer, who reloads in place (bind.js
-  // COMMANDS "reload" → engine softReload: hash, sheet and tab kept). Stat polling, so an atomic rename is seen too.
-  watchReload(interval = 400) {
-    this.lastReload = readVersion(this.dir).reload ?? null;
-    this.reloadFile = versionPath(this.dir);
-    fs.watchFile(this.reloadFile, { interval, persistent: false }, () => this.checkReload());
+  // POST __bind/command, from `instafy bind command <site> <name> '<args>'` on this computer: Instafy's reload after a
+  // saved change or an Undo goes to every open viewer, who reloads in place (bind.js COMMANDS "reload" → engine
+  // softReload: hash, sheet and tab kept). Checked and answered as `instafy bind serve` answers it; the runtime reads
+  // "viewers" from the answer.
+  async command(req, res) {
+    const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
+    const refused = adminRefusal(req, this.token);
+    if (refused) return json(refused[0], { ok: false, reason: refused[1] });
+    if (originRefusal(req.headers.origin, req.headers.host)) return json(403, { ok: false, reason: 'origin' });
+    const chunks = [];
+    let size = 0;
+    try {
+      for await (const c of req) { size += c.length; if (size > MAX_BODY) return json(413, { ok: false, reason: 'too_large' }); chunks.push(c); }
+    } catch { return json(400, { ok: false, reason: 'body is not JSON' }); }
+    let msg;
+    try { msg = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return json(400, { ok: false, reason: 'body is not JSON' }); }
+    if (!COMMAND_NAMES.includes(msg?.name)) return json(400, { ok: false, reason: `name must be one of ${COMMAND_NAMES.join(', ')}` });
+    const args = msg.args ?? {};
+    if (!args || typeof args !== 'object' || Array.isArray(args)) return json(400, { ok: false, reason: 'args must be an object' });
+    this.broadcast('command', { command: { name: msg.name, args } });
+    this.log(`${msg.name} → ${this.clients.size} viewer(s)`);
+    return json(202, { ok: true, event: this.seq, viewers: this.clients.size });
   }
-  checkReload() {
-    const v = readVersion(this.dir);
-    if (typeof v.reload !== 'string' || v.reload === this.lastReload) return null;
-    this.lastReload = v.reload;
-    const note = typeof v.reload_note === 'string' ? v.reload_note.slice(0, 80) : null;
-    this.log(`reload${note ? ' (' + note + ')' : ''} → ${this.clients.size} viewer(s)`);
-    return this.broadcast('command', { command: { name: 'reload', args: note ? { note } : {} }, reload: v.reload });
-  }
-  unwatchReload() { if (this.reloadFile) fs.unwatchFile(this.reloadFile); }
 
   // --- events
   broadcast(type, payload) {
@@ -425,10 +485,9 @@ export async function host(argv) {
     try { seg = decodeURIComponent(String(pathname).split('/')[1] || ''); } catch { return false; }
     return !!seg && !seg.startsWith('.') && !/[\\/]/.test(seg) && isSite(path.join(root, seg));
   };
+  // every site it serves gets them: a map with no bound.json takes the space's reload over __uw/events too
   if (rootIsSite) sites.push(new SiteHost(root, '/', opts));
-  else for (const e of fs.readdirSync(root, { withFileTypes: true })) {
-    if (e.isDirectory() && !e.name.startsWith('.') && exists(path.join(root, e.name, 'bound.json'))) sites.push(new SiteHost(path.join(root, e.name), `/${e.name}/`, opts));
-  }
+  else for (const dir of siteFolders(root)) sites.push(new SiteHost(dir, `/${path.basename(dir)}/`, opts));
   if (args.confirm) {
     const rl = readline.createInterface({ input: process.stdin });
     rl.on('line', (l) => {
@@ -440,7 +499,6 @@ export async function host(argv) {
       prompt();
     });
   }
-  for (const s of sites) s.watchReload();
   // The host owns what it writes for clicks (records, data/version.json): in an Instafy space's checkout it commits
   // them, so the space's next save publishes them and a stop does not keep them as unsaved work (save-owner.mjs).
   // --no-save leaves them as changed files.
@@ -451,13 +509,22 @@ export async function host(argv) {
     let url;
     try { url = new URL(req.url, 'http://x'); } catch { res.writeHead(400); return res.end(); }
     const m = url.pathname.match(/^(.*\/)__uw\/(health|intent|events|jobs)$/);
+    const cmd = !m && url.pathname.match(/^(.*\/)__bind\/command$/);
     // every request, files included: a rebinding page is same-origin with this server, so it could read
     // data/records/*.json, handlers/ and bound.json, not just call __uw/*
     const badHost = hostRefusal(req.headers.host, opts);
     if (badHost) {
       if (args.log) console.error(`  refused ${url.pathname}: ${badHost}`);
-      res.writeHead(m ? 403 : 421, { 'Content-Type': m ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
-      return res.end(m ? JSON.stringify({ ok: false, status: 'rejected', reason: badHost }) : `refused: ${badHost}`);
+      res.writeHead(m || cmd ? 403 : 421, { 'Content-Type': m || cmd ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end(m || cmd ? JSON.stringify({ ok: false, status: 'rejected', reason: badHost }) : `refused: ${badHost}`);
+    }
+    if (cmd) {
+      const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
+      const site = sites.find((s) => s.prefix === cmd[1]);
+      if (args.log) console.error(`  ${req.method} ${url.pathname}`);
+      if (!site) return json(404, { ok: false, reason: 'no site here' });
+      if (req.method !== 'POST') return json(405, { ok: false, reason: 'POST only' });
+      return site.command(req, res).catch((e) => json(500, { ok: false, reason: e.message }));
     }
     if (!m) {
       // a folder of sites serves its sites and nothing else of the folder: started on a space's top folder with a map
@@ -498,6 +565,20 @@ export async function host(argv) {
   }
   opts.port = port;
   const unregister = registerServer(root, { cmd: 'host', port, host: hostName });
+  // where `instafy bind command <site>` finds this host, as it finds `instafy bind serve`: each site's own .bind/ holds
+  // this host's loopback address, the site with the prefix the binder's client puts before __bind/ ("" for the folder
+  // served, "/<sub>" in a gallery) and the site's admin token. In the site's own folder, never the gallery's: a space's
+  // top folder served as one would otherwise answer for every page below it. A folder that cannot be written still
+  // serves; the space's reload then reaches none of its viewers
+  const unbind = [];
+  const loopback = `http://${hostName === '::1' ? '[::1]' : '127.0.0.1'}:${port}`;
+  for (const s of sites) {
+    try {
+      s.token = adminToken(s.dir);
+      unbind.push(writeServerState(s.dir, { url: loopback, started_at: new Date().toISOString(), server: 'uw host',
+        sites: [{ name: path.basename(s.dir), prefix: s.prefix === '/' ? '' : s.prefix.replace(/\/$/, ''), dir: s.dir }] }));
+    } catch (e) { s.log(`could not write ${path.join(s.dir, BIND_DIR)} (${e.message}): open views will not reload by themselves after a change`); }
+  }
   const local = `http://localhost:${port}/`;
   const lan = hostName === '0.0.0.0' ? lanAddresses().map((a) => `http://${a}:${port}/`) : [];
   const info = sites.map((s) => ({ prefix: s.prefix, dir: s.dir, intents: s.runnable(), bound: !!s.bound() }));
@@ -506,8 +587,7 @@ export async function host(argv) {
     console.log(`uw host: serving ${path.relative(process.cwd(), root) || '.'} at ${local}`);
     for (const u of lan) console.log(`  on your network: ${u}  (phones on the same Wi-Fi; every viewer gets live results)`);
     if (!rootIsSite) console.log(`  a folder of sites: only its sites are served (${siteFolders(root).map((d) => `/${path.basename(d)}/`).join(', ')}), nothing else of the folder`);
-    for (const s of info) console.log(`  ${s.prefix}__uw/*  ${s.bound ? `intents: ${s.intents.join(', ') || '(none runnable)'}` : 'no bound.json (static only; no intent buttons)'}`);
-    if (!info.length) console.log('  no site with bound.json found: serving files only');
+    for (const s of info) console.log(`  ${s.prefix}__uw/*  ${s.bound ? `intents: ${s.intents.join(', ') || '(none runnable)'}` : 'no bound.json (no intent buttons)'}`);
     if (args.confirm) console.log('  --confirm: each job waits for y/N here');
     console.log(remoteHint(port));
     console.log('Ctrl-C to stop.');
@@ -527,8 +607,9 @@ export async function host(argv) {
   }
   await new Promise((resolve) => {
     const stop = () => {
-      for (const s of sites) { s.unwatchReload(); for (const j of s.jobs.values()) if (j.child) try { j.child.kill('SIGTERM'); } catch {} for (const c of s.clients) try { c.end(); } catch {} }
+      for (const s of sites) { for (const j of s.jobs.values()) if (j.child) try { j.child.kill('SIGTERM'); } catch {} for (const c of s.clients) try { c.end(); } catch {} }
       for (const s of sites) releaseSiteWrites(s.dir);
+      for (const u of unbind) u();
       unregister(); server.close(); resolve();
     };
     process.once('SIGINT', stop); process.once('SIGTERM', stop);
@@ -558,41 +639,4 @@ function mapsBelow(root, { depth = 4, max = 3, budget = 2000 } = {}) {
     level = next;
   }
   return found;
-}
-
-// `reload <site>`: tell every open viewer to reload in place (see reloadHelp).
-const cleanNote = (s) => { const t = typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f\s]+/g, ' ').trim() : ''; return t ? t.slice(0, 80) : null; };
-/** the running `uw host` that serves dir (its own --detach, or a gallery's), as { port, prefix, pid }, or null */
-export function runningHost(dir) {
-  for (const [d, prefix] of [[dir, '/'], [path.dirname(dir), `/${path.basename(dir)}/`]]) {
-    const st = readState(d);
-    if (st && st.cmd === 'host' && Number.isInteger(st.port) && alive(st.pid)) return { port: st.port, prefix, pid: st.pid };
-    if (st && st.cmd === 'serve' && d === dir && alive(st.pid)) return { port: st.port, prefix, pid: st.pid, serve: true };
-  }
-  return null;
-}
-export async function reload(argv) {
-  const args = parseArgs(argv, { note: 'string' }, { positionals: [1, 1], command: 'reload' });
-  if (args.help) return console.log(reloadHelp);
-  const out = makeOut(args);
-  const dir = path.resolve(args._[0]);
-  if (!exists(path.join(dir, 'index.html'))) throw new UserError(`"${args._[0]}" is not a site folder (no index.html)`);
-  const note = cleanNote(args.note);
-  const ver = stampReload(dir, note);
-  const h = runningHost(dir);
-  let viewers = null;
-  if (h && !h.serve) {
-    try {
-      const r = await fetch(`http://127.0.0.1:${h.port}${h.prefix}__uw/health`, { signal: AbortSignal.timeout(2000) });
-      const j = r.ok ? await r.json() : null;
-      if (j && Number.isInteger(j.viewers)) viewers = j.viewers;
-    } catch { /* not answering: the stamp still reaches polling viewers */ }
-  }
-  const lines = [h && !h.serve
-    ? `Reload sent: ${viewers == null ? 'open viewers' : viewers === 1 ? '1 open viewer' : viewers + ' open viewers'} reload in place (uw host on port ${h.port})${note ? ': "' + note + '"' : ''}.`
-    : h?.serve
-      ? `Stamped data/version.json, but \`uw serve\` (port ${h.port}) has no live channel: run uw host ${args._[0]} --detach --port ${h.port} so open viewers reload by themselves.`
-      : 'Stamped data/version.json (viewers that poll it reload in place; others press ↻). No running `uw host` found for this folder: start one with --detach so every viewer reloads at once.'];
-  out.result({ ok: true, dir, reload: ver.reload, note, host: h ? { port: h.port, prefix: h.prefix, live: !h.serve } : null, viewers }, lines);
-  return 0;
 }

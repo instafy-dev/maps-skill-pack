@@ -139,17 +139,6 @@ export function bumpVersion(siteDir, { files = [], jobs } = {}) {
   return ver;
 }
 
-// `uw reload`: stamp data/version.json "reload" (a new id) and "reload_note", without touching v, files or jobs.
-// A running `uw host` watches the file and pushes { command: { name: "reload" } } to every viewer over __uw/events;
-// viewers that only poll compare "reload" with what they loaded (bind.js pollNow) and reload in place too.
-export function stampReload(siteDir, note = null) {
-  const ver = readVersion(siteDir);
-  ver.reload = new Date().toISOString() + '~' + Math.random().toString(36).slice(2, 6);
-  if (note) ver.reload_note = note; else delete ver.reload_note;
-  writeJSON(versionPath(siteDir), ver, { pretty: true });
-  return ver;
-}
-
 // Stable ids: "clm_<slug>", limited to the rid pattern.
 export function rid(prefix, ...parts) {
   const s = parts.map((p) => String(p ?? '').normalize('NFKD').replace(/[^A-Za-z0-9_.:-]+/g, '_').replace(/^_+|_+$/g, '')).filter(Boolean).join('_');

@@ -29,7 +29,7 @@ after(() => {
 
 test('SKILL.md: the card right after `uw new`, before any lookup; step 9 only refreshes it', () => {
   const md = flat('SKILL.md');
-  const step3 = md.indexOf('3. `uw new <site>');
+  const step3 = md.indexOf('3. `uw new sites/<slug>');
   const open = md.indexOf(OPEN);
   const step4 = md.indexOf('4. `uw add-point <site>');
   assert.ok(step3 > 0 && open > step3 && open < step4, `the card command is in step 3 (${step3} < ${open} < ${step4})`);
@@ -39,10 +39,11 @@ test('SKILL.md: the card right after `uw new`, before any lookup; step 9 only re
     assert.ok(md.indexOf(cmd) > open, `${cmd} after the card`);
   }
   assert.match(md.slice(step3, step4), /before any lookup \(a slow one costs content, never the card\)/);
-  // step 9: open viewers update, then the check refreshes the card's picture. The check pictures only its desktop
-  // size, so a phone-only check (--phone) leaves the card on the empty map step 3 posted
-  const step9 = md.indexOf('9. `uw reload <site>` (open viewers update), then `instafy preview check --port <port>` (the JSON');
-  assert.ok(step9 > step4, 'step 9 reloads the viewers and checks the page');
+  // step 9: the check refreshes the card's picture (open views follow the saved change by themselves: no reload step).
+  // The check pictures only its desktop size, so a phone-only check (--phone) leaves the card on the empty map step 3
+  // posted
+  const step9 = md.indexOf('9. `instafy preview check --port <port>` (the JSON');
+  assert.ok(step9 > step4, 'step 9 checks the page');
   assert.match(md.slice(step9, step9 + 260), /refreshes the card's picture\): fix every error it lists; open the PNGs it names/);
   assert.doesNotMatch(md, /instafy preview check[^.]*--phone/);
   assert.doesNotMatch(md, /Open it from the card|open it from the card/);
@@ -50,14 +51,14 @@ test('SKILL.md: the card right after `uw new`, before any lookup; step 9 only re
 
 test('itinerary.md: a trip posts its card right after `uw new` too, before the stations, stays and the team job', () => {
   const md = flat('reference/itinerary.md');
-  const created = md.indexOf('`uw new <site> --title "<Country> by train"');
+  const created = md.indexOf('`uw new sites/<slug> --title "<Country> by train"');
   const card = md.indexOf('Then its card at once (SKILL.md step 3), before any lookup');
   // the stations and stays of several stops come after it, in their own file
   assert.ok(created > 0 && card > created && card < md.indexOf('Next, two or more places: steps 2-6 in `reference/several-stops.md`'), 'the card is step 1');
   assert.ok(flat('reference/several-stops.md').indexOf('**2. One station per stop**') > 0);
   assert.ok(md.indexOf('the card (step 3), step 9 and the turn clock stay') > 0);
   // step 6 and the team job refresh it, they never post it
-  assert.match(flat('reference/several-stops.md'), /Then SKILL\.md step 9 \(open viewers update, the card's picture is refreshed\), before Phase B/);
+  assert.match(flat('reference/several-stops.md'), /Then SKILL\.md step 9 \(the card's picture is refreshed\), before Phase B/);
   assert.doesNotMatch(md, /Then preview \(SKILL\.md step 9\)|Open the preview while it runs/);
   // a later change to a trip refreshes the card too
   assert.match(md, /## Later changes to a trip [^#]*?then `uw validate`, SKILL\.md step 9, the reply\./);
@@ -230,4 +231,51 @@ test('the card\'s command, chained after `uw new` from the space\'s folder, serv
   assert.match(plain.log(), /warning: \. has no index\.html: its address answers 404/);
   assert.doesNotMatch(plain.log(), /listing/);
   plain.stop();
+});
+
+// A trip's map sat right in the space's own folder, among the person's files, where no other page is: the skill's steps
+// said `uw new <site>` and nothing said where, so one turn put it under sites/ and the next at the space's top. The
+// steps now name sites/<slug>, and in a space `uw new` refuses a new map right in the space's own folder.
+test('a new map\'s folder goes under sites/, like every page: the steps say so, and uw new in a space refuses its top folder', () => {
+  assert.match(flat('SKILL.md'), /3\. `uw new sites\/<slug> --title "…" --ask "<ask>" --center <lng,lat> --zoom 13` \(`<site>` below\), then its card at once/);
+  assert.match(flat('reference/itinerary.md'), /`uw new sites\/<slug> --title "<Country> by train" [^`]*` \(its folder under `sites\/`, as every page's, is `<site>` below;/);
+  for (const f of ['SKILL.md', 'reference/itinerary.md', 'reference/several-stops.md', 'reference/recipes.md']) assert.doesNotMatch(flat(f), /uw new <site>/, f);
+
+  const space = fs.realpathSync(fs.mkdtempSync(path.join(tmp, 'space-top-')));
+  fs.mkdirSync(path.join(space, '.instafy', '.git'), { recursive: true });
+  fs.writeFileSync(path.join(space, '.instafy', '.git', 'HEAD'), 'ref: refs/heads/main\n');
+  fs.writeFileSync(path.join(space, 'AGENTS.md'), 'AGENTS.md\n');
+  const uw = (args, cwd = space) => spawnSync(process.execPath, [UW, ...args], { cwd, encoding: 'utf8', env: { ...process.env, UW_NO_CACHE: '1' } });
+  const opts = ['--title', '3 days in Seville', '--center', '-5.99534,37.38863', '--zoom', '13', '--expect', 'Seville:3'];
+  // right in the space's own folder, as the turn ran it (chained with its card): refused, naming where it goes, and
+  // nothing is made, so the card's `cd` stops too
+  const top = uw(['new', 'seville-3-days', ...opts]);
+  assert.equal(top.status, 2, top.stdout + top.stderr);
+  assert.equal(top.stderr.trim(), 'error: "seville-3-days" would put the map right in the space\'s own folder, among its other files: a map\'s folder goes under sites/, as every page\'s does. Make it there: uw new sites/seville-3-days (the same options), then its card from that folder.');
+  assert.equal(fs.existsSync(path.join(space, 'seville-3-days')), false);
+  // the space's own folder as the map: refused the same way, and none of the person's files is touched
+  const here = uw(['new', '.', ...opts, '--force']);
+  assert.equal(here.status, 2, here.stdout + here.stderr);
+  assert.match(here.stderr, /Make it there: uw new sites\/<slug> \(the same options\)/);
+  assert.deepEqual(fs.readdirSync(space).sort(), ['.instafy', 'AGENTS.md']);
+  // under sites/: made, and its card runs from its own folder
+  const made = uw(['new', 'sites/seville-3-days', ...opts, '--json']);
+  assert.equal(made.status, 0, made.stdout + made.stderr);
+  const json = JSON.parse(made.stdout);
+  assert.equal(json.dir, path.join(space, 'sites', 'seville-3-days'));
+  assert.match(json.next[0], /^Next, at once: its card: \(cd sites\/seville-3-days && instafy preview open /);
+  // a map made before right in the space's own folder stays where it is: it can still be started over there
+  fs.cpSync(path.join(space, 'sites', 'seville-3-days'), path.join(space, 'old-map'), { recursive: true });
+  const old = uw(['new', 'old-map', ...opts, '--force']);
+  assert.equal(old.status, 0, old.stdout + old.stderr);
+  // outside a space nothing changes: a map's folder can be anywhere
+  const elsewhere = fs.realpathSync(fs.mkdtempSync(path.join(tmp, 'plain-')));
+  assert.equal(uw(['new', 'trip', ...opts], elsewhere).status, 0);
+});
+
+// A trip's reply ended "The plan is available in the Studio preview.": a pointer to the card, which shows right under
+// the reply, in words the person never uses. The pack's reply rules leave it out.
+test('the reply never points to the card ("available in the Studio preview")', () => {
+  assert.match(flat('SKILL.md'), /\*\*Phase C: reply\*\* [^#]*; never where the map is \("in the Studio preview": its card is under the reply\)\./);
+  assert.match(flat('reference/itinerary.md'), /Never in the reply: [^#]*where the map is \("available in the Studio preview": its card shows under the reply\)\./);
 });

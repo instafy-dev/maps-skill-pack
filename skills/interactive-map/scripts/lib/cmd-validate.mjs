@@ -619,11 +619,11 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       }
       const sightsAsked = Array.isArray(sightLayers) && sightLayers.length > 0;
       const bareDays = sightsAsked ? gaps.bare : [];
-      // a full day takes 2-3 sourced places (reference/itinerary.md Phase B step 1), or one when the person asked for one
-      // a day (uw plan --per-day 1). One is not a day worth following, so in the turn that planned the days it fails
-      // while the clock leaves time to add places (three sights for three days once passed with a warning and almost 7
-      // minutes left). A later turn keeps the days the person changed (a place moved or dropped), and a turn with too
-      // little time left adds nothing: there it is a warning whose fix is what the reply says
+      // a full day takes 2-3 sourced places (reference/itinerary.md Phase B step 1). One is not a day worth following,
+      // so in the turn that planned the days it fails while the clock leaves time to add places (three sights for three
+      // days once passed with a warning and almost 7 minutes left). A later turn keeps the days the person changed (a
+      // place moved or dropped), and a turn with too little time left adds nothing: there it is a warning whose fix is
+      // what the reply says
       const oneDays = sightsAsked ? gaps.single : [];
       const days4 = (list) => `${list.slice(0, 4).join(', ')}${list.length > 4 ? ' …' : ''}`;
       const notPinned = 'a place the lookup cannot pin goes on its day as {"text": "<name>", "url": "<its page>", "source": "<site>"}';
@@ -637,9 +637,19 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       if (bareDays.length)
         E(CFG, '$.plan.days', `${bareDays.length} of ${gaps.full} full days have nothing to see (no sourced place): ${days4(bareDays)}`,
           `uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --force spreads the places already pinned over every day, the arrival day too: run it first when a stop has as many places as days. Else cite 2-3 places for each of those days in this turn, ${citeOwn}; then ${pinTo}${giveOwn} (reference/itinerary.md Phase B step 1), then run it; ${notPinned}`);
+      // A plan made for one place a day (uw plan --per-day 1, only for a person who asked for that) is warned: a turn
+      // whose days had one place each planned it so, with nobody asking, from this check's own fix, and passed with
+      // six minutes left. The fix fills each day with places near its base, never by spreading the stop's places one a
+      // day, and names the base's point when those days share one
+      const oneADay = Number.isInteger(cfg.plan?.per_day) && cfg.plan.per_day < 2;
+      const focusOf = (title) => days.find((d) => String(d?.title || '') === title)?.focus;
+      const bases = [...new Set(oneDays.map(focusOf).map((f) => (f && f.layer != null && f.id != null ? `${f.layer}\u0000${f.id}` : null)))];
+      const [baseLayer, baseId] = bases.length === 1 && bases[0] ? bases[0].split('\u0000') : [];
+      const basePt = baseLayer ? (featuresByLayer.get(baseLayer) || []).find((f) => String(f?.properties?.id) === baseId && f?.geometry?.type === 'Point')?.geometry.coordinates : null;
+      const nearBase = Array.isArray(basePt) && basePt.length >= 2 && basePt.every(Number.isFinite) ? basePt.slice(0, 2).map((x) => +x.toFixed(6)).join(',') : "<that day's base lng,lat>";
+      const addNearBase = `add one or two places near the base to each of those days, rather than spreading the places you have one a day: ${citeOwn}; then uw add-point ${args._[0]} --layer ${sightsAsked ? sightLayers[0] : 'sights'} --near ${nearBase} … with {"stop":…,"source_url":…}, one place per command${giveOwn} (reference/itinerary.md Phase B step 1), then uw plan ${args._[0]} … --sights ${sightsAsked ? sightLayers.join(',') : 'sights'} --force${oneADay ? ' (without --per-day 1)' : ''}; ${notPinned}`;
       if (oneDays.length && plannedThisTurn && timeToAdd)
-        E(CFG, '$.plan.days', `${oneDays.length} of ${gaps.full} full days have one place to see (a full day takes 2-3 sourced places): ${days4(oneDays)}`,
-          `cite one or two more places for each of those days in this turn, in that day's area, ${citeOwn}; then ${pinTo}, one place per command${giveOwn} (reference/itinerary.md Phase B step 1), then uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --force; ${notPinned}. One a day only when the person asked for it: uw plan … --per-day 1`);
+        (oneADay ? W : E)(CFG, '$.plan.days', `${oneDays.length} of ${gaps.full} full days have one place to see (a full day takes 2-3 sourced places): ${days4(oneDays)}`, addNearBase);
       else if (oneDays.length && !bareDays.length)
         W(CFG, '$.plan.days', `${oneDays.length} of ${gaps.full} full days have one place to see: ${days4(oneDays)}`,
           `${plannedThisTurn ? 'too little time is left to add places in this turn' : 'the days were planned in an earlier turn: keep what the person changed'}; the reply names these days and offers to add places to them`);
