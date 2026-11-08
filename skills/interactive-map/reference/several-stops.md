@@ -64,5 +64,5 @@ stop (the retry command `uw handoff --apply` or the lookup printed, with `--time
 --layer stations --query "<City>" --country "<Country>" --kind city --allow-far --id <id> --props-file - <<'JSON'`, then
 `{"nights":N,"station_of":"<City>","no_station":true}` and `JSON` on their own lines), then
 `uw plan … --ids <every stop> --nights … --force`. Still not placed (exit 4 again): keep going, and the reply's route
-line names it as missing with its nights ("<Stop> (2 nights) is not on the map yet: the place lookup was down"). Then SKILL.md step 9 (open viewers update, the card's picture is refreshed), before Phase B: the traveller has
+line names it as missing with its nights ("<Stop> (2 nights) is not on the map yet: the place lookup was down"). Then SKILL.md step 9 (the card's picture is refreshed), before Phase B: the traveller has
 the map while the days fill in.

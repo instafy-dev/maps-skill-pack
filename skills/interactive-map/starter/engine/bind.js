@@ -17,7 +17,8 @@ import { fmtClock } from './util.js';
 import { fromBindRecord } from './records.js';
 
 const HOST_TYPES = ['hello', 'ack', 'progress', 'results', 'done', 'error', 'command'];
-// reload: the site changed (`uw reload <site>` over SSE, data/version.json "reload", or the host's ↻): soft reload in place.
+// reload: the site changed (the reload Instafy sends a changed site, which `uw host` pushes over SSE, or the host's ↻):
+// soft reload in place.
 // "layout" (insets, title, caps) is not a bind message: host.js reads it straight from the parent frame; one that
 // arrives on the host's MessagePort is handed to host.js (E.hostLayout).
 const COMMANDS = ['select', 'flyTo', 'setLens', 'setTime', 'highlight', 'reload', 'navigate'];
@@ -604,8 +605,6 @@ export class Bind {
       // job states resolve pending items for hosts that only write files, and show other viewers' jobs
       for (const [id, st] of Object.entries(ver.jobs || {})) this.jobState(id, st);
       if (prev && prev.v !== ver.v) this.E.onVersion?.(ver);
-      // `uw reload` stamps "reload" for viewers that only poll (no SSE): the page changed, reload in place
-      if (prev && typeof ver.reload === 'string' && ver.reload !== prev.reload) this.command({ name: 'reload', args: { note: ver.reload_note } });
     })().finally(() => { this.polling = null; });
     return this.polling;
   }

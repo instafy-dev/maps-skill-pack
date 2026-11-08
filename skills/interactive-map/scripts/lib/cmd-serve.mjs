@@ -166,7 +166,7 @@ function clearState(dir, pid = null) {
   for (const d of stateDirsOf(dir)) { const st = readOne(d); if (st && (pid == null || st.pid === pid)) fs.rmSync(path.join(d, 'serve.json'), { force: true }); }
 }
 /** A server keeps its own record while it runs (in the foreground too: one the space started again from its preview
- *  card is found by --detach, --stop and reload). Returns the function that drops it when the server stops. */
+ *  card is found by --detach and --stop). Returns the function that drops it when the server stops. */
 export function registerServer(dir, { cmd, port, host }) {
   const f = stateFile(dir);
   const prev = readOne(path.dirname(f));

@@ -3,6 +3,36 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.35 (2026-11-08)
+
+- **Open maps take the reload Instafy sends a changed site.** A note added to a trip's day, made by hand in
+  `map.config.json`, showed in neither open view of the map, and neither did its Undo, until each was reloaded by hand:
+  `uw host` reloaded its viewers only when `uw reload`'s stamp in `data/version.json` changed, and nothing else wrote
+  it. Instafy sends an open site whose files changed (an Undo, for one) `instafy bind command <site> reload '{}'`; no
+  server took it for a map. `uw host` now takes it as `instafy bind serve` does: it keeps the site's `.bind/server.json` (its loopback
+  address) and admin token, which the binder's client reads, and answers `POST __bind/command` on that address only,
+  with the token, pushing the command to every viewer over `__uw/events`. `.bind/` is mode 0700 with a `.gitignore` of
+  `*`: never served, never in the space's saved files. In a folder of maps each map keeps its own, and every map in it
+  takes its reload (it took one only with a `bound.json`); a page in the folder that is not a map keeps its own
+  binder's record, and nothing is written in it. `uw reload`, the skill's own reload step and the reload stamp
+  are gone; a map made before loads and reloads as before (its engine handles the same message, and a stamp left in
+  its `data/version.json` is no reload).
+- **A day with one place to see is named even when the plan was made for one a day.** Three sights for three days gave
+  each day one, and `uw validate` failed those days; its fix ended "One a day only when the person asked for it: uw
+  plan … --per-day 1", and the turn planned the days again with `--per-day 1`, though nobody had asked, and passed with
+  six minutes left. The fix now says to add one or two places near the base to each of those days, rather than
+  spreading the places one a day, names the base's point for `uw add-point --near`, and no longer offers one a day.
+  A plan made with `--per-day 1` (only for a person who asked for one place a day) still gets a warning for each such
+  day in the turn that planned it, whose fix starts "unless the person asked for one place a day"; the turn clock, a
+  later turn and a turn out of time leave those days alone, and `uw plan --help` no longer says that one a day only
+  warns.
+- **A new map's folder goes under `sites/`, as every page's does.** The steps said `uw new <site>` and nothing said
+  where, so one turn put a map under `sites/` and the next right in the space's own folder, among the person's files.
+  The skill and the trip reference now say `uw new sites/<slug>`, and in an Instafy space `uw new` refuses a new map
+  right in the space's own folder (exit 2), naming `uw new sites/<name>`. A map made before stays where it is.
+- **The reply never points to the card.** A trip's reply ended "The plan is available in the Studio preview." The
+  reply rules leave out where the map is: its card is right under the reply.
+
 ## 0.1.34 (2026-11-07)
 
 - **Days in one place come first in the trip reference.** A turn read `reference/itinerary.md` with its output capped

@@ -2543,8 +2543,9 @@ E.command = (name, a) => {
   else if (name === 'reload') softReload(a);
   else if (name === 'navigate' && (a.dir === 'back' || a.dir === 'forward')) nav.go(a.dir);
 };
-// "reload" (the agent changed the site: `uw reload <site>`, or the host's ↻): reload in place and come back where the
-// viewer was. The hash already holds camera, selection, lens, layers, time; the sheet height, tab and a note ride along.
+// "reload" (the site changed: the reload Instafy sends a changed site, which `uw host` pushes over SSE, or the host's ↻):
+// reload in place and come back where the viewer was. The hash already holds camera, selection, lens, layers, time;
+// the sheet height, tab and a note ride along.
 let reloading = false;
 function softReload(a = {}) {
   if (reloading) return;

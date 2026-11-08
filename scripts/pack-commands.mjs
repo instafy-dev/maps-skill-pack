@@ -29,7 +29,7 @@ export const ACTIVITY = {
     ...same(['air', 'wiki', 'doorstep', 'photos', 'adapter'], { live: 'Adding details', done: 'added details' }),
     question: { live: 'Weighing the options', done: 'weighed the options' },
     validate: { live: 'Checking the map', done: 'built the map', role: 'outcome', when: 'success' },
-    ...same(['new', 'geocode', 'fit', 'set', 'snapshot', 'host', 'serve', 'reload', 'upgrade', 'lookups', 'wait', 'doctor', '*'], quiet),
+    ...same(['new', 'geocode', 'fit', 'set', 'snapshot', 'host', 'serve', 'upgrade', 'lookups', 'wait', 'doctor', '*'], quiet),
   },
 };
 

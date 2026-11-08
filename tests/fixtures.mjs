@@ -243,3 +243,34 @@ export function startMock() {
   const resetOsrm = () => { osrmCalls = 0; };
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({ server, hits, close, resetOsrm, url: `http://127.0.0.1:${server.address().port}` })));
 }
+
+/**
+ * A stand-in for the reload the Instafy runtime sends a site after a saved change or an Undo: `instafy bind command
+ * <site> reload '{}'`, run from the space's folder. It does what Instafy's binder client does (packages/instafy-bind:
+ * findServerState, locate, readAdminToken and postAdmin): the nearest .bind/server.json at or above the site's folder,
+ * the site in it whose folder is this one (else its only site), the admin token in the same .bind/, then POST
+ * <url><prefix>/__bind/command with { name, args } and the token. → { status, json, text } (the runtime reads
+ * json.viewers), or { error } when no server record is found, as the client exits 1 then.
+ */
+export async function bindCommand(dir, name, args = {}, { token = null, headers = {} } = {}) {
+  let root = path.resolve(dir), state = null;
+  for (;;) {
+    const file = path.join(root, '.bind', 'server.json');
+    if (fs.existsSync(file)) { state = JSON.parse(fs.readFileSync(file, 'utf8')); break; }
+    const up = path.dirname(root);
+    if (up === root) return { error: `no running binder for ${dir}` };
+    root = up;
+  }
+  const abs = fs.realpathSync(path.resolve(dir));
+  const sites = state.sites || [];
+  const site = sites.find((s) => fs.existsSync(s.dir) && fs.realpathSync(s.dir) === abs) || (sites.length === 1 ? sites[0] : null);
+  if (!site) return { error: `${dir} is a gallery; name one site folder` };
+  const admin = token ?? fs.readFileSync(path.join(root, '.bind', 'admin-token'), 'utf8').trim();
+  const res = await fetch(`${state.url}${site.prefix}/__bind/command`, {
+    method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${admin}`, ...headers }, body: JSON.stringify({ name, args }),
+  });
+  const text = await res.text();
+  let json = null;
+  try { json = JSON.parse(text); } catch { /* not JSON */ }
+  return { status: res.status, json, text };
+}

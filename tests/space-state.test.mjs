@@ -3,7 +3,7 @@
 // lock, the turn clock, the shared cache) and the jobs a folder starts, so no .uwcache/ lands in the space's files.
 // And a map's preview can be started again by the space: `uw host --detach` prints the command for
 // `instafy preview open --serve-cmd`, and a server the space started with it (without INSTAFY_CACHE_DIR) is found and
-// reused by the next `uw host --detach`, `uw reload` and `--stop`. Offline: nothing here asks a service.
+// reused by the next `uw host --detach` and `--stop`, and takes the space's reload. Offline: nothing here asks a service.
 // Run: node --test tests/space-state.test.mjs
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -14,6 +14,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { bindCommand } from './fixtures.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPTS = path.join(HERE, '..', 'skills', 'interactive-map', 'scripts');
@@ -117,11 +118,12 @@ test('the preview card can start the map again: --serve-cmd from host --detach, 
   const p = spawn(argv[0], argv.slice(1), { cwd: path.join(work, 'lx'), env: plain, stdio: 'ignore' });
   started.push(p);
   assert.ok(await until(() => answers(port)), 'the recorded command serves the site again');
-  // the next turn (with the space folder) finds that server: it keeps its own record (in the site's .uwcache/, the
-  // only state folder it knows), so reload reaches its viewers
-  const rl = await uw(['reload', 'lx', '--json']);
-  assert.equal(rl.json?.host?.port, port, rl.out + rl.err);
-  assert.equal(rl.json.host.live, true);
+  // the space's reload after the next save finds that server too: it writes the site's .bind/server.json itself,
+  // started with only a plain environment, so open views follow the change
+  const rl = await bindCommand(path.join(work, 'lx'), 'reload');
+  assert.equal(rl.status, 202, rl.text ?? rl.error);
+  assert.equal(rl.json.viewers, 0);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(work, 'lx', '.bind', 'server.json'), 'utf8')).pid, p.pid);
   // and with no record at all (an older pack's server, a record lost) it is still this site's server, not a busy port
   fs.rmSync(path.join(work, 'lx', '.uwcache', 'serve.json'));
   const again = await uw(['host', 'lx', '--detach', '--port', String(port), '--json']);

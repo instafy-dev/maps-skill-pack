@@ -8,6 +8,7 @@ import { chainOf, resolveProvider } from './lookup.mjs';
 import { STARTER_DIR, ensureGitignore, openSite, loadLayer, listLayerIds, withSiteLock } from './site.mjs';
 import { loadPlaywright, launchChromium } from './cmd-serve.mjs';
 import { parseStops, describeItems } from './expect.mjs';
+import { findSpaceCheckout } from './save-owner.mjs';
 
 export const helps = {
   newSite: `new <dir> [--title "Where to stay in Taipei"] [--subtitle "…"] [--ask "Which hotel for 3 nights?"] [--center lng,lat] [--zoom 14]
@@ -15,7 +16,8 @@ export const helps = {
   Copies the starter (index.html, map.config.json, style.json, custom.js, data/, engine/) into <dir>, sets title and view
   (bounds are derived from --center + --zoom) and writes a .gitignore (.uwcache/ and the working snapshots, keeping
   snapshots/mobile.png, desktop.png and thumb.png for a gallery). Refuses a non-empty
-  <dir> unless --force (then only starter files are overwritten; your other files stay).
+  <dir> unless --force (then only starter files are overwritten; your other files stay). In an Instafy space a map's
+  folder goes under sites/, as every page's does: a new map right in the space's own folder is refused (exit 2).
   Get the centre from: uw.mjs geocode "Zhongshan, Taipei". Zoom: city 12, district 13.5, neighbourhood 14.5, street 16.
   --ask "…"  the user's question (≤ 70 characters), kept as "description"; \`uw question\` uses it when it gets no --ask.
   --lang sv  "locale": "sv": the words the map writes itself (tabs, verdict phrases from uw question) are Swedish.
@@ -36,7 +38,7 @@ export const helps = {
   validates that site. Exit 1 only when something blocking is wrong (old Node, missing starter, invalid site).`,
 };
 
-const SKIP = new Set(['.DS_Store', '.uwcache', 'snapshots', 'node_modules', '.git', 'Thumbs.db']);
+const SKIP = new Set(['.DS_Store', '.uwcache', '.bind', 'snapshots', 'node_modules', '.git', 'Thumbs.db']);
 
 function copyTree(src, dst, { overwrite = true } = {}) {
   let n = 0;
@@ -101,6 +103,14 @@ export async function newSite(argv) {
   checkStarter();
   const dir = path.resolve(args._[0]);
   if (dir === STARTER_DIR || dir.startsWith(STARTER_DIR + path.sep)) throw new UsageError('refusing to create a site inside the pack starter');
+  // a map's folder goes under sites/, as every page of a space does: one made right in the space's own folder sat
+  // among the person's own files, where no other page is (a map made before stays where it is)
+  const space = !exists(path.join(dir, 'map.config.json')) && findSpaceCheckout(exists(dir) ? dir : path.dirname(dir));
+  const real = (d) => { try { return fs.realpathSync(d); } catch { return d; } };
+  if (space && (real(path.dirname(dir)) === space.root || real(dir) === space.root)) {
+    const slug = real(dir) === space.root ? '<slug>' : path.basename(dir);
+    throw new UserError(`"${args._[0]}" would put the map right in the space's own folder, among its other files: a map's folder goes under sites/, as every page's does. Make it there: uw new sites/${slug} (the same options), then its card from that folder.`, 2);
+  }
   const center = args.center ? parseLngLat(args.center, 'center') : null;
   if (args.zoom !== undefined && (args.zoom < 0 || args.zoom > 20)) throw new UsageError('--zoom must be 0-20');
   if (args.lang !== undefined && !['en', 'sv'].includes(args.lang)) throw new UsageError('--lang must be en or sv');

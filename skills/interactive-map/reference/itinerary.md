@@ -30,9 +30,10 @@ a city with an international airport (or its last leg goes back to one), and the
 out ("flying home from Taipei"), so the last day never strands them.
 
 **1. Site.** `uw geocode "<country or first city>"`, then
-`uw new <site> --title "<Country> by train" --subtitle "7–14 May · 7 nights" --ask "<the question in your words, ≤ 60 characters>" --center <lng,lat> --zoom 7 --expect "<Stop>:<nights>,…"`
-(the ask is the map's heading, e.g. "Two weeks in Taiwan by train": never the user's message pasted in; `--expect`
-is the route from step 0: every stop the user named or you chose, so `uw validate` fails while one is missing).
+`uw new sites/<slug> --title "<Country> by train" --subtitle "7–14 May · 7 nights" --ask "<the question in your words, ≤ 60 characters>" --center <lng,lat> --zoom 7 --expect "<Stop>:<nights>,…"`
+(its folder under `sites/`, as every page's, is `<site>` below; the ask is the map's heading, e.g. "Two weeks in
+Taiwan by train": never the user's message pasted in; `--expect` is the route from step 0: every stop the user
+named or you chose, so `uw validate` fails while one is missing).
 Then its card at once (SKILL.md step 3), before any lookup: a slow lookup can cost the map content, never its card.
 Next, two or more places: steps 2-6 in `reference/several-stops.md` (read it whole), then Phase B here. One place:
 "One base", next.
@@ -219,5 +220,6 @@ Write for the traveller, 5-8 short lines:
 
 Never in the reply: file or folder names (not the handoff or site folder either: "Research details: handoff/…" helps
 nobody), command names, lookup services (Overpass, Photon, OSRM) or exit codes, layer ids (`stays:…`),
-"validates"/"valid", internal scores. A lookup that was busy is said in plain words ("the place search was busy"). A builder's final summary
+"validates"/"valid", internal scores, where the map is ("available in the Studio preview": its card shows under the
+reply). A lookup that was busy is said in plain words ("the place search was busy"). A builder's final summary
 follows the same rule: the lead copies it.

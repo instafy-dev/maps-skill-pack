@@ -74,23 +74,26 @@ test('uw host commits what it wrote for a click in a space checkout; the site fi
   git(space, ['config', 'user.name', 'Instafy Studio']);
   git(space, ['config', 'user.email', 'studio@instafy.dev']);
   fs.writeFileSync(path.join(space, '.gitignore'), '.instafy/\n.uwcache/\n');
-  const site = await hostedClick(space, 'probe');
+  // in a space a map's folder is under sites/, as every page's
+  const site = await hostedClick(space, 'sites/probe');
   git(space, ['add', '-A']);
   git(space, ['commit', '-q', '-m', 'instafy: init']);
   // a person's unsaved edit to the page: never the host's to save
   fs.appendFileSync(path.join(site, 'index.html'), '\n<!-- draft -->\n');
 
-  const { host, err } = await runHost(space, 'probe', true);
+  const { host, err } = await runHost(space, 'sites/probe', true);
   const saved = await waitFor(() => git(space, ['log', '--format=%s']).split('\n').includes('Save what the probe map recorded'), 15000);
   assert.ok(saved, 'the host committed its writes: ' + err());
   await waitFor(() => !git(space, ['status', '--porcelain']).includes('data/version.json'), 30000);
   host.kill('SIGTERM');
   await new Promise((r) => host.once('close', r));
   const left = git(space, ['status', '--porcelain']).split('\n').filter(Boolean);
-  assert.deepEqual(left, [' M probe/index.html'], 'only the person\'s own edit is left as a change');
+  // (the host's .bind/, its server record and admin token, is no change either: it never leaves the machine)
+  assert.deepEqual(left, [' M sites/probe/index.html'], 'only the person\'s own edit is left as a change');
   const files = git(space, ['log', '--name-only', '--format=', '--grep', 'Save what the probe map recorded']).split('\n').filter(Boolean);
-  assert.ok(files.includes('probe/data/version.json'));
-  assert.ok(!files.includes('probe/index.html'));
+  assert.ok(files.includes('sites/probe/data/version.json'));
+  assert.ok(!files.includes('sites/probe/index.html'));
+  assert.ok(!files.some((f) => f.includes('.bind/')), files.join(', '));
 });
 
 test('outside a space uw host commits nothing (a person\'s own repository stays theirs)', async () => {
@@ -117,15 +120,15 @@ test('uw host --no-save leaves what it wrote as changed files, as instafy bind s
   git(space, ['config', 'user.name', 'Instafy Studio']);
   git(space, ['config', 'user.email', 'studio@instafy.dev']);
   fs.writeFileSync(path.join(space, '.gitignore'), '.instafy/\n.uwcache/\n');
-  await hostedClick(space, 'probe');
+  await hostedClick(space, 'sites/probe');
   git(space, ['add', '-A']);
   git(space, ['commit', '-q', '-m', 'instafy: init']);
-  const { host, err } = await runHost(space, 'probe', true, ['--no-save']);
-  const changed = await waitFor(() => git(space, ['status', '--porcelain']).includes('probe/data/version.json'), 15000);
+  const { host, err } = await runHost(space, 'sites/probe', true, ['--no-save']);
+  const changed = await waitFor(() => git(space, ['status', '--porcelain']).includes('sites/probe/data/version.json'), 15000);
   assert.ok(changed, 'the click wrote data/version.json: ' + err());
   await new Promise((r) => setTimeout(r, 3000));
   host.kill('SIGTERM');
   await new Promise((r) => host.once('close', r));
   assert.deepEqual(git(space, ['log', '--format=%s']).split('\n').filter(Boolean), ['instafy: init']);
-  assert.ok(git(space, ['status', '--porcelain']).includes('probe/data/version.json'));
+  assert.ok(git(space, ['status', '--porcelain']).includes('sites/probe/data/version.json'));
 });

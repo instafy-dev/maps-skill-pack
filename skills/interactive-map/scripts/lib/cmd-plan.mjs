@@ -46,8 +46,8 @@ export const help = `plan <dir> --stops <layer> --start YYYY-MM-DD [--ids taipei
   has no sourced place, and while a place of those layers is in no day and not one the plan lists as left out
   ("unplaced": no room, or far from every stop): it was pinned after the days were planned. In the turn that planned
   the days it also fails a full day with one sourced place while the turn clock shows more than about 3 minutes left;
-  a later turn only warns (it keeps the days the person changed), and --per-day 1 (kept as "per_day") is a person who
-  asked for one place a day. uw commands still running on the site (a place lookup whose command has not
+  a later turn only warns (it keeps the days the person changed). --per-day 1 (kept as "per_day") is only for a person
+  who asked for one place a day. uw commands still running on the site (a place lookup whose command has not
   finished) are named, in the JSON too ("still_running"): what they find is not in the plan yet; wait until each has
   finished, then plan again with --force. The stay or route for the reply, with its dates and the "Assumed:" line they
   need, is in the JSON too ("for_the_reply").`;
@@ -83,7 +83,9 @@ export function isPlanSkeletonText(text) {
 /** Full days (a day at a stop, not travel and not the departure; the trip's arrival day too: "3 days in Lisbon" is
  *  three days to fill, the first one the arrival) still as `uw plan` wrote them: nothing but the base and the skeleton
  *  text; and thin ones: fewer than two sourced items (a day with one sight is not "2-3 a full day" yet), or none when
- *  the plan was made for one place a day (`uw plan --per-day 1`: the person asked for it).
+ *  the plan was made for one place a day (`uw plan --per-day 1`: the turn clock never pushes a person who asked for it
+ *  into more). "single" names every day with one place, that plan's too: validate warns on them in the turn that
+ *  planned the days (a turn once planned one a day nobody asked for, to pass the check).
  *  Pure; used by validate and the turn clock to say "add sights" while there is time. */
 export function emptyPlanDays(plan) {
   const days = Array.isArray(plan?.days) ? plan.days : [];
@@ -95,7 +97,7 @@ export function emptyPlanDays(plan) {
   // nothing to see: not one sourced place (a pinned place with its page, or a place with only its page's link)
   const bare = full.filter((d) => sourcedItems(d) === 0).map((d) => String(d.title || ''));
   // one place to see: the day still needs one or two more
-  const single = want > 1 ? full.filter((d) => sourcedItems(d) === 1).map((d) => String(d.title || '')) : [];
+  const single = full.filter((d) => sourcedItems(d) === 1).map((d) => String(d.title || ''));
   return { empty: empty.length, thin: thin.length, full: full.length, days: days.length, bare, single };
 }
 /** A day's items that link to the page their facts came from (the base stay's own site is not a place to see). */
