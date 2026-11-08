@@ -454,3 +454,45 @@ test('validate: a hosted turn is one turn, also when a long read between command
   assert.ok(!later.json.errors.some((e) => /places to stay|says why to stay/.test(e.message)), JSON.stringify(later.json.errors, null, 1));
   assert.ok(later.json.warnings.some((w) => /^places to stay: Seville/.test(w.message)));
 });
+
+// A map an older pack made: its days planned one sight each (uw plan now refuses that while the turn has time), and a
+// sight whose page no uw cite read (uw add-point now refuses that). A later turn adds a note to a day: the note lands on
+// its day and nothing else changes, and uw validate only warns about what the earlier turn left (its days are the
+// person's; a page nobody read in this turn is not judged), so the map still loads as it was.
+test('an old map, one sight a day and a page no uw cite read, still passes uw validate in a later turn and takes a day\'s note', async () => {
+  const site = 'older';
+  ok(await uw(['new', site, '--title', 'Three days in Seville', '--center', SANTA_CRUZ.join(','), '--zoom', '13']), 'new');
+  ok(await uw(['add-point', site, '--layer', 'stops', '--query', 'Seville', '--country', 'ES', '--kind', 'city', '--id', 'seville', '--props', '{"nights":3}']), 'the stop');
+  ok(await uw(['stay', site, '--near', SANTA_CRUZ.join(','), '--near-label', 'Santa Cruz', '--stop', 'seville', '--kinds', 'hotel']), 'stays');
+  // as the older pack left it: three sights, the third citing a page nobody read, and the days planned one sight each
+  const unread = 'https://www.example-guides.test/casa-de-pilatos';
+  for (const [i, s] of SIGHTS.slice(0, 3).entries()) {
+    ok(await uw(['add-point', site, '--layer', 'sights', '--at', s.c.join(','), '--name', s.name, '--id', s.id, '--props-file', '-'],
+      { input: JSON.stringify({ stop: 'seville', source_url: i === 2 ? unread : s.page, source: 'Wikipedia' }), env: i === 2 ? { UW_NO_CACHE: '1' } : {} }), s.name);
+  }
+  const plan = ['plan', site, '--stops', 'stops', '--ids', 'seville', '--nights', '3', '--start', '2026-11-06', '--stays', 'stays', '--sights', 'sights'];
+  assert.equal((await uw(plan)).code, 2, 'this pack refuses one sight a day while the turn has time');
+  ok(await uw(plan, { env: { UW_TURN_BUDGET: '100' } }), 'the days as they were planned');
+  ok(await uw(['fit', site]), 'fit');
+  assert.deepEqual(cfgOf(site).plan.days.map((d) => d.items.filter((it) => it.ref?.layer === 'sights').length), [1, 1, 1]);
+
+  // the next turn, hours later as far as the map is concerned
+  const now = Date.now() + 1000;
+  fs.writeFileSync(path.join(tmp, site, '.uwcache', 'turn.json'), JSON.stringify({ started: now, last: now }));
+  await new Promise((r) => setTimeout(r, 1100));
+  const before = { cfg: cfgOf(site), sights: layerOf(site, 'sights') };
+  const r = await uw(['set', site, 'plan:day1', '--note', 'Book the Alcázar tickets ahead.', '--json']);
+  ok(r, 'the note');
+  assert.deepEqual([r.json.day, r.json.note, r.json.shown], [1, 'Book the Alcázar tickets ahead.', true]);
+  const cfg = cfgOf(site);
+  assert.equal(cfg.plan.days[0].note, 'Book the Alcázar tickets ahead.');
+  delete cfg.plan.days[0].note;
+  assert.deepEqual(cfg, before.cfg, 'nothing else changed');
+  assert.deepEqual(layerOf(site, 'sights'), before.sights);
+  const v = await uw(['validate', site, '--json']);
+  assert.equal(v.code, 0, JSON.stringify(v.json?.errors ?? v.out, null, 1));
+  const days = v.json.warnings.filter((w) => w.path === '$.plan.days');
+  assert.deepEqual(days.map((w) => w.message), ['3 of 3 full days have one place to see: Fri 6 Nov · Seville, Sat 7 Nov · Seville, Sun 8 Nov · Seville']);
+  assert.match(days[0].fix, /^the days were planned in an earlier turn: keep what the person changed/);
+  assert.deepEqual([...v.json.errors, ...v.json.warnings].filter((e) => e.path === '$.plan.sights'), [], 'a page an earlier turn gave is not judged unread');
+});

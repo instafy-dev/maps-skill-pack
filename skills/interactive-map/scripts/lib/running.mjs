@@ -18,6 +18,12 @@ const stillUw = (pid) => {
 };
 const quote = (a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `"${String(a).replace(/(["\\$`])/g, '\\$1')}"`);
 
+/** Is this command a step `uw handoff --apply` runs itself (it starts each with UW_HANDOFF_STEP=1), not the turn's
+ *  own? Its places carry the research lanes' pages, which the handoff's own source check judges, and its report sends
+ *  the turn to fill the days still short of places: `uw add-point`'s "cite it first" and `uw plan`'s refusal of days
+ *  short of places are for the turn's own commands. */
+export const handoffStep = (env = process.env) => env.UW_HANDOFF_STEP === '1';
+
 /** The command as one short line, `uw <cmd>` and its arguments (`args` without the site's folder: "on this site"). */
 export function commandLabel(cmd, args = [], max = 110) {
   let line = `uw ${cmd}`;

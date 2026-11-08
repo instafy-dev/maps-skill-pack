@@ -636,7 +636,7 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       const giveOwn = unsourced ? `; ${unsourced === 1 ? 'the place' : `the ${unsourced} places`} pinned with no page: uw set ${args._[0]} <layer>:<id> --props-file - with {"source_url":…,"source":…}` : '';
       if (bareDays.length)
         E(CFG, '$.plan.days', `${bareDays.length} of ${gaps.full} full days have nothing to see (no sourced place): ${days4(bareDays)}`,
-          `uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --force spreads the places already pinned over every day, the arrival day too: run it first when a stop has as many places as days. Else cite 2-3 places for each of those days in this turn, ${citeOwn}; then ${pinTo}${giveOwn} (reference/itinerary.md Phase B step 1), then run it; ${notPinned}`);
+          `uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --force spreads the places already pinned over every day, the arrival day too: run it first when a stop has two places for each of its days. Else cite 2-3 places for each of those days in this turn, ${citeOwn}; then ${pinTo}${giveOwn} (reference/itinerary.md Phase B step 1), then run it; ${notPinned}`);
       // A plan made for one place a day (uw plan --per-day 1, only for a person who asked for that) is warned in the
       // turn that planned it: a turn whose days had one place each planned it so, with nobody asking, from this check's
       // own fix, and passed with six minutes left. Unless the person asked for one a day, the fix fills each day with

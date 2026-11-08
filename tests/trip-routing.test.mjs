@@ -18,8 +18,8 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'uw-trip-route-'));
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 const env = { ...process.env, UW_NO_CACHE: '1' };
 delete env.INSTAFY_CACHE_DIR;
-const uw = (args) => {
-  const r = spawnSync(process.execPath, [UW, ...args], { cwd: tmp, env, encoding: 'utf8' });
+const uw = (args, extra = {}) => {
+  const r = spawnSync(process.execPath, [UW, ...args], { cwd: tmp, env: { ...env, ...extra }, encoding: 'utf8' });
   let json = null; try { json = JSON.parse(r.stdout); } catch {}
   return { code: r.status, out: r.stdout, err: r.stderr, json };
 };
@@ -59,8 +59,9 @@ test('uw validate: a trip with nights and no plan fails, days in place notes do 
   write('stays', [point('baixa', LISBON.base.coord, { name: 'Baixa', kind: 'area', stop: 'lisbon', note: 'Area to stay in: central and flat.' })]);
   cfg.layers.push({ id: 'stays', type: 'points', title: 'Stays', data: 'data/stays.geojson' });
   fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
-  // the plan made: the error goes
-  const plan = uw(['plan', 'lx', '--stops', 'stops', '--ids', 'lisbon', '--nights', '3', '--start', '2026-10-30', '--stays', 'stays', '--sights', 'sights', '--json']);
+  // the plan made: the error goes (written with under ~3 minutes left for tool work, a 100 s budget: with more time,
+  // uw plan refuses days with fewer than two places that have their own page)
+  const plan = uw(['plan', 'lx', '--stops', 'stops', '--ids', 'lisbon', '--nights', '3', '--start', '2026-10-30', '--stays', 'stays', '--sights', 'sights', '--json'], { UW_TURN_BUDGET: '100' });
   assert.equal(plan.code, 0, plan.out + plan.err);
   const days = JSON.parse(fs.readFileSync(cfgPath, 'utf8')).plan.days;
   assert.ok(days.filter((d) => !d.depart).every((d) => d.focus?.layer === 'stays' && d.focus?.id === 'baixa'), JSON.stringify(days.map((d) => d.focus)));

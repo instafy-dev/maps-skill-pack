@@ -36,6 +36,9 @@ const run = (args, extra = {}) => new Promise((resolve) => {
 });
 
 const point = (id, coord, props = {}) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: coord }, properties: { id, ...props } });
+/** A host turn with 7 min 30 s of its ten minutes used: too little time left to add places, so uw plan writes the days
+ *  as they are (with more, it refuses days with fewer than two places that have their own page) */
+const late = () => ({ INSTAFY_TURN_STARTED_AT: new Date(Date.now() - 450e3).toISOString(), INSTAFY_TURN_DEADLINE: new Date(Date.now() + 150e3).toISOString() });
 // each place cites its own page (places that share one fail uw validate while the turn has time)
 const src = (p) => ({ source_url: `https://en.wikipedia.org/wiki/${encodeURIComponent(p.name.replace(/ /g, '_'))}`, source: 'Wikipedia' });
 const sightFeats = (list = LISBON.places) => list.map((p) => Object.assign(point(p.id, p.coord, { name: p.name, stop: 'lisbon', ...src(p) }), { _layer: 'sights' }));
@@ -92,9 +95,16 @@ test('plan (CLI): one stop is a stay of 3 nights: three dated days, no travel da
 test('validate: a plan made with --sights fails while a full day has nothing to see, and passes once each has a place', async () => {
   const { dir, cfgPath } = await makeSite('lx-bare');
   fs.writeFileSync(path.join(dir, 'data', 'sights.geojson'), JSON.stringify({ type: 'FeatureCollection', features: [] }));
-  const plan = await run(['plan', 'lx-bare', '--stops', 'stops', '--ids', 'lisbon', '--nights', '3', '--start', '2026-10-29', '--stays', 'stays', '--sights', 'sights,food,daytrips']);
+  const args = ['plan', 'lx-bare', '--stops', 'stops', '--ids', 'lisbon', '--nights', '3', '--start', '2026-10-29', '--stays', 'stays', '--sights', 'sights,food,daytrips'];
+  // while the turn has time, no place yet is no plan: refused, with the places to add near the base
+  const refused = await run(args);
+  assert.equal(refused.code, 2, refused.err + refused.out);
+  assert.match(refused.err, /^REFUSED: 3 of 3 full days would have fewer than 2 places to see with their own page \(a full day takes 2-3\): Thu 29 Oct · Lisbon \(0\), Fri 30 Oct · Lisbon \(0\), Sat 31 Oct · Lisbon \(0\)\. Nothing was written\.$/m);
+  assert.match(refused.err, /^Add 6 more places near the base, Hotel in Baixa \(--near -?[\d.]+,-?[\d.]+\), each from its own page: /m);
+  assert.equal(JSON.parse(fs.readFileSync(cfgPath, 'utf8')).plan, undefined, 'nothing was written');
+  // with too little time left the days are written as they are, and uw validate fails them
+  const plan = await run(args, late());
   assert.equal(plan.code, 0, plan.err + plan.out);
-  assert.match(plan.out, /--sights sights,food,daytrips: no place in them yet, so every full day is empty and uw validate fails/);
   assert.doesNotMatch(plan.out, /No --sights/, 'the plan was given --sights');
   // the card is out since `uw new`: the next step refreshes it, never posts another
   assert.match(plan.out, /^Next: uw validate, then SKILL\.md step 9 \(refreshes the card\)\./m);
@@ -310,7 +320,13 @@ test('validate: a plan made with --sights fails while the arrival day has nothin
   const pick = (ids) => JSON.stringify({ type: 'FeatureCollection', features: LISBON.places.filter((p) => ids.includes(p.id)).map((p) => point(p.id, p.coord, { name: p.name, stop: 'lisbon', ...src(p) })) });
   fs.writeFileSync(path.join(dir, 'data', 'sights.geojson'), pick(['castelo', 'torre']));
   const plan = ['plan', 'lx-arrive', '--stops', 'stops', '--ids', 'lisbon', '--nights', '3', '--start', '2026-10-30', '--stays', 'stays', '--sights', 'sights', '--force'];
-  assert.equal((await run(plan)).code, 0);
+  // while the turn has time the plan refuses the days short of places, the arrival day too
+  const refused = await run([...plan, '--json']);
+  assert.equal(refused.code, 2, refused.out + refused.err);
+  assert.deepEqual(refused.json.short_days, [{ title: 'Fri 30 Oct · Lisbon', places: 0 }, { title: 'Sat 31 Oct · Lisbon', places: 1 }, { title: 'Sun 1 Nov · Lisbon', places: 1 }]);
+  assert.equal(refused.json.add[0].places, 4);
+  // written as they are with too little time left, uw validate fails them
+  assert.equal((await run(plan, late())).code, 0);
   assert.equal((await run(['fit', 'lx-arrive'])).code, 0);
   const v = await run(['validate', 'lx-arrive']);
   assert.notEqual(v.code, 0, v.out + v.err);
@@ -318,7 +334,8 @@ test('validate: a plan made with --sights fails while the arrival day has nothin
   // a third place: every day has one, so none is bare; but a full day takes 2-3, so one each still fails while the
   // turn has time
   fs.writeFileSync(path.join(dir, 'data', 'sights.geojson'), pick(['castelo', 'torre', 'se']));
-  assert.equal((await run(plan)).code, 0);
+  assert.equal((await run(plan)).code, 2);
+  assert.equal((await run(plan, late())).code, 0);
   const one = await run(['validate', 'lx-arrive']);
   assert.notEqual(one.code, 0, one.out + one.err);
   assert.doesNotMatch(one.out + one.err, /nothing to see/);

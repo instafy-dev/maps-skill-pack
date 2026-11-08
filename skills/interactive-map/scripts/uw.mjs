@@ -262,11 +262,12 @@ async function main() {
       setTimeout(hardStop, (limit + 15) * 1000).unref();
     }
   }
-  // validate is told when this turn started and what its clock has left (nothing with the turn budget off: no limit): a
-  // day with one place to see fails in the turn that planned the days, while there is time to add places
-  // (lib/turn-advice.mjs REPLY_WITHIN_S)
-  const turnLeftS = cmd === 'validate' && clock && TURN_BUDGET_S > 0 ? (await import('./lib/turn-advice.mjs')).secondsLeft(clock.elapsedS, TURN_BUDGET_S) : null;
-  const code = cmd === 'validate' ? await mod[entry[1]](rest, { turnLeftS, turnStartedMs: clock ? (HOST_STARTED_MS ?? clock.startedMs) : null }) : await mod[entry[1]](rest);
+  // validate and plan are told when this turn started and what its clock has left (nothing with the turn budget off: no
+  // limit): a day with one place to see fails in the turn that planned the days, and plan refuses days short of places,
+  // while there is time to add places (lib/turn-advice.mjs REPLY_WITHIN_S)
+  const clocked = cmd === 'validate' || cmd === 'plan';
+  const turnLeftS = clocked && clock && TURN_BUDGET_S > 0 ? (await import('./lib/turn-advice.mjs')).secondsLeft(clock.elapsedS, TURN_BUDGET_S) : null;
+  const code = clocked ? await mod[entry[1]](rest, { turnLeftS, turnStartedMs: clock ? (HOST_STARTED_MS ?? clock.startedMs) : null }) : await mod[entry[1]](rest);
   if (typeof code === 'number') process.exitCode = code;
   if (siteDir || cmd === 'new') turnClock(siteDir || siteDirOf(rest), { touchOnly: true });
   if (clock && (cmd === 'question' || cmd === 'validate') && !argv.includes('--json')) {

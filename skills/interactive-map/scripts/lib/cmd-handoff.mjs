@@ -399,7 +399,8 @@ function uwStep(cmdArgs, log) {
   }
   return new Promise((resolve) => {
     const chunks = [];
-    const child = spawn(process.execPath, [UW, ...cmdArgs], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+    // a step of this run, not the turn's own command (running.mjs handoffStep)
+    const child = spawn(process.execPath, [UW, ...cmdArgs], { env: { ...process.env, UW_HANDOFF_STEP: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
     child.stdout.on('data', (d) => chunks.push(d));
     child.stderr.on('data', (d) => chunks.push(d));
     const done = (code) => {

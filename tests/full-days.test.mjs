@@ -1,7 +1,10 @@
 // "Plan 3 days in Seville for a first visit: where to stay, what to see each day, on a map" got one sight a day. The
 // trip guide asked for "2-3 per city", which three sights in one city meet, and `uw validate` only warned about days
 // with one place ("until each stop has 2-3"), so the turn replied with almost seven minutes left. Now:
-//  - a full day takes 2-3 sourced places: with --sights, a day with one fails `uw validate` as a day with none does,
+//  - a full day takes 2-3 sourced places: with --sights, `uw plan` refuses days with fewer while the turn clock leaves
+//    more than about 3 minutes and the place search answers (it names the days and how many places to add near the
+//    base; nothing is written), one a day passes only with --per-day 1, and with less time, or the search down, the days
+//    are written as they are; a day with one fails `uw validate` as a day with none does,
 //    in the turn that planned the days while its clock leaves more than about 3 minutes; with less, or in a later turn
 //    (which keeps the days the person changed: a place moved or dropped), it is a warning that names the days for the
 //    reply; a plan made for one place a day (--per-day 1, only for a person who asked for that) is warned too in the
@@ -155,37 +158,32 @@ const newTrip = async (site) => {
   const stop = await uw(['add-point', site, '--layer', 'stops', '--at', CITY.join(','), '--name', 'Seville', '--kind', 'city', '--id', 'seville', '--props', '{"nights":3}']);
   assert.equal(stop.code, 0, stop.out + stop.err);
 };
-const plan = (site, more = [], opts = {}) => uw(['plan', site, '--stops', 'stops', '--ids', 'seville', '--nights', '3', '--start', '2026-11-02', ...more, '--force', '--json'], opts);
+const plan = (site, more = [], { json = true, ...opts } = {}) => uw(['plan', site, '--stops', 'stops', '--ids', 'seville', '--nights', '3', '--start', '2026-11-02', ...more, '--force', ...(json ? ['--json'] : [])], opts);
 const sightsOn = (site) => cfgOf(site).plan.days.map((d) => d.items.filter((it) => it.ref?.layer === 'sights').length);
 
 // ---------------------------------------------------------------------------
-test('a 3-day trip with one sight a day fails uw validate with --sights while the turn has time; two a day pass', async () => {
+test('a 3-day trip: uw plan refuses one sight a day while the turn has time, naming the days and how many places to add near the base; two a day pass', async () => {
   const site = 'sv';
   await newTrip(site);
   for (const s of SIGHTS.slice(0, 3)) assert.equal((await pin(site, s)).code, 0);
+  // a fresh turn (eight minutes for tool work): three places spread one a day are not three days worth following, so
+  // nothing is written, and the refusal names the days (the arrival day too) and the places to add near the base (the
+  // point of the stop the days start from here: no stays), each from its own page with uw cite, never a browser card
   const one = await plan(site, ['--sights', 'sights']);
-  assert.equal(one.code, 0, one.out + one.err);
-  assert.deepEqual(sightsOn(site), [1, 1, 1], 'one sight a day, the arrival day too');
+  assert.equal(one.code, 2, one.out + one.err);
+  const next = 'Add 3 more places near the base, Seville (--near -5.99534,37.38863), each from its own page: uw cite <its page> --grep "<its name>", then uw add-point sv --layer sights --near -5.99534,37.38863 … with {"stop":"seville","source_url":"<that page>","source":"<site>"}, one place per command (reference/itinerary.md Phase B step 1). Then run this command again.';
+  assert.deepEqual(one.json, { ok: false, refused: 'days_short_of_places', places_a_day: 2,
+    short_days: [{ title: 'Mon 2 Nov · Seville', places: 1 }, { title: 'Tue 3 Nov · Seville', places: 1 }, { title: 'Wed 4 Nov · Seville', places: 1 }],
+    add: [{ name: 'Seville', near: '-5.99534,37.38863', stop: 'seville', places: 3 }], next });
+  assert.equal(cfgOf(site).plan, undefined, 'nothing was written');
+  // the text form says the same; one a day is never offered as the way out (a turn took it, with nobody asking for one
+  // place a day)
+  const text = await plan(site, ['--sights', 'sights'], { json: false });
+  assert.equal(text.code, 2);
+  assert.deepEqual(text.err.trim().split('\n'), ['REFUSED: 3 of 3 full days would have fewer than 2 places to see with their own page (a full day takes 2-3): Mon 2 Nov · Seville (1), Tue 3 Nov · Seville (1), Wed 4 Nov · Seville (1). Nothing was written.', next]);
+  assert.doesNotMatch(text.err, /--per-day/);
 
-  // a fresh turn (eight minutes for tool work): a day with one place is not finished
-  const v = await uw(['validate', site, '--signal', '--json']);
-  assert.equal(v.code, 1, v.out);
-  const days = v.json.errors.filter((e) => e.path === '$.plan.days');
-  assert.deepEqual(days.map((e) => e.message), ['3 of 3 full days have one place to see (a full day takes 2-3 sourced places): Mon 2 Nov · Seville, Tue 3 Nov · Seville, Wed 4 Nov · Seville']);
-  // its fix adds places near the day's base (the point of the stop the days start from here: no stays), each from its
-  // own page with uw cite (never a browser card), then plans again; a place the lookup cannot pin goes on its day as a
-  // link (the fix of a day with nothing to see says the same). One a day is never offered as the way out of the check:
-  // a turn took it, with nobody asking for one place a day
-  assert.equal(days[0].fix, 'add one or two places near the base to each of those days, rather than spreading the places you have one a day: each from its own page (its own site, else its Wikipedia article): uw cite <page> --grep "<its name>", never a browser card; then uw add-point sv --layer sights --near -5.99534,37.38863 … with {"stop":…,"source_url":…}, one place per command (reference/itinerary.md Phase B step 1), then uw plan sv … --sights sights --force; a place the lookup cannot pin goes on its day as {"text": "<name>", "url": "<its page>", "source": "<site>"}');
-  assert.doesNotMatch(days[0].fix, /--per-day/);
-  assert.equal(v.json.warnings.filter((w) => w.path === '$.plan.days').length, 0, 'an error, not also a warning');
-  // the text form names the time left on the clock line, after the error
-  const text = await uw(['validate', site, '--signal']);
-  assert.equal(text.code, 1);
-  assert.match(text.out, /^ERROR map\.config\.json \$\.plan\.days: 3 of 3 full days have one place to see/m);
-  assert.match(text.err, /time: 0m\d\ds used, about (7m\d\d|8m00)s left for tool work this turn\. 3 of 3 full days have fewer than 2 sourced sights\./);
-
-  // two a day: each full day has 2 sourced places, and validate passes
+  // as it says: three more places near the base, each with its own page; each full day has 2, and validate passes
   for (const s of SIGHTS.slice(3)) assert.equal((await pin(site, s)).code, 0);
   const two = await plan(site, ['--sights', 'sights']);
   assert.equal(two.code, 0, two.out + two.err);
@@ -195,34 +193,52 @@ test('a 3-day trip with one sight a day fails uw validate with --sights while th
   assert.deepEqual(ok.json.warnings.filter((w) => w.path === '$.plan.days'), []);
 });
 
-test('with under ~3 minutes left, a day with one place is a warning that names the days for the reply; a day with none still fails', async () => {
+test('with under ~3 minutes left the days are written as they are, and a day with one place is a warning that names them for the reply; a day with none still fails', async () => {
   const site = 'sv-late';
   await newTrip(site);
   for (const s of SIGHTS.slice(0, 3)) assert.equal((await pin(site, s)).code, 0);
-  assert.equal((await plan(site, ['--sights', 'sights'])).code, 0);
   // 7 min 30 s of a ten-minute turn used: 30 s left for tool work, time to reply (SKILL.md: under ~3 min left, start
-  // nothing slow), so the fix is what the reply says, not more places
-  const late = await uw(['validate', site, '--signal', '--json'], { clock: hostClock(450) });
+  // nothing slow): the plan writes the days as they are, and the fix is what the reply says, not more places
+  const turn = hostClock(450);
+  const written = await plan(site, ['--sights', 'sights'], { clock: turn });
+  assert.equal(written.code, 0, written.out + written.err);
+  assert.deepEqual(sightsOn(site), [1, 1, 1]);
+  const late = await uw(['validate', site, '--signal', '--json'], { clock: turn });
   assert.equal(late.code, 0, JSON.stringify(late.json?.errors ?? late.out, null, 1));
   const w = late.json.warnings.filter((x) => x.path === '$.plan.days');
   assert.deepEqual(w.map((x) => x.message), ['3 of 3 full days have one place to see: Mon 2 Nov · Seville, Tue 3 Nov · Seville, Wed 4 Nov · Seville']);
   assert.equal(w[0].fix, 'too little time is left to add places in this turn; the reply names these days and offers to add places to them');
-  // 2 min 30 s used: five and a half minutes left, so it fails
+  // with five and a half minutes left (2 min 30 s used) such days fail uw validate too; its fix adds places near the
+  // day's base (the stop's point here: no stays), each from its own page with uw cite (never a browser card), then
+  // plans again; a place the lookup cannot pin goes on its day as a link. One a day is never offered as the way out
   const early = await uw(['validate', site, '--signal', '--json'], { clock: hostClock(150) });
   assert.equal(early.code, 1, early.out);
-  assert.ok(early.json.errors.some((e) => /^3 of 3 full days have one place to see/.test(e.message)), JSON.stringify(early.json.errors, null, 1));
+  const days = early.json.errors.filter((e) => e.path === '$.plan.days');
+  assert.deepEqual(days.map((e) => e.message), ['3 of 3 full days have one place to see (a full day takes 2-3 sourced places): Mon 2 Nov · Seville, Tue 3 Nov · Seville, Wed 4 Nov · Seville']);
+  assert.equal(days[0].fix, 'add one or two places near the base to each of those days, rather than spreading the places you have one a day: each from its own page (its own site, else its Wikipedia article): uw cite <page> --grep "<its name>", never a browser card; then uw add-point sv-late --layer sights --near -5.99534,37.38863 … with {"stop":…,"source_url":…}, one place per command (reference/itinerary.md Phase B step 1), then uw plan sv-late … --sights sights --force; a place the lookup cannot pin goes on its day as {"text": "<name>", "url": "<its page>", "source": "<site>"}');
+  assert.doesNotMatch(days[0].fix, /--per-day/);
+  assert.equal(early.json.warnings.filter((x) => x.path === '$.plan.days').length, 0, 'an error, not also a warning');
+  // the text form names the time left on the clock line, after the error
+  const text = await uw(['validate', site, '--signal'], { clock: hostClock(150) });
+  assert.equal(text.code, 1);
+  assert.match(text.out, /^ERROR map\.config\.json \$\.plan\.days: 3 of 3 full days have one place to see/m);
+  assert.match(text.err, /time: 2m3\ds used, about 5m[23]\ds left for tool work this turn\. 3 of 3 full days have fewer than 2 sourced sights\./);
   // the turn budget off (UW_TURN_BUDGET=0, as a background job runs) is time to add places, not none
   const off = await uw(['validate', site, '--signal', '--json'], { env: { UW_TURN_BUDGET: '0' } });
   assert.equal(off.code, 1, off.out);
   assert.ok(off.json.errors.some((e) => /^3 of 3 full days have one place to see/.test(e.message)), JSON.stringify(off.json.errors, null, 1));
+  // so the plan, with that clock, refuses those days; a step `uw handoff --apply` runs itself writes them as they are
+  // (its report sends the turn to fill them)
+  assert.equal((await plan(site, ['--sights', 'sights'], { env: { UW_TURN_BUDGET: '0' } })).code, 2);
+  assert.equal((await plan(site, ['--sights', 'sights'], { env: { UW_HANDOFF_STEP: '1' } })).code, 0);
 
   // a day with nothing to see fails whatever the time
   const file = path.join(tmp, site, 'data', 'sights.geojson');
   const fc = JSON.parse(fs.readFileSync(file, 'utf8'));
   fs.writeFileSync(file, JSON.stringify({ ...fc, features: fc.features.slice(0, 2) }));
-  assert.equal((await plan(site, ['--sights', 'sights'])).code, 0);
+  assert.equal((await plan(site, ['--sights', 'sights'], { clock: turn })).code, 0);
   assert.deepEqual(sightsOn(site), [0, 1, 1]);
-  const none = await uw(['validate', site, '--signal', '--json'], { clock: hostClock(450) });
+  const none = await uw(['validate', site, '--signal', '--json'], { clock: turn });
   assert.equal(none.code, 1, none.out);
   assert.deepEqual(none.json.errors.filter((e) => e.path === '$.plan.days').map((e) => e.message), ['1 of 3 full days have nothing to see (no sourced place): Mon 2 Nov · Seville']);
 });
@@ -231,8 +247,9 @@ test('without --sights, most days with one place is a warning that asks for 2-3 
   const site = 'sv-nosights';
   await newTrip(site);
   for (const s of SIGHTS.slice(0, 3)) assert.equal((await pin(site, s)).code, 0);
-  // the plan places them only when given the layer; without --sights the trip is not about what to see each day
-  const p = await plan(site, ['--sights', 'sights']);
+  // the plan places them only when given the layer (with too little time left to add places it writes the days as they
+  // are); without --sights the trip is not about what to see each day
+  const p = await plan(site, ['--sights', 'sights'], { clock: hostClock(450) });
   assert.equal(p.code, 0);
   const cfg = cfgOf(site);
   delete cfg.plan.sights;
@@ -276,7 +293,7 @@ test('a later turn keeps the days the person changed: a place moved off a day wa
   const file = path.join(tmp, site, 'data', 'sights.geojson');
   const fc = JSON.parse(fs.readFileSync(file, 'utf8'));
   fs.writeFileSync(file, JSON.stringify({ ...fc, features: fc.features.filter((f) => ['cathedral', 'alcazar', 'plaza-espana'].includes(f.properties.id)) }));
-  assert.equal((await plan(site, ['--sights', 'sights'])).code, 0);
+  assert.equal((await plan(site, ['--sights', 'sights'], { clock: hostClock(450) })).code, 0);
   assert.deepEqual(sightsOn(site), [1, 1, 1]);
   const older = cfgOf(site);
   delete older.plan.planned_at;
@@ -330,25 +347,39 @@ test('a plan made for one place a day still warns on each day with one place: ad
   const help = (await uw(['plan', '--help'])).out.replace(/\s+/g, ' ');
   assert.match(help, /--per-day 1 \(kept as "per_day"\) is only for a person who asked for one place a day\./);
   assert.doesNotMatch(help, /so does a plan made with --per-day 1/);
-  // without it, the same three places fail in the turn that planned them, with the same fix
-  assert.equal((await plan(site, ['--stays', 'stays', '--sights', 'sights'], { clock: turn })).code, 0);
-  assert.equal(cfgOf(site).plan.per_day, undefined);
-  const e = await uw(['validate', site, '--signal', '--json'], { clock: turn });
-  assert.equal(e.code, 1);
-  assert.deepEqual(e.json.errors.filter((x) => x.path === '$.plan.days').map((x) => x.fix), [fix('')]);
+  // without it, the same three places are refused in that turn, with places to add near the base's own point; the plan
+  // made for one place a day stays as it was
+  const e = await plan(site, ['--stays', 'stays', '--sights', 'sights'], { clock: turn });
+  assert.equal(e.code, 2, e.out + e.err);
+  assert.deepEqual(e.json.add, [{ name: base.properties.name, near: base.geometry.coordinates.join(','), stop: 'seville', places: 3 }]);
+  assert.ok(e.json.next.includes(`then uw add-point sv-pace --layer sights --near ${base.geometry.coordinates.join(',')} … with {"stop":"seville",`), e.json.next);
+  assert.equal(cfgOf(site).plan.per_day, 1, 'nothing was written');
+  // one place a day takes one a day: a day with none is refused too
+  const file = path.join(tmp, site, 'data', 'sights.geojson');
+  const fc = JSON.parse(fs.readFileSync(file, 'utf8'));
+  fs.writeFileSync(file, JSON.stringify({ ...fc, features: fc.features.slice(0, 2) }));
+  const short = await plan(site, ['--stays', 'stays', '--sights', 'sights', '--per-day', '1'], { clock: turn });
+  assert.equal(short.code, 2, short.out + short.err);
+  assert.deepEqual([short.json.places_a_day, short.json.short_days.map((d) => d.places), short.json.add.map((a) => a.places)], [1, [0], [1]]);
+  assert.match(short.err, /^REFUSED: 1 of 3 full days would have no place to see with its own page \(one a day: --per-day 1\): /m);
 });
 
-test('while the place search is down, a day with one place takes a place the lookup cannot pin as a link on its day', async () => {
+test('while the place search is down, the plan writes the days as they are, and a day with one place takes a place the lookup cannot pin as a link on its day', async () => {
   const site = 'sv-down';
   await newTrip(site);
   for (const s of SIGHTS.slice(0, 3)) assert.equal((await pin(site, s)).code, 0);
   const turn = hostClock(60);
-  assert.equal((await plan(site, ['--sights', 'sights'], { clock: turn })).code, 0);
+  // the turn has time: three places for three days are refused, with places to add
+  assert.equal((await plan(site, ['--sights', 'sights'], { clock: turn })).code, 2);
   searchDown = true;
   try {
     const a = await uw(['add-point', site, '--layer', 'sights', '--query', 'Archivo General de Indias, Sevilla', '--country', 'ES', '--strict-name', '--near', CITY.join(','), '--id', 'indies', '--props-file', '-'],
       { clock: turn, input: JSON.stringify({ stop: 'seville', source_url: SIGHTS[3].page, source: 'cultura.gob.es' }) });
     assert.equal(a.code, 4, a.out + a.err);
+    // the place search is down: no place can be added now, so the days are written as they are
+    const p = await plan(site, ['--sights', 'sights'], { clock: turn });
+    assert.equal(p.code, 0, p.out + p.err);
+    assert.deepEqual(sightsOn(site), [1, 1, 1]);
   } finally {
     searchDown = false;
     fs.rmSync(path.join(tmp, 'lookups.json'), { force: true });
@@ -425,7 +456,8 @@ test('the trip guide asks for 2-3 sourced places a full day, not a city, says wh
   assert.match(md, / 1\. \*\*Sights with sources, 2-3 a full day\.\*\* /);
   assert.match(md, /`uw validate` fails while a full day has fewer than two sourced places \(one: in the turn that planned the days, while its clock shows more than ~3 min left; a later turn keeps the days the person changed\)/);
   assert.match(md, /One place a day only when the person asked for it: `uw plan … --per-day 1`\./);
-  assert.match(md, /Every full day gets its places before the reply: `uw validate` fails while one has fewer than two\./);
+  assert.match(md, /Every full day gets its places before the plan: `uw plan` refuses one with fewer than two\./);
+  assert.match(md, /build the plan with `--sights`: `uw plan` refuses fewer than two a day while there is time, and `uw validate` fails while a full day has fewer than two sourced places/);
   // a later turn's move or drop stays: no re-plan for a move (it groups the days by area again), and a dropped place
   // leaves the map (else validate finds it on no day and its fix plans it back)
   assert.match(md, /- Moving a place to another day: move its item and reword both days' texts in the same edit \(never `uw plan --force` for it: it groups the days by area again, which undoes the move\)/);
