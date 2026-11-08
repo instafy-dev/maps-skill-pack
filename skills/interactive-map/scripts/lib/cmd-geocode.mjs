@@ -8,8 +8,8 @@ import { emojiFor } from './kinds.mjs';
 import { fitView } from './cmd-site.mjs';
 import { isLodging, registrySearch, acceptable, fmtRegistryCand, registryProps, queryLabel, slugFor } from './registry-geo.mjs';
 import { adapterFor, adapterNamedIn, adapterForArea } from '../adapters/lib/areas.mjs';
-import { unnamedSource, unnamedSourceLine, sourceStamp, sourceNotRead, sourceNotReadRefusal } from './cmd-cite.mjs';
-import { withDayItems } from './cmd-set.mjs';
+import { unnamedSource, unnamedSourceLine, lateSourceLine, sourceStamp, sourceNotRead, sourceNotReadRefusal } from './cmd-cite.mjs';
+import { withDayItems, sourceNotOwn } from './cmd-set.mjs';
 import { handoffStep } from './running.mjs';
 
 export const helps = {
@@ -52,10 +52,12 @@ add-point <dir> --layer <id> --at lng,lat --name "Label" [...]     (only for coo
   check the list, then --pick N or --allow-mismatch. Query words that only name the area (the city, region or country
   the candidates are in) do not count as a name match. --strict-name: refuse unless a candidate's own name carries the
   query's name (use it for a researched place: a wrong hotel with the right reason is worse than "not found").
-  A source_url (in --props) that \`uw cite\` read and that does not name the place is said at once: not its source. One
-  that \`uw cite\` did not read in the last hours (or could not: HTTP 404, refused) is refused before any lookup (exit 2,
-  "cite it first", with the uw cite to run; nothing added): cite the page, then run the same add-point again. So is
-  an address uw cite found is not a page (an image, a PDF): cite the place's own page.
+  A source_url (in --props) that \`uw cite\` did not read in the last hours (or could not: HTTP 404, refused) is refused
+  before any lookup (exit 2, "cite it first", with the uw cite to run; nothing added): cite the page, then run the same
+  add-point again. So is an address uw cite found is not a page (an image, a PDF), and, once the place is found, a page
+  read that does not name it or a page another place already cites, where uw validate fails it: a trip's places to
+  see, an area to stay in that says why (exit 2, "cite its own page"; nothing added). Elsewhere, or with under about 3
+  minutes left on the turn's clock, it is said and the place added.
   --country: only candidates in that country (an ISO code like JP, or its name).
   Taiwan lodging (a hotel/hostel/旅館/飯店/民宿 query, --kind hotel, or a layer like "hotels", in Taiwan by --near or the
   view): when the search's match is missing, far or unsure, Taiwan's lodging registers are searched by name (registered name,
@@ -65,7 +67,8 @@ add-point <dir> --layer <id> --at lng,lat --name "Label" [...]     (only for coo
   place is listed as "Not found yet"; not a wrong name: do not retry with another query this turn).
   map.config.json: a new layer is registered (points; tier option for a layer named like hotels/options/stays, else
   support; --tier sets it), an option layer keeps the view framed on its points (uw fit; --no-fit skips), and a place
-  that could not be added is listed under "missing" (shown as "Not found yet" on the map) until it is.`,
+  that could not be added is listed under "missing" (shown as "Not found yet" on the map) until it is pinned under the id
+  or name it was looked up by (by its OpenStreetMap object: --osm <its osm id> --name "<that name>").`,
 };
 
 /** The last line of a researched sight's --strict-name refusal: the trip guide's rule (reference/itinerary.md Phase B
@@ -518,8 +521,9 @@ export async function geocode(argv) {
   if (!near) out.warn('no --near given: results are not biased to your area; double-check the country/city.');
 }
 
-export async function addPoint(argv) {
-  const ctx = {};
+/** `turn`: the turn's clock, as uw.mjs gives it to validate ({ turnLeftS, turnStartedMs }). */
+export async function addPoint(argv, turn = {}) {
+  const ctx = { turn };
   try { return await addPointRun(argv, ctx); } catch (e) {
     // out of time or unavailable (the search / Overpass busy or down): the place is still listed as "Not found yet", so the reply can say so
     if (isSkip(e) && ctx.site && ctx.args?.query) {
@@ -568,7 +572,9 @@ async function addPointRun(argv, ctx) {
     // researched hotels itself)
     const next = args['strict-name'] && !isLodging({ kind: args.kind || extra.kind, layer }) ? STRICT_NEXT : null;
     if (out.json) process.stdout.write(JSON.stringify(next ? { ...json, next } : json, null, 2) + '\n');
-    console.error([...lines, `Listed on the map as "not found yet" (map.config.json "missing"); it goes away once this place is added.`, ...(next ? [next] : [])].join('\n'));
+    // pinned by its OpenStreetMap object under another name, the place stayed "Not found yet" beside its own pin (the
+    // entry goes only under the id or name it was looked up by): the line says which
+    console.error([...lines, `Listed on the map as "not found yet" (map.config.json "missing"). In OpenStreetMap under another name (an object above, or one uw geocode finds by that name)? Pin that object under the ${args.id ? 'id and name' : 'name'} it was looked up by, which takes it off the list: ${pinAs(args, layer)}, with the same props.`, ...(next ? [next] : [])].join('\n'));
     return code;
   };
   const maxKm = args['max-km'] ?? 8;
@@ -940,15 +946,12 @@ async function addPointRun(argv, ctx) {
   Object.assign(props, extra);
   props.id = id; // --props cannot change the id silently
   const feature = { type: 'Feature', geometry: { type: 'Point', coordinates: chosen.coord.map(round6) }, properties: props };
-  // its source_url is a page uw cite read that does not name it (by its name, or the name it was looked up by): that page
-  // is not its source, said now while the turn can cite the place's own page
-  const sourceMiss = unnamedSource(props, [args.name]);
 
   // the register's licence credit is loaded before the write lock is taken (no waiting inside it)
   const { ATTRIBUTION } = regUsed ? await import('../adapters/tw-hotels.mjs') : {};
   // read, change and write the layer and map.config.json under the site's write lock: another command (another stop
   // of handoff --apply) may write them at the same time
-  const { rel, replaced, cfgChanges, def, cfg, pinned, unlisted, dayItems } = withSiteLock(site, () => {
+  const { rel, replaced, cfgChanges, def, cfg, pinned, unlisted, dayItems, notOwn, lateOwn, sourceMiss } = withSiteLock(site, () => {
     const p = layerPath(site, layer);
     let fc = { type: 'FeatureCollection', features: [] };
     if (exists(p)) {
@@ -978,15 +981,23 @@ async function addPointRun(argv, ctx) {
       return { pinned: others[0], unlisted };
     }
     if (others.length && !ownIsIt) { id = String(others[0].properties.id); props.id = id; }
-    else if (others.length) warnings.push(`the same place is also pinned in this layer as ${others.map((f) => `${layer}:${f.properties.id}`).join(', ')}: one place, one pin: ${others.map((f) => `uw set ${args._[0]} ${layer}:${f.properties.id} --remove`).join('; ')}`);
     const i = fc.features.findIndex((f) => String(f?.properties?.id) === id);
     const replaced = i >= 0;
     const prev = replaced ? fc.features[i] : null;
+    // Same place again: keep metrics/notes added later (enrich, hand edits); moved: drop them (they are stale).
+    const prevC = prev?.geometry?.type === 'Point' ? prev.geometry.coordinates : null;
+    const same = !!prevC && haversine(prevC, feature.geometry.coordinates) < 25;
+    if (same) feature.properties = { ...prev.properties, ...feature.properties };
+    // a page uw validate fails as not the place's own (it does not name the place, or another place cites it) is
+    // refused before anything is written, judged with the place as it is written (cmd-set.mjs sourceNotOwn; a uw
+    // handoff step's places were judged by its own source check). Anywhere else, or with too little time left to cite,
+    // it is said: by its name, or the name it was looked up by, while the turn can still cite the place's own page
+    const notOwn = handoffStep() ? null : sourceNotOwn(site, layer, feature, { ...ctx.turn, stamps: true });
+    if (notOwn && !notOwn.late) return { notOwn };
+    const sourceMiss = unnamedSource(feature.properties, [args.name]);
+    if (others.length && ownIsIt) warnings.push(`the same place is also pinned in this layer as ${others.map((f) => `${layer}:${f.properties.id}`).join(', ')}: one place, one pin: ${others.map((f) => `uw set ${args._[0]} ${layer}:${f.properties.id} --remove`).join('; ')}`);
     if (replaced) {
-      // Same place again: keep metrics/notes added later (enrich, hand edits); moved: drop them (they are stale).
-      const prevC = prev?.geometry?.type === 'Point' ? prev.geometry.coordinates : null;
-      if (prevC && haversine(prevC, feature.geometry.coordinates) < 25) feature.properties = { ...prev.properties, ...feature.properties };
-      else if (Object.keys(prev?.properties || {}).length > Object.keys(feature.properties).length) warnings.push(`${id} moved; its old metrics were dropped. Re-run enrich for ${layer}.`);
+      if (!same && Object.keys(prev?.properties || {}).length > Object.keys(feature.properties).length) warnings.push(`${id} moved; its old metrics were dropped. Re-run enrich for ${layer}.`);
       fc.features[i] = feature;
     } else fc.features.push(feature);
     // when its source was set: a page no uw cite read is judged only for a place whose source this turn set (uw validate)
@@ -1025,7 +1036,7 @@ async function addPointRun(argv, ctx) {
       if (!list.includes(ATTRIBUTION)) { cfg.attribution = [...list, ATTRIBUTION]; cfgChanges.push('added the Taiwan open-data credit'); }
     }
     writeJSON(site.cfgPath, cfg, { pretty: true });
-    return { rel, replaced, cfgChanges, def, cfg, dayItems };
+    return { rel, replaced, cfgChanges, def, cfg, dayItems, lateOwn: notOwn, sourceMiss };
   });
   if (pinned) {
     const ref = `${layer}:${pinned.properties.id}`;
@@ -1041,7 +1052,14 @@ async function addPointRun(argv, ctx) {
     ].join('\n'));
     return 2;
   }
-  if (sourceMiss) warnings.push(unnamedSourceLine(sourceMiss, args._[0], `${layer}:${id}`));
+  if (notOwn) {
+    const { lines, refused, next } = sourceNotReadRefusal(notOwn, notOwn.name || props.name_en || name, 'Nothing was added.', args._[0]);
+    if (out.json) process.stdout.write(JSON.stringify({ ok: false, refused, layer, id, source_url: notOwn.url, next, ...(notOwn.shared ? { cited_by: notOwn.shared } : {}) }, null, 2) + '\n');
+    console.error(lines.join('\n'));
+    return 2;
+  }
+  if (lateOwn) warnings.push(lateSourceLine(lateOwn));
+  else if (sourceMiss) warnings.push(unnamedSourceLine(sourceMiss, args._[0], `${layer}:${id}`));
   let view = null;
   const isOption = def.tier === 'option' || cfg.question?.options?.layer === layer;
   if (isOption && !args['no-fit']) {
@@ -1201,9 +1219,15 @@ async function altNameSearch(q, near) {
       address: t['addr:full'] || [t['addr:street'], t['addr:housenumber']].filter(Boolean).join(' '), distance_km: c[0] != null ? Math.round(haversine(near, c) / 10) / 100 : null };
   }).filter((a) => !/^highway=(bus_stop)/.test(a.type));
 }
+/** add-point by an OpenStreetMap object under the id and name a place was looked up by, which clears its "Not found
+ *  yet" entry (clearMissing), whatever OpenStreetMap calls it */
+function pinAs(args, layer) {
+  const name = args.name || queryLabel(args.query || '');
+  return `uw add-point ${args._[0]} --layer ${layer} --osm <its osm id>${args.id ? ` --id ${args.id}` : ''} --name "${String(name).replace(/(["\\$`])/g, '\\$1')}"`;
+}
 function altLines(alt, args, layer) {
   if (!alt.length) return [];
   return ['OpenStreetMap has these objects nearby with that name as an old, alternative or English name (renamed or rebranded?):',
     ...alt.map((a) => `  ${a.osm_id}: ${a.name} [${a.type}] (${a.matched}) ${a.address ? '— ' + a.address : ''} ${a.distance_km != null ? `(${a.distance_km} km away)` : ''}`),
-    `  If one is the place, add it exactly: add-point ${args._[0]} --layer ${layer} --osm <id> --name "…" (and tell the user about the new name).`];
+    `  If one is the place, add it exactly: ${pinAs(args, layer)} (and tell the user about its new name).`];
 }

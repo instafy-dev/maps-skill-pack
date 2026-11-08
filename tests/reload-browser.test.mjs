@@ -3,7 +3,9 @@
 // hand, because `uw host` reloaded its viewers only on `uw reload`'s stamp in data/version.json. Here a stand-in for the
 // runtime's `instafy bind command <site> reload '{}'` (tests/fixtures.mjs bindCommand) reaches two open pages of one
 // map, which reload in place, and not the page of another map; and a map made before (its engine still looks for that
-// stamp, and its data/version.json has none) loads under the new host and reloads the same way.
+// stamp, and its data/version.json has none) loads under the new host and reloads the same way. A view on a trip's Plan
+// tab comes back on the Plan: its day selects the base with no card, and that card came back over the Plan after each
+// reload.
 // Needs Playwright (UW_PLAYWRIGHT=/path/to/playwright, optionally UW_BROWSER_CHANNEL=chrome); skipped without it.
 // Offline: every request off this computer is aborted. Run: UW_PLAYWRIGHT=… node --test tests/reload-browser.test.mjs
 import { test, after } from 'node:test';
@@ -50,6 +52,30 @@ function oldMap(rel, title) {
     + "      if (prev && typeof ver.reload === 'string' && ver.reload !== prev.reload) this.command({ name: 'reload', args: { note: ver.reload_note } });\n"));
   fs.mkdirSync(path.join(dir, 'data'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'data', 'version.json'), JSON.stringify({ v: 1, updated_at: '2026-11-07T20:53:36.167Z', files: {}, jobs: {} }, null, 2));
+  return dir;
+}
+/** A trip map with its days planned (a base and two sights), as a turn builds one */
+function tripMap(rel, title) {
+  const dir = newMap(rel, title);
+  const pt = (id, c, p) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: c }, properties: { id, ...p } });
+  const w = (f, j) => fs.writeFileSync(path.join(dir, 'data', f), JSON.stringify(j));
+  w('stops.geojson', { type: 'FeatureCollection', uw: { cmd: 'add-point' }, features: [pt('porto', [-8.6291, 41.1579], { name: 'Porto', kind: 'city', nights: 2 })] });
+  w('stays.geojson', { type: 'FeatureCollection', uw: { cmd: 'stay' }, features: [pt('porto-hotel', [-8.6110, 41.1460], { name: 'Hotel da Ribeira', kind: 'hotel', stop: 'porto', rank: 1, walk_min: 3, walk_to: 'Ribeira' })] });
+  w('sights.geojson', { type: 'FeatureCollection', uw: { cmd: 'add-point' }, features: [
+    pt('se', [-8.6110, 41.1428], { name: 'Sé do Porto', stop: 'porto', source_url: 'https://en.wikipedia.org/wiki/Porto_Cathedral', source: 'Wikipedia' }),
+    pt('bolsa', [-8.6155, 41.1413], { name: 'Palácio da Bolsa', stop: 'porto', source_url: 'https://en.wikipedia.org/wiki/Pal%C3%A1cio_da_Bolsa', source: 'Wikipedia' })] });
+  const cfgPath = path.join(dir, 'map.config.json');
+  const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+  cfg.layers = [
+    { id: 'stops', title: 'Stops', type: 'points', data: 'data/stops.geojson', list: false },
+    { id: 'stays', title: 'Stays', type: 'points', data: 'data/stays.geojson', list: true },
+    { id: 'sights', title: 'Sights', type: 'points', data: 'data/sights.geojson', list: true },
+  ];
+  fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+  // the days as they are (a 100 s turn: too little time left to add places)
+  const planned = spawnSync(process.execPath, [UW, 'plan', dir, '--stops', 'stops', '--ids', 'porto', '--nights', '2', '--start', '2026-11-06', '--stays', 'stays', '--sights', 'sights'],
+    { cwd: tmp, env: { ...env, UW_TURN_BUDGET: '100' }, encoding: 'utf8' });
+  assert.equal(planned.status, 0, planned.stdout + planned.stderr);
   return dir;
 }
 /** `uw host . --port <port>` from the map's own folder, as its preview card starts it */
@@ -109,5 +135,51 @@ test('the reload Instafy sends a changed map reaches every open view of it, whic
   assert.match(r.toast, /Map updated/);
   // every view came back to its map and listens again
   assert.ok(await waitFor(async () => (await P.viewers()) === 2 && (await L.viewers()) === 1));
+  assert.deepEqual(errors, []);
+});
+
+test('a reload keeps a view on the Plan tab on the Plan: its day\'s base stays selected with no card over it; a card that was open stays open', { skip: pw ? false : 'Playwright not found (set UW_PLAYWRIGHT)', timeout: 180000 }, async () => {
+  const dir = tripMap('sites/porto-trip', 'Porto in 2 days');
+  const H = await host(dir);
+  const browser = await launchChromium(pw);
+  closers.push(() => browser.close());
+  const errors = [];
+  const view = (page) => page.evaluate(() => ({
+    shown: [...document.querySelectorAll('.uw-panel')].filter((p) => !p.hidden).map((p) => p.dataset.panel),
+    tab: [...document.querySelectorAll('.uw-tab[aria-selected="true"]')].map((b) => b.dataset.tab),
+    sel: /[#&]s=([^&]+)/.exec(location.hash)?.[1] ?? null,
+  }));
+  const reload = async (page) => {
+    await page.evaluate(() => { window.__before = true; });
+    const sent = await bindCommand(dir, 'reload');
+    assert.equal(sent.status, 202, sent.text);
+    await page.waitForFunction(() => window.__uwReady === true && window.__before === undefined, null, { timeout: 60000 });
+    // the selection's card would come with the selection, as the page draws it
+    await page.waitForTimeout(800);
+  };
+  for (const opts of [{ viewport: { width: 1280, height: 800 } }, { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }]) {
+    const ctx = await browser.newContext(opts);
+    await ctx.route(/^https?:\/\/(?!127\.0\.0\.1|localhost)/, (r) => r.abort());
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await page.goto(`http://127.0.0.1:${H.port}/`);
+    await page.waitForFunction(() => window.__uwReady === true, null, { timeout: 60000 });
+    // the person opens the Plan tab: day 1 selects its base, with no card over the Plan
+    await page.click('.uw-tab[data-tab="plan"]');
+    await page.waitForFunction(() => /[#&]d=1/.test(location.hash), null, { timeout: 10000 });
+    const before = await view(page);
+    assert.deepEqual([before.shown, before.tab, before.sel], [['plan'], ['plan'], 'stays:porto-hotel'], JSON.stringify(before));
+    // a change is saved and the view reloads: the Plan, as it was, the base still selected
+    await reload(page);
+    assert.deepEqual(await view(page), before, `${opts.viewport.width} px: the Plan tab stays open, with no card over it`);
+    // a place's card open when the reload comes stays open
+    await page.evaluate(() => window.uw.select('sights', 'bolsa'));
+    await page.waitForFunction(() => !document.querySelector('[data-panel="card"]')?.hidden, null, { timeout: 10000 });
+    await page.waitForTimeout(400);
+    await reload(page);
+    const card = await view(page);
+    assert.deepEqual([card.shown, card.sel], [['card'], 'sights:bolsa'], JSON.stringify(card));
+    await ctx.close();
+  }
   assert.deepEqual(errors, []);
 });

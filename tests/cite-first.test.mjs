@@ -201,16 +201,18 @@ test('where nothing uw cite reads can be kept, a page it read is not refused as 
   } finally { fs.chmodSync(locked, 0o755); }
 });
 
-test('the skill, the trip guide and the commands\' help say to cite a place\'s page before pinning it', async () => {
+test('the skill, the trip guide and the commands\' help say to cite a place\'s page before pinning it, and its own page', async () => {
   const flat = (f) => fs.readFileSync(path.join(SKILL, f), 'utf8').replace(/\s+/g, ' ');
   assert.match(flat('SKILL.md'), /On exit 2 retry once \(better `--query`, `--pick N`, `--osm <id>`\), unless "already pinned": it is on the map, never pin it again\. "Cite it first": cite, rerun\./);
-  assert.match(flat('reference/itinerary.md'), /`uw add-point` and `uw set` refuse a `source_url` no `uw cite` read \("cite it first"\)/);
+  assert.match(flat('reference/itinerary.md'), /`uw add-point` and `uw set` refuse a `source_url` no `uw cite` read \("cite it first"\), and one that does not name the place or that another place cites \("cite its own page"\)/);
   // a pin's page is read with uw cite, in Instafy too, where facts are read with instafy web read: the skill's rule for
   // reading, the sources reference and a later change's places say so, so no page is fetched twice
   assert.match(flat('SKILL.md'), /Facts come from pages you read \(`instafy web read <url>`, skill `instafy-web-research`; a pin's `source_url` and else: `uw cite <url> --grep <what>`\)/);
   assert.match(flat('reference/data-sources.md'), /A pin's `source_url` is a page `uw cite` read, in Instafy too: `uw add-point` and `uw set` refuse any other \("cite it first"\), and an image or a PDF is no page\./);
   assert.match(flat('reference/itinerary.md'), /Places you recommend [^.]*, each with the page that names it, read with `uw cite <page> --grep "<its name>"` \(`uw add-point` refuses a page it did not read\)/);
   const help = (cmd) => uw([cmd, '--help']).then((r) => r.out.replace(/\s+/g, ' '));
-  assert.match(await help('add-point'), /One that `uw cite` did not read in the last hours \(or could not: HTTP 404, refused\) is refused before any lookup \(exit 2, "cite it first"[^.]*\. So is an address uw cite found is not a page \(an image, a PDF\)/);
-  assert.match(await help('set'), /A new source_url that `uw cite` did not read \(or could not: HTTP 404, refused\) is refused \(exit 2, "cite it first"[^)]*\), and so is an address uw cite found is not a page \(an image, a PDF\)/);
+  assert.match(await help('add-point'), /A source_url \(in --props\) that `uw cite` did not read in the last hours \(or could not: HTTP 404, refused\) is refused before any lookup \(exit 2, "cite it first"[^.]*\. So is an address uw cite found is not a page \(an image, a PDF\), and, once the place is found, a page read that does not name it or a page another place already cites, where uw validate fails it: a trip's places to see, an area to stay in that says why \(exit 2, "cite its own page"; nothing added\)\. Elsewhere, or with under about 3 minutes left on the turn's clock, it is said and the place added\./);
+  assert.match(await help('set'), /A new source_url that `uw cite` did not read \(or could not: HTTP 404, refused\) is refused \(exit 2, "cite it first"[^)]*\), and so is an address uw cite found is not a page \(an image, a PDF\), and a page read that does not name the place or that another place already cites, where uw validate fails it: a trip's places to see, an area to stay in that says why \(exit 2, "cite its own page"\)\. Elsewhere, or with under about 3 minutes left on the turn's clock, it is said and taken\./);
+  // a place not found under its name is pinned by its OpenStreetMap object under the id or name it was looked up by
+  assert.match(await help('add-point'), /until it is pinned under the id or name it was looked up by \(by its OpenStreetMap object: --osm <its osm id> --name "<that name>"\)/);
 });

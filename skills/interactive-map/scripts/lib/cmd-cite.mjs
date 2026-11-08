@@ -371,16 +371,20 @@ export function sourceNotRead(url) {
   if (read) return read.not_page ? { url, not_page: notPageWords(read.not_page), by: read.by } : null;
   return keepsShared('cited') ? { url } : null;
 }
-/** What `uw add-point` and `uw set` say when they refuse such a source (`miss`: sourceNotRead's): { lines, refused, next }
- *  (`next`: the uw cite to run). */
-export function sourceNotReadRefusal(miss, name, did) {
+/** What `uw add-point` and `uw set` say when they refuse such a source (`miss`: sourceNotRead's, or cmd-set.mjs
+ *  sourceNotOwn's: a page that does not name the place, or that another place cites): { lines, refused, next } (`next`:
+ *  the uw cite to run). `site`: the site folder as the command was given it. */
+export function sourceNotReadRefusal(miss, name, did, site = '<site>') {
   const grep = `--grep "${dq(String(name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))}"`;
-  if (miss.not_page) {
+  if (miss.not_page || miss.not_named || miss.shared) {
     const next = `uw cite <its own page> ${grep}`;
-    return { refused: 'source_not_a_page', next, lines: [
-      `REFUSED: ${miss.url} (read by ${miss.by}) is ${miss.not_page}, not a page that names "${name}": it is not this place's source. Cite its own page first (its own site, else its Wikipedia article), then run this command again with that page as its source_url:`,
+    const what = miss.not_page ? `is ${miss.not_page}, not a page that names "${name}"`
+      : miss.shared ? `is the page ${miss.shared.name} (${miss.shared.ref}) cites too` : `does not name "${name}"`;
+    return { refused: miss.not_page ? 'source_not_a_page' : miss.shared ? 'source_shared' : 'source_not_named', next, lines: [
+      `REFUSED: ${miss.url}${miss.by ? ` (read by ${miss.by})` : ''} ${what}: it is not this place's source${miss.shared ? ' (a page two places share is about a city or a list of places)' : ''}. Cite its own page first (its own site, else its Wikipedia article), then run this command again with that page as its source_url:`,
       `  ${next}`,
-      did,
+      // which of the two the page is about is the turn's to judge: a place's own site stays its source
+      miss.shared ? `If this page is the site of "${name}" itself, it is ${miss.shared.name}'s source that is wrong: give that place its own page (uw set ${site} ${miss.shared.ref} --props-file - with {"source_url":"<its own page>","source":"<site>"}), then run this command again. ${did}` : did,
     ] };
   }
   const next = `uw cite "${dq(miss.url)}" ${grep}`;
@@ -395,6 +399,13 @@ export function unnamedSourceLine(miss, site, ref) {
   const what = miss.not_page ? `is ${miss.not_page}, not a page that names "${miss.name}"` : `does not name "${miss.name}"`;
   return `${miss.url} (read by uw cite) ${what}: it is not this place's source. Cite the place's own page (its own site, else its Wikipedia article): `
     + `uw cite <that page> --grep "${dq(miss.name)}", then uw set ${site} ${ref} --props-file - with {"source_url":"<that page>","source":"<site>"}`;
+}
+/** What `uw add-point` and `uw set` say when they take a page that is not the place's own (cmd-set.mjs sourceNotOwn's)
+ *  with too little time left on the turn's clock to cite another: uw validate only warns then, and the reply names
+ *  the place as not checked on a page of its own. */
+export function lateSourceLine(miss) {
+  const what = miss.shared ? `is the page ${miss.shared.name} (${miss.shared.ref}) cites too` : `does not name "${miss.name}"`;
+  return `${miss.url}${miss.by ? ` (read by ${miss.by})` : ''} ${what}: it is not this place's source. Too little time is left to cite its own page in this turn: the reply names "${miss.name}" as not checked on a page of its own.`;
 }
 
 const refuse = (out, url, reason) => {

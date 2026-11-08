@@ -459,7 +459,7 @@ test('a square the search found first stays the square: an artwork of its name o
   const site = 'sv-square';
   assert.equal((await uw(['new', site, '--title', 'Seville', '--center', CITY.join(','), '--zoom', '13'])).code, 0);
   const sight = (id, q) => uw(['add-point', site, '--layer', 'sights', '--query', q, '--country', 'ES', '--strict-name', '--near', CITY.join(','), '--id', id, '--props-file', '-', '--json'],
-    { input: JSON.stringify({ stop: 'seville', source_url: 'https://www.visitasevilla.es/en/', source: 'visitasevilla.es' }) });
+    { input: JSON.stringify({ stop: 'seville', source_url: `https://www.visitasevilla.es/en/${id}`, source: 'visitasevilla.es' }) });
   const r = await sight('plaza-espana', 'Plaza de España, Seville');
   assert.equal(r.code, 0, r.out + r.err);
   assert.deepEqual([r.json.chosen.type, r.json.chosen.osm_id], ['place=square', 'osm-r1866166']);

@@ -133,6 +133,13 @@ const LODGING = [
   { type: 'node', id: 813, c: off(CITY, -150, -100), tags: { tourism: 'hotel', name: 'Hotel Europa' } },
 ];
 
+// the place search asked by the name alone, as a turn asked it
+ANSWERS['Metropol Parasol'] = ANSWERS['Metropol Parasol, Seville'];
+// OpenStreetMap objects by id, as Overpass answers `way(…); out center tags;`
+const OBJECTS = [
+  { type: 'way', id: 138602581, center: { lon: -5.991853, lat: 37.393119 }, tags: { building: 'yes', tourism: 'attraction', name: 'Setas de Sevilla', alt_name: 'Espacio Metropol Parasol' } },
+];
+
 let mock;
 const hits = [];
 before(async () => {
@@ -160,7 +167,13 @@ before(async () => {
         const q = decodeURIComponent(body.replace(/^data=/, '').replace(/\+/g, ' '));
         const a = q.match(/around:(\d+),(-?[\d.]+),(-?[\d.]+)/);
         const near = (e) => !a || haversine([Number(a[3]), Number(a[2])], e.c) <= Number(a[1]);
-        const elements = /"tourism"~/.test(q) ? LODGING.filter(near).map((e) => ({ type: e.type, id: e.id, lon: e.c[0], lat: e.c[1], tags: e.tags })) : [];
+        // one OpenStreetMap object by its id (add-point --osm): the building the Setas are, under their other name
+        const one = q.match(/\b(node|way|relation)\((\d+)\)/);
+        // and the objects with a name as an old or alternative one (the names the place search does not index)
+        const alt = q.match(/\["alt_name"~"([^"]+)",i\]/);
+        const elements = one ? OBJECTS.filter((e) => e.type === one[1] && String(e.id) === one[2])
+          : alt ? OBJECTS.filter((e) => new RegExp(alt[1], 'i').test(e.tags.alt_name || ''))
+            : /"tourism"~/.test(q) ? LODGING.filter(near).map((e) => ({ type: e.type, id: e.id, lon: e.c[0], lat: e.c[1], tags: e.tags })) : [];
         res.end(JSON.stringify({ elements }));
       });
       return;
@@ -237,6 +250,41 @@ test('add-point: a playground named after the place is not that place: exit 2 na
   const g = await sight('kinds-stand', 'playground', 'Playground Prueba, Seville');
   assert.equal(g.code, 0, g.out + g.err);
   assert.equal(g.json.chosen.type, 'leisure=playground');
+});
+
+// "Metropol Parasol" not found under that name, a turn pinned its building by its OpenStreetMap id under the name
+// OpenStreetMap gives it ("Setas de Sevilla", a new id): the map then said "Not found yet: Metropol Parasol" beside the
+// place it had pinned. The refusal's last line says how to pin that object as this place, under the id and name it was
+// looked up by, which takes it off the list
+test('add-point: a place not found under its name is pinned by its OpenStreetMap object under that id and name, which takes it off "Not found yet"', async () => {
+  await newSite('kinds-osm');
+  const r = await sight('kinds-osm', 'metropol-parasol', 'Metropol Parasol');
+  assert.equal(r.code, 2, r.out + r.err);
+  assert.deepEqual(cfgOf('kinds-osm').missing.map((m) => [m.name, m.id]), [['Metropol Parasol', 'metropol-parasol']]);
+  // OpenStreetMap has the building under its other name: the line that lists it pins it the same way
+  assert.match(r.err, /^ {2}osm-w138602581: Setas de Sevilla \[tourism=attraction\] \(alt_name=Espacio Metropol Parasol\)/m);
+  assert.ok(r.err.includes('  If one is the place, add it exactly: uw add-point kinds-osm --layer sights --osm <its osm id> --id metropol-parasol --name "Metropol Parasol" (and tell the user about its new name).'), r.err);
+  const line = r.err.trim().split('\n').find((l) => l.startsWith('Listed on the map as "not found yet"'));
+  assert.equal(line, 'Listed on the map as "not found yet" (map.config.json "missing"). In OpenStreetMap under another name (an object above, or one uw geocode finds by that name)? '
+    + 'Pin that object under the id and name it was looked up by, which takes it off the list: uw add-point kinds-osm --layer sights --osm <its osm id> --id metropol-parasol --name "Metropol Parasol", with the same props.');
+  // pinned under another id and name, as the turn did: still "not found yet" (the reply had to explain it)
+  const other = await uw(['add-point', 'kinds-osm', '--layer', 'sights', '--osm', 'osm-w138602581', '--id', 'setas', '--name', 'Setas de Sevilla', '--json']);
+  assert.equal(other.code, 0, other.out + other.err);
+  assert.deepEqual(cfgOf('kinds-osm').missing.map((m) => m.name), ['Metropol Parasol']);
+  assert.equal((await uw(['set', 'kinds-osm', 'sights:setas', '--remove'])).code, 0);
+  // as the line says: off the list, and the pin carries the name it was looked up by
+  const p = await uw(['add-point', 'kinds-osm', '--layer', 'sights', '--osm', 'osm-w138602581', '--id', 'metropol-parasol', '--name', 'Metropol Parasol', '--json']);
+  assert.equal(p.code, 0, p.out + p.err);
+  assert.ok(p.json.config.includes('removed its "not found yet" entry'), p.json.config.join('; '));
+  assert.equal(cfgOf('kinds-osm').missing, undefined);
+  assert.deepEqual(layerOf('kinds-osm', 'sights').map((f) => [f.properties.id, f.properties.name, f.properties.osm_id]), [['metropol-parasol', 'Metropol Parasol', 'osm-w138602581']]);
+  // looked up with no id: the line names the name alone, and pinning under that name clears it too
+  await newSite('kinds-osm-name');
+  const n = await uw(['add-point', 'kinds-osm-name', '--layer', 'sights', '--query', 'Metropol Parasol', '--near', CITY.join(','), '--json']);
+  assert.equal(n.code, 2, n.out + n.err);
+  assert.ok(n.err.includes('Pin that object under the name it was looked up by, which takes it off the list: uw add-point kinds-osm-name --layer sights --osm <its osm id> --name "Metropol Parasol", with the same props.'), n.err);
+  assert.equal((await uw(['add-point', 'kinds-osm-name', '--layer', 'sights', '--osm', 'osm-w138602581', '--name', 'Metropol Parasol'])).code, 0);
+  assert.equal(cfgOf('kinds-osm-name').missing, undefined);
 });
 
 // The kind a name's head word suggests decides only between places named like the query: "Covent Garden" is the
