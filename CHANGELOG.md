@@ -3,6 +3,50 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.37 (2026-11-17)
+
+- **A place pinned to see keeps its pin through the plan's refusal, which says how to find its page.** A trip's map
+  pinned its sights from place lookups, then cited two guessed pages of the city's tourism site, which answered HTTP
+  404. `uw plan` refused the days ("fewer than 2 places to see with their own page") and said to give each pinned place
+  "the page uw cite read for it", with no way to find one. Seconds later the turn removed every sight, the two the
+  person had named among them, planned cafés instead, and replied with the day the person asked for, which the map no
+  longer had. The refusal now names each place pinned with no page, with the reference search that finds its own site
+  (`instafy web search "<its name> <its stop>" --chain reference-search --json`, printed for each), else its Wikipedia
+  article, then `uw cite` and `uw set`; it says to keep them (never remove a place to get past it), and asks for new
+  places only where those cannot fill a day once they have their pages (near a day's own place when it lies a ride
+  out). Where no page of its own can be found for one of them, it says to keep it and add another place near that
+  day's base instead (JSON `instead`), so a refusal never repeats with nothing left to do. It never offers to mark
+  places as named to get past it. The JSON lists the places as `no_page`.
+- **A place the person named counts on its day as they gave it, and stays on the days.** `"asked": true` in a place's
+  props (given when it is pinned, or later with `uw set <site> <layer>:<id> --props '{"asked":true}'`) is a place the
+  person's message named: `uw plan` and `uw validate` count it for its day as a place with its own page, as a value the
+  person gave counts, and `uw set` gives the mark to its items in days already planned. `uw plan` never leaves it off
+  the days while a day has a place of its kind nobody named: it takes the room of the nearest such day's place. One
+  still on no day (the places the person named fill every day of its kind, or it is far from every stop) is named by
+  `uw plan` with its fix, and `uw validate` fails while the turn has time (a warning after, for the reply to say).
+  `uw set --remove` refuses it unless the same command takes the mark off (`--unset asked --remove`, only when the
+  person asks to drop it; one place pinned twice keeps the mark on the pin that stays), and the command's help says a
+  place is removed only when the person asks. The trip guide marks such a place when it is pinned ("One base" step 3),
+  and its line on dropping a place now applies only when the person asks: never to get past a refusal or a failing
+  check, which a place pinned to see meets with its own page, and a place the person named as it is.
+- **The reply's days come from the plan, and say what is not checked.** With `--sights`, `uw plan` prints "Days for the
+  reply, as the map has them" (JSON `days_for_the_reply`): each full day's places by name, a full day with none
+  "nothing to see yet", and "(not checked)" for a place with no page of its own: none, or one taken with too little
+  time left that is not its own (a page several places cite, or one that does not name it), as `uw validate` judges
+  it. The Plan tab marks the same places "Not checked · on a page of its own" (`"check"` on their items; it marked only
+  the places the person named), and `uw set` takes the mark off once a place has its own page. `uw validate` says a
+  full day whose places have no page of their own has "no place checked on a page of its own" with how many, never
+  "nothing to see" while the map shows places on it. The trip guide's reply takes its days from the plan, and when
+  the time ran out with `uw validate` failing it says plainly what is missing as the days show it; `uw validate`'s
+  failing summary says a reply sent then says what is undone, never that the map is done. Room in the trip guide's
+  first part is made by a sentence the next one says again.
+- **The lines a turn meets first say how to find a place's page.** `uw cite`'s HTTP 404 line and its robots.txt or
+  link-only refusal, `uw add-point`'s and `uw set`'s refusals of a page that is not the place's source, and `uw
+  validate`'s fixes name the reference search for its own site, else its Wikipedia article.
+- **No fix removes a place pinned to see.** `uw validate`'s fix for a place far outside the first view said to remove
+  it, before `uw fit`; it now says to pin a wrong match again under its own id with `--near` or `--pick` (the days that
+  name it keep it), or to frame the place meant with `uw fit`.
+
 ## 0.1.36 (2026-11-08)
 
 - **A place's source is a page `uw cite` read, checked when the place is pinned.** A trip's map pinned a palace with

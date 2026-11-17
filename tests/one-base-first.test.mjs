@@ -105,12 +105,12 @@ test('the trip reference: a one-place trip reads "One base" and Phase B first, a
   assert.match(flat(capped), /While any is and time is left, add sights rather than reply\./);
   assert.match(flat(capped), /Each place's source is the venue's own site, the one you cite: `uw cite <its own site> --grep "<its name>"`\./);
   assert.match(flat(capped), /Its Wikipedia article only where the turn found no such site that names it and can be read\./);
-  // the reply: the stay with its dates and the Assumed: line, also for one place; a day with one place only when the
-  // time ran out
-  assert.match(flat(oneBase), /The reply \("Reply", at the end\): the stay with its dates as `uw plan` prints it, the `Assumed:` line \(the dates too, when the person gave none\), where to stay and why, then each day's area\./);
+  // the reply: the stay with its dates and days and the Assumed: line, also for one place; a day with one place, or a
+  // failing check, only when the time ran out
+  assert.match(flat(oneBase), /The reply \("Reply", at the end\): the stay with its dates and days as `uw plan` prints them, the `Assumed:` line \(the dates too, when the person gave none\), where to stay and why\./);
   assert.match(flat(reply), /as `uw plan` prints it \("Route for the reply"; one stop: "Stay for the reply"\)/);
   assert.match(flat(reply), /2\. The `Assumed:` line from step 0: only what you filled in, the dates too when the person gave none\./);
-  assert.match(flat(reply), /a full day still with one place to see when the time ran out \(`uw validate` names it then\)/);
+  assert.match(flat(reply), /When the time ran out with `uw validate` failing, or naming a full day with one place to see, say plainly what is missing/);
 });
 
 // The reference was one file: with "One base" first, a read capped at 4,000 tokens cut every step a trip of several

@@ -87,7 +87,7 @@ test('uw add-point refuses a source_url no uw cite read, before any lookup: cite
   assert.deepEqual(unread.err.trim().split('\n'), [
     `REFUSED: no uw cite read ${home} in the last hours, so it is not this place's source yet: cite it first, then run this command again.`,
     `  uw cite "${home}" --grep "Real Alcázar de Sevilla"`,
-    'A page uw cite cannot read (HTTP 404, refused) is not its source: cite the place\'s own page that names it (its own site, else its Wikipedia article). Nothing was added.',
+    'A page uw cite cannot read (HTTP 404, refused) is not its source: cite the place\'s own page that names it (its own site from instafy web search "<its name>" --chain reference-search --json, else its Wikipedia article). Nothing was added.',
   ]);
   assert.equal(hits.search, 0, 'no lookup ran');
   assert.equal(fs.existsSync(sightsFile(site)), false, 'nothing was written');
@@ -152,7 +152,7 @@ test('uw add-point and uw set refuse a source uw cite found is not a page (an im
   assert.equal(add.code, 2, add.out + add.err);
   assert.deepEqual(add.json, { ok: false, refused: 'source_not_a_page', layer: 'sights', id: 'alcazar', source_url: photo, next: 'uw cite <its own page> --grep "Real Alcázar de Sevilla"' });
   assert.deepEqual(add.err.trim().split('\n'), [
-    `REFUSED: ${photo} (read by uw cite) is an image (image/jpeg), not a page that names "Real Alcázar de Sevilla": it is not this place's source. Cite its own page first (its own site, else its Wikipedia article), then run this command again with that page as its source_url:`,
+    `REFUSED: ${photo} (read by uw cite) is an image (image/jpeg), not a page that names "Real Alcázar de Sevilla": it is not this place's source. Cite its own page first (its own site from instafy web search "<its name>" --chain reference-search --json, else its Wikipedia article), then run this command again with that page as its source_url:`,
     '  uw cite <its own page> --grep "Real Alcázar de Sevilla"',
     'Nothing was added.',
   ]);

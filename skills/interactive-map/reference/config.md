@@ -421,13 +421,19 @@ timeline page shows a day's note ("book the tower tickets ahead"): `uw set <site
 and `uw plan … --force` keeps it on its day. An item's `time` sets the map's hour when the day opens; it is not shown as a clock column.
 An item's `url` (https only) is the page its facts came from: shown as "Wikipedia ↗" (`source`, ≤ 40 characters, else
 the host name) under the item; `uw set` on a place's `source_url` or `source` gives its items that page too (no new plan). An item's `check` (≤ 80 characters) is what is not checked about it, said as on the
-pages: "Not checked · which trails are open · where to check ↗" (`check_url`, https). A trip's plan is written by
-`uw plan` (dates, nights, legs, stays, sights; see itinerary.md); add one short `text` per day by hand.
+pages: "Not checked · which trails are open · where to check ↗" (`check_url`, https). `"asked": true` is a place the
+person's message named, given when it is pinned or later with `uw set` (only that, never to get past a check; `uw
+plan` and `uw set` copy it to its items): it counts for its day as an item with a `url` does, `uw plan` never leaves
+it off the days while a day has a place of its kind nobody named, and `uw set` refuses to remove it unless the same
+command has `--unset asked`. A place with no page of its own (none, or one taken with too little time left that is
+not its own) gets `"check": "on a page of its own"` in its days, which `uw set` takes off once it has its own page. A
+trip's plan is written by `uw plan` (dates, nights, legs, stays, sights; see itinerary.md); add one short `text` per
+day by hand.
 `"sights": ["sights", "food"]` (written by `uw plan --sights`, with `"planned_at"`, when it planned the days, and
 `"per_day"` when `--per-day` was given) says the trip is about what to see each day: `uw plan` refuses to write days with
-fewer than two items with a `url` (one with `--per-day 1`) while the turn's clock shows more than about 3 minutes left,
+fewer than two items with a `url` or `"asked"` (one with `--per-day 1`) while the turn's clock shows more than about 3 minutes left,
 the place search answers and no uw command still runs on the site; `uw validate` fails while a full
-day has no item with a `url`; in the turn that planned the days, while its clock shows more than about 3 minutes left,
+day has no such item; in the turn that planned the days, while its clock shows more than about 3 minutes left,
 also while one has only one (not with `"per_day": 1`: the person asked for one place a day); and while a place of those
 layers is in no day and not in `"unplaced"` (`uw plan` lists there the ones it put on no day: no room, or far from
 every stop); such a place was pinned after the days were planned, and `uw plan … --force` places it.
