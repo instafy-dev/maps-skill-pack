@@ -171,7 +171,7 @@ test('a 3-day trip: uw plan refuses one sight a day while the turn has time, nam
   // point of the stop the days start from here: no stays), each from its own page with uw cite, never a browser card
   const one = await plan(site, ['--sights', 'sights']);
   assert.equal(one.code, 2, one.out + one.err);
-  const next = 'Add 3 more places near the base, Seville (--near -5.99534,37.38863), each from its own page: uw cite <its page> --grep "<its name>", then uw add-point sv --layer sights --near -5.99534,37.38863 … with {"stop":"seville","source_url":"<that page>","source":"<site>"}, one place per command (reference/itinerary.md Phase B step 1). Then run this command again.';
+  const next = 'Add 3 more places near the base, Seville (--near -5.99534,37.38863), each from its own page (its own site from instafy web search "<its name>" --chain reference-search --json, else its Wikipedia article): uw cite <that page> --grep "<its name>", then uw add-point sv --layer sights --near -5.99534,37.38863 … with {"stop":"seville","source_url":"<that page>","source":"<site>"}, one place per command (reference/itinerary.md Phase B step 1). Then run this command again.';
   assert.deepEqual(one.json, { ok: false, refused: 'days_short_of_places', places_a_day: 2,
     short_days: [{ title: 'Mon 2 Nov · Seville', places: 1 }, { title: 'Tue 3 Nov · Seville', places: 1 }, { title: 'Wed 4 Nov · Seville', places: 1 }],
     add: [{ name: 'Seville', near: '-5.99534,37.38863', stop: 'seville', places: 3 }], next });
@@ -209,7 +209,7 @@ test('a day trip short of places takes its places near the day trip, not near th
   assert.equal(short.code, 2, short.out + short.err);
   assert.deepEqual(short.json.short_days, [{ title: 'Wed 4 Nov · Seville', places: 1 }]);
   assert.deepEqual(short.json.add, [{ name: 'Itálica', near: '-6.0446,37.4434', stop: 'seville', places: 1 }]);
-  assert.equal(short.json.next, 'Add 1 more place near Itálica (--near -6.0446,37.4434), each from its own page: uw cite <its page> --grep "<its name>", then uw add-point sv-daytrip --layer sights --near -6.0446,37.4434 … with {"stop":"seville","source_url":"<that page>","source":"<site>"}, one place per command (reference/itinerary.md Phase B step 1). Then run this command again.');
+  assert.equal(short.json.next, 'Add 1 more place near Itálica (--near -6.0446,37.4434), each from its own page (its own site from instafy web search "<its name>" --chain reference-search --json, else its Wikipedia article): uw cite <that page> --grep "<its name>", then uw add-point sv-daytrip --layer sights --near -6.0446,37.4434 … with {"stop":"seville","source_url":"<that page>","source":"<site>"}, one place per command (reference/itinerary.md Phase B step 1). Then run this command again.');
   assert.equal(cfgOf(site).plan, undefined, 'nothing was written');
   // as it says: a place there; the day trip's day has two, and the base's days keep theirs
   const amphitheatre = await uw(['add-point', site, '--layer', 'sights', '--at', '-6.0459,37.4446', '--name', 'Anfiteatro de Itálica', '--id', 'anfiteatro', '--props-file', '-'],
@@ -487,13 +487,14 @@ test('the trip guide asks for 2-3 sourced places a full day, not a city, says wh
   assert.match(md, /One place a day only when the person asked for it: `uw plan … --per-day 1`\./);
   assert.match(md, /Every full day gets its places before the plan: `uw plan` refuses one with fewer than two\./);
   assert.match(md, /build the plan with `--sights`: `uw plan` refuses fewer than two a day while there is time, and `uw validate` fails while a full day has fewer than two sourced places/);
-  // a later turn's move or drop stays: no re-plan for a move (it groups the days by area again), and a dropped place
-  // leaves the map (else validate finds it on no day and its fix plans it back)
+  // a later turn's move or drop stays: no re-plan for a move (it groups the days by area again), and a place the
+  // person asks to drop leaves the map (else validate finds it on no day and its fix plans it back); never a place
+  // removed to get past a check
   assert.match(md, /- Moving a place to another day: move its item and reword both days' texts in the same edit \(never `uw plan --force` for it: it groups the days by area again, which undoes the move\)/);
-  assert.match(md, /- Dropping a place: `uw set <site> <layer>:<id> --remove`, then remove its item and reword its day's text\./);
-  // the reply names a day left with one place to see when the time ran out, and offers more (with time left, the
-  // turn adds places: uw validate fails)
-  assert.match(md, /5\. Day highlights or warnings worth acting on \(a closure, a pass to buy\), only from the pages you opened; a full day still with one place to see when the time ran out \(`uw validate` names it then\): say which, and offer to add more\./);
+  assert.match(md, /- Dropping a place, only when the person asks: `uw set <site> <layer>:<id> --remove`, then remove its item and reword its day's text\. Never remove a place the person named, or one pinned to see, to get past a refusal or a failing check/);
+  // the reply names a day left with one place to see, or with none, when the time ran out, and offers more (with time
+  // left, the turn adds places: uw validate fails)
+  assert.match(md, /5\. Each day as `uw plan` printed it \("Days for the reply": no place it does not name; one not checked is said so\), with highlights or warnings worth acting on \(a closure, a pass to buy\) only from the pages you opened\. When the time ran out with `uw validate` failing, or naming a full day with one place to see, say plainly what is missing \("<day> has nothing to see yet"\) and offer to add it\./);
   // no line of the pack asks for 2-3 a city or a stop any more: three sights in one city are one a day for three days
   const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
   const said = walk(SKILL).filter((f) => /\.(md|mjs|json)$/.test(f))

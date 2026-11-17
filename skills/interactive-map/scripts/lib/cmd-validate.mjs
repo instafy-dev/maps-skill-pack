@@ -961,7 +961,9 @@ function report(out, args, dir, errors, warnings) {
     const line = (m) => `${m.level === 'error' ? 'ERROR' : 'warn '} ${m.file}${m.path ? ' ' + m.path : ''}: ${m.message}${m.fix ? `\n      fix: ${m.fix}` : ''}`;
     for (const m of errors) console.log(line(m));
     for (const m of warnings) console.log(line(m));
-    console.log(fail ? `✗ ${errors.length} error(s), ${warnings.length} warning(s). Fix the errors and run validate again.`
+    // a reply sent while it fails says what is not done, in its own plain words (a reply once named a day the map did
+    // not have, seconds after this line)
+    console.log(fail ? `✗ ${errors.length} error(s), ${warnings.length} warning(s). Fix the errors and run validate again. A reply sent while they stand says plainly what they leave undone, never that the map is done.`
       : `✓ ${path.basename(dir)} is valid${warnings.length ? ` (${warnings.length} warning(s))` : ''}.`);
   }
   return fail ? 1 : 0;

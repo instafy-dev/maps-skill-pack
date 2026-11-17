@@ -23,11 +23,11 @@ start date inside the window they named, stops you choose for the season. State 
 reply, e.g. `Assumed: 2 adults, mid-range, arrive Fri 7 May, Porto 3 nights then Lisbon 4 (7 nights), flying home
 from Lisbon.` Split free nights by what each
 stop offers (a big city with day trips gets more than a pass-through town), not by a fixed pattern. Stays are hotels
-unless the user asks for hostels or says the budget is tight (an unknown party counts as hotels). A loop
-names its first stop again at the end. Nights must add up to the trip length; dates come from `uw plan`, never typed
-by hand. The trip ends where the traveller flies home: a loop names its first stop again; a one-way route ends at
-a city with an international airport (or its last leg goes back to one), and the `Assumed:` line says where they fly
-out ("flying home from Taipei"), so the last day never strands them.
+unless the user asks for hostels or says the budget is tight (an unknown party counts as hotels). Nights must add
+up to the trip length; dates come from `uw plan`, never typed by hand. The trip ends where the traveller flies home:
+a loop names its first stop again; a one-way route ends at a city with an international airport (or its last leg
+goes back to one), and the `Assumed:` line says where they fly out ("flying home from Taipei"), so the last day never
+strands them.
 
 **1. Site.** `uw geocode "<country or first city>"`, then
 `uw new sites/<slug> --title "<Country> by train" --subtitle "7–14 May · 7 nights" --ask "<the question in your words, ≤ 60 characters>" --center <lng,lat> --zoom 7 --expect "<Stop>:<nights>,…"`
@@ -60,14 +60,15 @@ instead of steps 2-5:
    only stay is an area and `uw stay` has not looked there (widened to 3000 m when it found none), or while an area's
    note cites no page `uw cite` read.
 3. **Places by area**, before the plan: per day an area worth the day (a neighbourhood, a district a ride away, a day
-   trip), 2-3 sourced places in it (Phase B step 1, with `"stop":"<slug>"`). Never put a place on a day because a
-   list had room. Every full day gets its places before the plan: `uw plan` refuses one with fewer than two.
+   trip), 2-3 sourced places in it (Phase B step 1, with `"stop":"<slug>"`; one the person named also `"asked":true`).
+   Never put a place on a day because a list had room. Every full day gets its places before the plan: `uw plan`
+   refuses one with fewer than two.
 4. **Plan**: `uw plan <site> --stops stops --ids <slug> --nights N --start <date> --stays stays --sights sights,food,daytrips`.
    Every day is a loop from the base: a stop's places are grouped by area (the closest share a day, in walking
    order, the area nearest the base first; every day, the arrival day too, gets a place before any gets a second).
    Never "<city> → <city>": a stop named twice in a row is one stay. The reply ("Reply", at the end): the stay with
-   its dates as `uw plan` prints it, the `Assumed:` line (the dates too, when the person gave none), where to stay and
-   why, then each day's area.
+   its dates and days as `uw plan` prints them, the `Assumed:` line (the dates too, when the person gave none), where
+   to stay and why.
 
 **Days that hang together.** `uw plan` and `uw validate` warn when a day has a place far from its other places, or
 nearer another day's (`day places: "<place>" (<day>) is 3.1 km from that day's other places but 0.2 km from
@@ -187,7 +188,10 @@ open site in place; then `uw validate`, SKILL.md step 9, the reply.
 - Moving a place to another day: move its item and reword both days' texts in the same edit (never `uw plan
   --force` for it: it groups the days by area again, which undoes the move); `uw validate` says when a day's places
   are far apart or one is nearer another day's.
-- Dropping a place: `uw set <site> <layer>:<id> --remove`, then remove its item and reword its day's text.
+- Dropping a place, only when the person asks: `uw set <site> <layer>:<id> --remove`, then remove its item and reword
+  its day's text. Never remove a place the person named, or one pinned to see, to get past a refusal or a failing
+  check: it gets its own page (Phase B step 1), and one the person named stays on its day as it is (`"asked":true`:
+  `uw plan` counts it, marked not checked while no page was read).
 - Rail track still missing (the legs are arcs): run the lines/legs retry first (`reference/several-stops.md` step 4).
 - Changing a place's note or reason: keep its sourced facts (the walk, the register line) and add to them; never
   replace them with an "unverified" paragraph (that goes in the reply's unverified line).
@@ -213,9 +217,10 @@ Write for the traveller, 5-8 short lines:
    station, say how far and how ("Taitung: Hotel Y, 6 km from the station: taxi or local bus"), as the plan does.
 4. Trains: what is sourced (durations with their timetable) and what is an estimate from the distance (the plan
    says "about 2 h … (estimate …)"; "check the operator's timetable, linked on each leg").
-5. Day highlights or warnings worth acting on (a closure, a pass to buy), only from the pages you opened; a full
-   day still with one place to see when the time ran out (`uw validate` names it then): say which, and offer to add
-   more.
+5. Each day as `uw plan` printed it ("Days for the reply": no place it does not name; one not checked is said so),
+   with highlights or warnings worth acting on (a closure, a pass to buy) only from the pages you opened. When the
+   time ran out with `uw validate` failing, or naming a full day with one place to see, say plainly what is missing
+   ("<day> has nothing to see yet") and offer to add it.
 6. `Sources:` in one line, by who publishes the data (e.g. "OpenStreetMap, Wikivoyage, the national park's site",
    the lodging register when one was used, plus the operator's journey planner when `uw transit` gave times).
 7. `Unverified:` prices and availability (never checked), train times not sourced, anything "Not found yet",

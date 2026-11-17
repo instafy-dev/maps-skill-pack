@@ -9,6 +9,7 @@ import { isAreaPin } from './stays.mjs';
 import { isLodging } from './registry-geo.mjs';
 import { expectOf } from './expect.mjs';
 import { REPLY_WITHIN_S } from './turn-advice.mjs';
+import { NOT_CHECKED } from './cmd-plan.mjs';
 
 export const help = `set <dir> <layer>:<id> [--note "…"] [--name "…"] [--emoji 🏨] [--props '{"price":120}' | --props-file <file|->] [--unset key1,key2] [--remove] [--json]
 set <dir> plan:day<N> --note "…" | --unset note [--json]
@@ -24,8 +25,9 @@ set <dir> plan:day<N> --note "…" | --unset note [--json]
   page read that does not name the place or that another place already cites, where uw validate fails it: a trip's
   places to see, an area to stay in that says why (exit 2, "cite its own page"). Elsewhere, or with under about 3
   minutes left on the turn's clock, it is said and taken.
-  A new source_url or source goes to the place's items in the plan's days too (the Plan tab's link under it), so the
-  days stay as they are: no new uw plan. An item that links another page is left as it is.
+  A new source_url or source goes to the place's items in the plan's days too (the Plan tab's link under it; a place
+  the person named, "asked": true, is no longer marked not checked), so the days stay as they are: no new uw plan. An
+  item that links another page is left as it is.
   Text with an apostrophe or quotes: --props-file - <<'JSON', the object on the next line, then JSON (no shell quoting).`;
 
 /** `turn`: the turn's clock, as uw.mjs gives it to validate ({ turnLeftS, turnStartedMs }). */
@@ -254,6 +256,9 @@ export function withDayItems(site, layer, id, before, after) {
     if ((it.url ?? null) === url && (it.source ?? null) === source) continue;
     if (url) it.url = url; else delete it.url;
     if (source) it.source = source; else delete it.source;
+    // a place the person named is marked not checked only while it has no page (uw plan wrote the mark)
+    if (it.asked === true && url && it.check === NOT_CHECKED) delete it.check;
+    else if (it.asked === true && !url && it.check === undefined) it.check = NOT_CHECKED;
     n++;
   }
   if (n) { writeJSON(site.cfgPath, cfg, { pretty: true }); site.config = cfg; }
