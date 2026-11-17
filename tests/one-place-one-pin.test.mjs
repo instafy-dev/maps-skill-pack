@@ -268,7 +268,7 @@ test('validate: a sight whose page does not name it, or that no uw cite read, fa
     `2 places cite a page that does not name them: Maria Luisa Park (sights:maria-luisa: ${SIGHTS[1].page} is an image (image/jpeg), not a page), Casa de Murillo (sights:murillo: ${ROUTES})`,
     `1 place cites a page no uw cite read: Casa de Pilatos (sights:pilatos: ${SIGHTS[3].page})`,
   ]);
-  assert.equal(own[0].fix, 'cite each place\'s own page (its own site, else its Wikipedia article): uw cite <that page> --grep "<its name>", then uw set sources <layer>:<id> --props-file - with {"source_url":"<that page>","source":"<site>"}; it gives the place\'s item in the days that page too, so the days stay as they are');
+  assert.equal(own[0].fix, 'cite each place\'s own page (its own site from instafy web search "<its name>" --chain reference-search --json, else its Wikipedia article): uw cite <that page> --grep "<its name>", then uw set sources <layer>:<id> --props-file - with {"source_url":"<that page>","source":"<site>"}; it gives the place\'s item in the days that page too, so the days stay as they are');
   assert.ok(own[1].fix.startsWith(`read it: uw cite "${SIGHTS[3].page}" --grep "Casa de Pilatos"; then validate again: a page that names its place passes. A page that does not, or that cannot be read, is not its source: cite each place's own page`), own[1].fix);
   assert.ok(own[1].fix.includes('then uw set sources sights:pilatos --props-file -'), own[1].fix);
   // as the fixes say: the palace's page read (it names it), the park and the house on their own pages

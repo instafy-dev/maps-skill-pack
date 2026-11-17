@@ -11,7 +11,7 @@ import { STARTER_DIR, placeIndex } from './site.mjs';
 import { parseStops, expectOf, mergeExpect, uncovered, describeItems, featureNames } from './expect.mjs';
 import { stillRunning, runningList } from './running.mjs';
 import { REPLY_WITHIN_S } from './turn-advice.mjs';
-import { readPage, unnamedSource, sourceSetSince } from './cmd-cite.mjs';
+import { readPage, unnamedSource, sourceSetSince, notOwnPages, OWN_PAGE_WAY } from './cmd-cite.mjs';
 import { cacheOff } from './net.mjs';
 import { isAreaPin, isPlaceToStay, stopIsAStay, staysLookedUp, lookedAsFarAsItGoes, STAY_RADIUS_MAX } from './stays.mjs';
 import { isLodging } from './registry-geo.mjs';
@@ -547,32 +547,20 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       // places, not pins (one place pinned twice is its own error above): each place of the plan's layers, as add-point
       // judges one place
       const sightFeats = Array.isArray(sightLayers) ? sightLayers.flatMap((lid) => (featuresByLayer.get(lid) || []).map((f) => ({ lid, f }))) : [];
-      const sightPlace = placeIndex(sightFeats.map((x) => x.f));
-      const ownPageFix = (ref) => `cite each place's own page (its own site, else its Wikipedia article): uw cite <that page> --grep "<its name>", then uw set ${args._[0]} ${ref} --props-file - with {"source_url":"<that page>","source":"<site>"}; it gives the place's item in the days that page too, so the days stay as they are`;
+      const ownPageFix = (ref) => `cite each place's own page (${OWN_PAGE_WAY}): uw cite <that page> --grep "<its name>", then uw set ${args._[0]} ${ref} --props-file - with {"source_url":"<that page>","source":"<site>"}; it gives the place's item in the days that page too, so the days stay as they are`;
       const noTimeToCite = 'too little time is left to cite their own pages in this turn; the reply names these places as not checked on a page of their own';
       // each place's source is its own page: places that share one cite a city or listing page, which only says which
       // places are worth it (three sights once all cited one city guide page; two cited a routes page that named
       // neither, and the reply vouched for it). While the turn has time it fails, a later turn's too; its fix cites
       // each place's own page with uw set, which gives the place's items in the days that page too: no new plan, which
       // would group the days by area again and undo what the person moved. Places, not pins: one place pinned twice is
-      // its own error below (its fix is not another page)
-      const sharedPages = new Set();
-      if (Array.isArray(sightLayers)) {
-        const byPage = new Map();
-        sightFeats.forEach(({ f }, i) => {
-          const pr = f?.properties || {};
-          const u = pr.source_url;
-          if (typeof u !== 'string' || !/^https?:\/\//i.test(u)) return;
-          const page = u.replace(/#.*$/, '');
-          if (!byPage.has(page)) byPage.set(page, new Map());
-          if (!byPage.get(page).has(sightPlace[i])) byPage.get(page).set(sightPlace[i], String(pr.name_en || pr.name || pr.id));
-        });
-        for (const [page, places] of byPage) if (places.size > 1) {
-          sharedPages.add(page);
-          const names = [...places.values()];
-          (timeToAdd ? E : W)(CFG, '$.plan.sights', `${names.length} places cite one page (${page}): ${names.slice(0, 4).join(', ')}${names.length > 4 ? ' …' : ''}. A page about a whole city or a list of places says which are worth it; it is not their source`,
-            timeToAdd ? ownPageFix('<layer>:<id>') : noTimeToCite);
-        }
+      // its own error below (its fix is not another page). uw plan marks the same places not checked in their days
+      // (cmd-cite.mjs notOwnPages), so the reply's days say what this says
+      const own = Array.isArray(sightLayers) ? notOwnPages(sightFeats, { turnStartedMs }) : null;
+      for (const [page, places] of own?.shared || []) {
+        const names = [...places.values()];
+        (timeToAdd ? E : W)(CFG, '$.plan.sights', `${names.length} places cite one page (${page}): ${names.slice(0, 4).join(', ')}${names.length > 4 ? ' …' : ''}. A page about a whole city or a list of places says which are worth it; it is not their source`,
+          timeToAdd ? ownPageFix('<layer>:<id>') : noTimeToCite);
       }
       // each sight's page names it, judged from what uw cite (or uw handoff's source check) read there in the last hours,
       // with no request: a park once cited an address that led to a photo, and two sights cited pages the turn never
@@ -581,17 +569,8 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       // an earlier turn's pages were read hours ago, or on another machine, and a later turn that planned the days again
       // failed every sight it never touched). A page places share is the error above; with every cache off
       // (UW_NO_CACHE) nothing read is kept, so nothing is judged
-      if (Array.isArray(sightLayers) && !cacheOff()) {
-        const unread = [], unnamed = [];
-        for (const lid of sightLayers) for (const f of featuresByLayer.get(lid) || []) {
-          const pr = f?.properties || {};
-          if (typeof pr.source_url !== 'string' || !/^https?:\/\//i.test(pr.source_url) || pr.id == null || sharedPages.has(pr.source_url.replace(/#.*$/, ''))) continue;
-          const place = { ref: `${lid}:${pr.id}`, name: String(pr.name_en || pr.name || pr.id), url: pr.source_url, props: pr };
-          const read = readPage(pr.source_url);
-          if (!read) { if (sourceSetSince(pr, turnStartedMs)) unread.push(place); continue; }
-          const miss = unnamedSource(pr, [], read);
-          if (miss) unnamed.push({ ...place, miss });
-        }
+      if (own && !cacheOff()) {
+        const { unread, unnamed } = own;
         const list = (xs, why) => `${xs.slice(0, 4).map((x) => `${x.name} (${x.ref}: ${x.url}${why(x)})`).join(', ')}${xs.length > 4 ? ' …' : ''}`;
         if (unnamed.length)
           (timeToAdd ? E : W)(CFG, '$.plan.sights', `${unnamed.length === 1 ? '1 place cites a page that does not name it' : `${unnamed.length} places cite a page that does not name them`}: ${list(unnamed, (x) => (x.miss.not_page ? ` is ${x.miss.not_page}, not a page` : ''))}`,
@@ -616,6 +595,16 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
           E(CFG, '$.plan.days', `on the map but in no day of the plan: ${names.slice(0, 4).join(', ')}${names.length > 4 ? ' …' : ''} (pinned after the days were planned)`,
             `uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --force: the days take every place pinned (it names one that fits no day)`);
         }
+        // a place the person named ("asked") that the plan left out is never left out of the reply quietly: the plan
+        // gives it a day while one has a place of its kind nobody named, so it is out only when the places the person
+        // named fill every day of its kind, or when it is far from every stop (a plan left one off and validate passed)
+        const namedOff = sightLayers.flatMap((id) => (featuresByLayer.get(id) || []).filter((f) => f?.properties?.id != null && f.properties.asked === true
+          && unplaced.has(`${id}:${f.properties.id}`)).map((f) => String(f.properties.name_en || f.properties.name || f.properties.id)));
+        if (namedOff.length) {
+          const perDay = Number.isInteger(cfg.plan.per_day) ? cfg.plan.per_day : 3;
+          (timeToAdd ? E : W)(CFG, '$.plan.days', `${namedOff.length === 1 ? 'a place' : `${namedOff.length} places`} the person named ${namedOff.length === 1 ? 'is' : 'are'} on no day: ${namedOff.slice(0, 4).join(', ')}${namedOff.length > 4 ? ' …' : ''}`,
+            `uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --per-day ${perDay + 1} --force (one far from every stop: uw set ${args._[0]} <layer>:<id> --props '{"stop":"<its stop id>"}' first); with too little time left, the reply says plainly which is on no day`);
+        }
       }
       const sightsAsked = Array.isArray(sightLayers) && sightLayers.length > 0;
       const bareDays = sightsAsked ? gaps.bare : [];
@@ -629,13 +618,20 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       const notPinned = 'a place the lookup cannot pin goes on its day as {"text": "<name>", "url": "<its page>", "source": "<site>"}';
       // the fix names the reader: uw cite on each place's own page, in this turn. "A page you read" named none, and a
       // turn asked for the browser instead (3 turns for one map), or cited a page a browser card had listed
-      const citeOwn = 'each from its own page (its own site, else its Wikipedia article): uw cite <page> --grep "<its name>", never a browser card';
+      const citeOwn = `each from its own page (${OWN_PAGE_WAY}): uw cite <page> --grep "<its name>", never a browser card`;
       const pinTo = `uw add-point ${args._[0]} --layer ${sightsAsked ? sightLayers[0] : 'sights'} … with {"stop":…,"source_url":…}`;
       // places pinned with no page count on no day: each gets its own page where it is
       const unsourced = sightsAsked ? sightLayers.flatMap((id) => (featuresByLayer.get(id) || []).filter((f) => !/^https?:\/\//i.test(String(f?.properties?.source_url ?? '')))).length : 0;
       const giveOwn = unsourced ? `; ${unsourced === 1 ? 'the place' : `the ${unsourced} places`} pinned with no page: uw set ${args._[0]} <layer>:<id> --props-file - with {"source_url":…,"source":…}` : '';
+      // a day whose places have no page of their own is not a day with nothing to see: the map shows them, marked not
+      // checked, so this says so and the reply says the same (a reply once told the person a day had nothing to see
+      // while the map showed three places on it)
+      const placesOn = (title) => { const d = days.find((x) => String(x?.title || '') === title); return (Array.isArray(d?.items) ? d.items : []).filter((it) => it?.ref && sightLayers.includes(it.ref.layer)).length; };
+      const unchecked = bareDays.some((t) => placesOn(t) > 0);
+      const bareList = (list) => `${list.slice(0, 4).map((t) => { const n = placesOn(t); return `${t} (${n ? `${n} ${n === 1 ? 'place' : 'places'} not checked` : 'nothing to see'})`; }).join(', ')}${list.length > 4 ? ' …' : ''}`;
       if (bareDays.length)
-        E(CFG, '$.plan.days', `${bareDays.length} of ${gaps.full} full days have nothing to see (no sourced place): ${days4(bareDays)}`,
+        E(CFG, '$.plan.days', unchecked ? `${bareDays.length} of ${gaps.full} full days have no place checked on a page of its own: ${bareList(bareDays)}`
+          : `${bareDays.length} of ${gaps.full} full days have nothing to see (no sourced place): ${days4(bareDays)}`,
           `uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --force spreads the places already pinned over every day, the arrival day too: run it first when a stop has two places for each of its days. Else cite 2-3 places for each of those days in this turn, ${citeOwn}; then ${pinTo}${giveOwn} (reference/itinerary.md Phase B step 1), then run it; ${notPinned}`);
       // A plan made for one place a day (uw plan --per-day 1, only for a person who asked for that) is warned in the
       // turn that planned it: a turn whose days had one place each planned it so, with nobody asking, from this check's
@@ -910,7 +906,9 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       const handPicked = fc.uw?.cmd === 'add-point' || (!fc.uw && fc.features.length <= 20);
       const msg = `${farOutside} feature(s) are far outside view.bounds, e.g. features[${firstFar.k}] "${firstFar.id}" at ${JSON.stringify(firstFar.c)}`;
       if (handPicked && (l.type === 'points' || l.type === 'heat'))
-        E(file, `${base}.features[${firstFar.k}]`, msg, 'likely a wrong geocode match or swapped lng/lat: re-run add-point with --near/--pick, remove it (uw.mjs set <site> <layer>:<id> --remove), or run fit if it is intended');
+        // the fix never removes the place: a turn takes a fix as the way past a check, and a palace out of the centre is a
+        // place pinned to see (removing places to pass checks lost a map its sights)
+        E(file, `${base}.features[${firstFar.k}]`, msg, `a wrong geocode match or swapped lng/lat: pin it again under its own id with --near <its area's lng,lat> or --pick (it replaces the pin, and the days that name it keep it); the place meant, out of the first view (a palace or a day trip out of the centre): uw fit ${args._[0]}. Never remove a place pinned to see to pass this`);
       else if (handPicked || !fc.uw) W(file, `${base}.features[${firstFar.k}]`, msg, 'check it, or run fit');
       else if (farOutside > fc.features.length / 2) W(file, base, `most of this ${fc.uw.cmd} layer lies outside the first view`, `fine if intended (context); otherwise re-fetch it for the area of the map`);
     }

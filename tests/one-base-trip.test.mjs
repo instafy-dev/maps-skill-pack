@@ -367,7 +367,7 @@ test('validate: places that cite one page fail while the turn has time, and warn
   const shared = await run(['validate', 'lx-src']);
   assert.equal(shared.code, 1, 'an error while the turn has time');
   assert.match(shared.out + shared.err, /ERROR map\.config\.json \$\.plan\.sights: 6 places cite one page \(https:\/\/en\.wikivoyage\.org\/wiki\/Lisbon\): Castelo de São Jorge, Sé de Lisboa, Mosteiro dos Jerónimos, Torre de Belém …\. A page about a whole city or a list of places says which are worth it; it is not their source/);
-  assert.match(shared.out + shared.err, /fix: cite each place's own page \(its own site, else its Wikipedia article\): uw cite <that page> --grep "<its name>"/);
+  assert.match(shared.out + shared.err, /fix: cite each place's own page \(its own site from instafy web search "<its name>" --chain reference-search --json, else its Wikipedia article\): uw cite <that page> --grep "<its name>"/);
   // anchors on one page are still one page
   write((p) => `https://en.wikivoyage.org/wiki/Lisbon#${p.id}`);
   const anchors = await run(['validate', 'lx-src']);

@@ -9,6 +9,7 @@ import { expectOf, featureNames } from './expect.mjs';
 import { isLodging } from './registry-geo.mjs';
 import { stillRunning, runningList, handoffStep } from './running.mjs';
 import { REPLY_WITHIN_S } from './turn-advice.mjs';
+import { notOwnPages, OWN_PAGE_WAY } from './cmd-cite.mjs';
 
 export const help = `plan <dir> --stops <layer> --start YYYY-MM-DD [--ids taipei,hualien,…,taipei] [--nights 3,2,2,3,2,2]
      [--legs trip] [--stays stays] [--sights sights[,food,daytrips]] [--per-day 3] [--title "Plan"] [--force] [--json]
@@ -47,9 +48,12 @@ export const help = `plan <dir> --stops <layer> --start YYYY-MM-DD [--ids taipei
   checked while it has none): while the turn clock shows more than about 3 minutes left and the place search answers,
   a plan whose full days would have fewer than two is refused (exit 2, nothing written), naming those days, each place
   pinned with no page (with the reference search that finds its own site, else its Wikipedia article: keep it, never
-  remove it) and how many more places to add near each base (near a day's own place when it lies out of the base's
-  area: a day trip); do that, then run the same command again. With less time left, the place search down, or a uw
-  command still running on the site (named below), the days are written as they are. The plan keeps those layers ("sights")
+  remove it), how many more places to add near each base (near a day's own place when it lies out of the base's
+  area: a day trip), and near where to add one instead of a place whose page cannot be found; do that, then run the
+  same command again. With less time left, the place search down, or a uw command still running on the site (named
+  below), the days are written as they are. A place with no page of its own (none, or one taken with too little time
+  left that is not its own) is marked not checked in its day. A place the person named is never left off the days
+  while a day has a place of its kind they did not name (it takes that place's room). The plan keeps those layers ("sights")
   and when it planned the days ("planned_at"), and \`uw validate\` fails while a full day has no sourced place, and while a place of
   those layers is in no day and not one the plan lists as left out ("unplaced": no room, or far from every stop): it
   was pinned after the days were planned. In the turn that planned the days it also fails a full day with one sourced
@@ -155,35 +159,46 @@ export function shortDaysRefusal({ site, short, want, full, layers, focusOf, pla
     if (!bases.has(key)) {
       const pt = pointOf(at);
       bases.set(key, { name: at ? String(label(at.properties)) : null, near: pt ? pt.slice(0, 2).map((x) => +x.toFixed(6)).join(',') : null,
-        stop: at?.properties?.stop != null ? String(at.properties.stop) : f?.properties?.stop != null ? String(f.properties.stop) : ref && ref.layer === stopLayer ? String(ref.id) : null, places: 0, base: !away });
+        stop: at?.properties?.stop != null ? String(at.properties.stop) : f?.properties?.stop != null ? String(f.properties.stop) : ref && ref.layer === stopLayer ? String(ref.id) : null, places: 0, instead: 0, base: !away, days: [] });
     }
-    // what the places pinned there with no page cannot fill once they have it
-    bases.get(key).places += Math.max(0, want - have - items.filter(noPage).length);
+    // what the places pinned there with no page cannot fill once they have it, and what they fill only once they have
+    // it: where no page of its own can be found for one, another place near there takes its room (it stays pinned)
+    const could = Math.min(want - have, items.filter(noPage).length);
+    bases.get(key).places += want - have - could;
+    bases.get(key).instead += could;
+    if (could) bases.get(key).days.push(String(day.title));
   }
+  const nearOf = (b) => `near ${b.name || 'its base'} (${[b.near && `--near ${b.near}`, b.stop && `"stop":"${b.stop}"`].filter(Boolean).join('; ')})`;
   const add = [...bases.values()].filter((b) => b.places > 0);
   const total = add.reduce((n, b) => n + b.places, 0);
   const one = add.length === 1 ? add[0] : null;
   const where = one ? `${total} more place${total === 1 ? '' : 's'} near ${one.base ? 'the base, ' : ''}${one.name || 'its base'}${one.near ? ` (--near ${one.near})` : ''}`
-    : `${total} more places: ${add.map((b) => `${b.places} near ${b.name || 'its base'} (${[b.near && `--near ${b.near}`, b.stop && `"stop":"${b.stop}"`].filter(Boolean).join('; ')})`).join(', ')}`;
+    : `${total} more places: ${add.map((b) => `${b.places} ${nearOf(b)}`).join(', ')}`;
+  const instead = [...bases.values()].filter((b) => b.instead > 0);
+  const alt = instead.length === 1 ? instead[0] : null;
+  const insteadLine = instead.length ? `Where no page of its own can be found for one of those places on ${instead.flatMap((b) => b.days).join(', ')}, keep it and add another place `
+    + `${alt ? `near ${alt.base ? 'the base, ' : ''}${alt.name || 'its base'}${alt.near ? ` (--near ${alt.near})` : ''} instead` : `instead, ${instead.map(nearOf).join(', ')}`}` : null;
   const pinned = [...new Map(all.flatMap((d) => (Array.isArray(d?.items) ? d.items : []).filter(noPage)).map((it) => [`${it.ref.layer}:${it.ref.id}`, it]))];
   const search = (it) => `instafy web search "${String(searchFor(it)).replace(/["\\$`]/g, (c) => `\\${c}`)}" --chain reference-search --json`;
   const many = pinned.length > 1;
+  // no way past this but pages: marking a place as one the person named is for a place their message named, when it
+  // is pinned (reference/itinerary.md "One base" step 3), never offered here
   const lines = pinned.length ? [`${many ? `The ${pinned.length} places` : 'The place'} pinned with no page ${many ? 'count on no day until each has' : 'counts on no day until it has'} its own: `
     + `keep ${many ? 'them' : 'it'} (never remove a place to get past this). ${many ? 'Each one\'s' : 'Its'} page: its own site from the reference search below, else its Wikipedia `
-    + `article; uw cite <that page> --grep "<its name>", then uw set ${site} <layer>:<id> --props-file - with {"source_url":"<that page>","source":"<site>"}. `
-    + `A place the person named counts as it is, marked not checked: uw set ${site} <layer>:<id> --props '{"asked":true}'.`, ...pinned.map(([ref, it]) => `  ${ref}: ${search(it)}`)] : [];
-  if (add.length) {
-    lines.push(`Add ${where}, each from its own page (its own site from instafy web search "<its name>" --chain reference-search --json, else its Wikipedia article): `
-      + `uw cite <that page> --grep "<its name>", then uw add-point ${site} --layer ${layers[0]} --near ${one?.near || '<that point>'} … `
-      + `with {"stop":"${one?.stop || '<its stop>'}","source_url":"<that page>","source":"<site>"}, one place per command (reference/itinerary.md Phase B step 1). Then run this command again.`);
-  } else lines.push('Then run this command again.');
+    + `article; uw cite <that page> --grep "<its name>", then uw set ${site} <layer>:<id> --props-file - with {"source_url":"<that page>","source":"<site>"}.`, ...pinned.map(([ref, it]) => `  ${ref}: ${search(it)}`)] : [];
+  const how = (b) => `uw cite <that page> --grep "<its name>", then uw add-point ${site} --layer ${layers[0]} --near ${b?.near || '<that point>'} … `
+    + `with {"stop":"${b?.stop || '<its stop>'}","source_url":"<that page>","source":"<site>"}, one place per command (reference/itinerary.md Phase B step 1).`;
+  if (add.length) lines.push(`Add ${where}, each from its own page (${OWN_PAGE_WAY}): ${how(one)}${insteadLine ? ` ${insteadLine}, the same way.` : ''} Then run this command again.`);
+  else if (insteadLine) lines.push(`${insteadLine}, from its own page (${OWN_PAGE_WAY}): ${how(alt)} Then run this command again.`);
+  else lines.push('Then run this command again.');
   const next = lines.join('\n');
   const days = short.map(({ day, have }) => `${day.title} (${have})`);
   const first = want < 2
     ? `REFUSED: ${short.length} of ${full} full days would have no place to see with its own page (one a day: --per-day 1): ${days.join(', ')}. Nothing was written.`
     : `REFUSED: ${short.length} of ${full} full days would have fewer than 2 places to see with their own page (a full day takes 2-3): ${days.join(', ')}. Nothing was written.`;
   return { lines: [first, ...lines], json: { ok: false, refused: 'days_short_of_places', places_a_day: want,
-    short_days: short.map(({ day, have }) => ({ title: day.title, places: have })), add: add.map(({ base, ...b }) => b),
+    short_days: short.map(({ day, have }) => ({ title: day.title, places: have })), add: add.map(({ base, instead: _, days: __, ...b }) => b),
+    ...(instead.length ? { instead: instead.map(({ name, near, stop, instead: places, days: on }) => ({ name, near, stop, places, days: on })) } : {}),
     ...(pinned.length ? { no_page: pinned.map(([ref, it]) => ({ ref, name: String(it.text || ''), search: search(it) })) } : {}), next } };
 }
 
@@ -217,16 +232,16 @@ export function replyLine(stopCount, route, plan, total) {
 }
 
 /** The days for the reply, as the plan has them ("<day title>: <place>, <place> (not checked)"): each full day's places
- *  by name, one with no page of its own "(not checked)", a full day with none "nothing to see yet"; a travel day only
- *  with places. A reply once promised a day around two places its turn had removed from the map. Pure; exported for
- *  the tests. */
+ *  by name, one not checked on a page of its own "(not checked)" (no page, or its item says so: a page taken with too
+ *  little time left that is not its own), a full day with none "nothing to see yet"; a travel day only with places. A
+ *  reply once promised a day around two places its turn had removed from the map. Pure; exported for the tests. */
 export function daysForReply(plan) {
   const layers = Array.isArray(plan?.sights) ? plan.sights : [];
   const days = Array.isArray(plan?.days) ? plan.days : [];
   const full = new Set(fullDays(days));
   return days.map((d) => {
     const places = (Array.isArray(d?.items) ? d.items : []).filter((it) => it?.ref && layers.includes(it.ref.layer))
-      .map((it) => `${it.text}${typeof it.url === 'string' && /^https?:\/\//.test(it.url) ? '' : ' (not checked)'}`);
+      .map((it) => `${it.text}${typeof it.url === 'string' && /^https?:\/\//.test(it.url) && it.check !== NOT_CHECKED ? '' : ' (not checked)'}`);
     return places.length ? `${d.title}: ${places.join(', ')}` : full.has(d) ? `${d.title}: nothing to see yet` : null;
   }).filter(Boolean).join(' | ');
 }
@@ -305,7 +320,9 @@ export function sameCityStays(stops, nights, { maxKm = planChecks().trip_out_km,
  *  of places is the closest of any two groups (so a day never spans two areas when another split exists), never past
  *  `perDay` places of one layer. Places closer than `sameAreaKm` count as one area: there the smaller groups merge
  *  first, so the days share an area's places evenly. Fewer places than days: one each (spread, as before). Places that
- *  fit no day stay off the plan. Pure; exported for the tests. */
+ *  fit no day stay off the plan, never a place the person named ("asked": true) while a day has one of its kind nobody
+ *  named: it takes that place's room on the nearest such day (a plan left a named place off every day and kept the
+ *  places the turn chose). Pure; exported for the tests. */
 export function groupByArea(feats, k, perDay = 3, sameAreaKm = planChecks().same_area_km) {
   if (k <= 0 || !feats.length) return [];
   const pt = feats.map(pointOf);
@@ -333,6 +350,7 @@ export function groupByArea(feats, k, perDay = 3, sameAreaKm = planChecks().same
   // and each place of the others joins the nearest day with room
   groups.sort((a, b) => b.length - a.length || a[0] - b[0]);
   const kept = groups.slice(0, k);
+  const left = [];
   for (const g of groups.slice(k)) for (const i of g) {
     let best = null;
     for (const h of kept) {
@@ -340,7 +358,20 @@ export function groupByArea(feats, k, perDay = 3, sameAreaKm = planChecks().same
       const l = Math.min(...h.map((j) => d(i, j)));
       if (!best || l < best.l) best = { h, l };
     }
-    if (best) best.h.push(i);
+    if (best) best.h.push(i); else left.push(i);
+  }
+  // a place the person named that found no room: the nearest day with a place of its kind nobody named gives it that
+  // place's room (the one farthest from it), so the day stays around it
+  const named = (i) => feats[i]?.properties?.asked === true;
+  for (const i of left.filter(named)) {
+    let best = null;
+    for (const h of kept) {
+      const others = h.filter((j) => !named(j) && layerOf(j) === layerOf(i));
+      if (!others.length) continue;
+      const l = Math.min(...h.map((j) => d(i, j)));
+      if (!best || l < best.l) best = { h, l, out: others.reduce((a, b) => (d(i, b) > d(i, a) ? b : a)) };
+    }
+    if (best) best.h.splice(best.h.indexOf(best.out), 1, i);
   }
   return kept.map((g) => g.sort((a, b) => a - b).map((i) => feats[i]));
 }
@@ -442,7 +473,7 @@ export function legEstimate(lp = {}, a = null, b = null) {
 }
 
 /** Build the plan days. Pure (exported for the tests). */
-export function buildPlan({ stops: stopsIn, nights: nightsIn, start, legs = [], stays = [], sights = [], perDay = 3, title = 'Plan' }) {
+export function buildPlan({ stops: stopsIn, nights: nightsIn, start, legs = [], stays = [], sights = [], perDay = 3, title = 'Plan', notOwn = new Set() }) {
   if (stopsIn.length !== nightsIn.length) throw new UsageError(`--nights has ${nightsIn.length} values for ${stopsIn.length} stops`);
   if (!stopsIn.length) throw new UsageError('a plan needs at least one stop');
   const { stops, nights, at } = collapseStops(stopsIn, nightsIn);
@@ -467,11 +498,14 @@ export function buildPlan({ stops: stopsIn, nights: nightsIn, start, legs = [], 
   const baseOf = (s) => { const c = pointOf(stayFor(s)); return c && km(c, s.coord) < 60 ? c : s.coord || c || null; };
   // sights per stop: explicit "stop", else the nearest stop within 60 km
   const pool = poolSights(stops, sights);
-  // a place the person named ("asked": true) counts on its day as they gave it, marked not checked while it has no page
+  // a place the person named ("asked": true) counts on its day as they gave it. A place with no page of its own (none,
+  // or one taken with too little time left that is not its own: `notOwn`, "<layer>:<id>") is marked not checked, so
+  // the Plan tab and the reply's days say so (the Plan tab marked only the places the person named)
   const sightItem = (f) => {
     const p = f.properties;
+    const unchecked = !p.source_url || notOwn.has(`${f._layer}:${p.id}`);
     return { text: p.name_en || p.name, ref: { layer: f._layer, id: p.id }, ...(p.source_url ? { url: p.source_url } : {}), ...(p.source && p.source_url ? { source: String(p.source).slice(0, 40) } : {}),
-      ...(p.asked === true ? { asked: true, ...(p.source_url ? {} : { check: NOT_CHECKED }) } : {}) };
+      ...(p.asked === true ? { asked: true } : {}), ...(unchecked ? { check: NOT_CHECKED } : {}) };
   };
   // how the base is reached from its stop: the walk when it is known, else, for a stay farther out than a walk (a
   // hotel in town at a far station), the distance and the ride, so a far station is never silent (Taitung)
@@ -609,7 +643,7 @@ export function dayTextFrom(feats, max = 140) {
 }
 
 /** `turnLeftS`: seconds the turn clock leaves for tool work (uw.mjs; null: no clock, no limit). */
-export async function run(argv, { turnLeftS = null } = {}) {
+export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {}) {
   const args = parseArgs(argv, { stops: 'string', start: 'string', ids: 'string', nights: 'string', legs: 'string', stays: 'string', sights: 'string', 'per-day': 'number', title: 'string', force: 'bool' },
     { positionals: [1, 1], command: 'plan' });
   if (args.help) return console.log(help);
@@ -665,7 +699,10 @@ export async function run(argv, { turnLeftS = null } = {}) {
   const legs = withLayer(args.legs), stays = withLayer(args.stays), sights = parseList(args.sights || '').flatMap((id) => withLayer(id));
   const cfg = readJSON(site.cfgPath);
   if (cfg.plan && !args.force) throw new UserError('map.config.json already has a "plan"; pass --force to rebuild it (hand-written day texts are replaced)');
-  const built = buildPlan({ stops: stopsIn, nights: nightsIn, start: args.start, legs, stays, sights, perDay, title: args.title || 'Plan' });
+  // the places whose page is not their own, as uw validate judges them (taken with too little time left to cite):
+  // marked not checked in their days, as validate tells the reply to name them
+  const notOwn = sights.length ? notOwnPages(sights.map((f) => ({ lid: f._layer, f })), { turnStartedMs }).refs : new Set();
+  const built = buildPlan({ stops: stopsIn, nights: nightsIn, start: args.start, legs, stays, sights, perDay, title: args.title || 'Plan', notOwn });
   // --sights: the ask is what to see each day, and a full day takes 2-3 places, each with its own page (one when the
   // person asked for one place a day: --per-day 1). While the turn has time to add places and the place search
   // answers, days short of them are refused here, before anything is written, with how many to add near each base: a
@@ -747,14 +784,23 @@ export async function run(argv, { turnLeftS = null } = {}) {
   const drafted = plan.days.filter((d, i) => (i > 0 || plan.days.length === 1) && !SKELETON_DAY.test(String(d.text || '')) && !/^(Arrive in|Leave |Travel day)/.test(String(d.text || ''))).length;
   const feats = new Map([...[...legs, ...stays, ...sights].map((f) => [`${f._layer}:${f.properties?.id}`, f]), ...sfc.features.map((f) => [`${stopLayer}:${f.properties?.id}`, f])]);
   const misplaced = dayPlaceWarnings(plan, (r) => feats.get(`${r.layer}:${r.id}`) || null);
-  // places that fit no day (more than --per-day of a layer on every day of their stop): say so, never drop them quietly
-  const left = [...poolSights(stops, sights).values()].flat().filter((f) => !onPlan.has(`${f._layer}:${f.properties?.id}`));
+  // places that fit no day (more than --per-day of a layer on every day of their stop): say so, never drop them quietly;
+  // a place the person named is never left out of the reply (it is off the plan only when the places they named fill
+  // every day of its kind)
+  const offPlan = [...poolSights(stops, sights).values()].flat().filter((f) => !onPlan.has(`${f._layer}:${f.properties?.id}`));
+  const left = offPlan.filter((f) => f.properties?.asked !== true);
+  // a place the person named on no day: no room (the places they named fill every day of its kind), or far from every
+  // stop with no "stop" (no stop's days take it)
+  const namedOff = sights.filter((f) => f.properties?.asked === true && !onPlan.has(`${f._layer}:${f.properties?.id}`));
+  const far = (f) => !offPlan.includes(f);
+  const nameOf = (f) => f.properties.name_en || f.properties.name || f.properties.id;
   // commands still running on this site (lib/running.mjs, read before the days were counted): what they find is not in
   // this plan yet
   const many = running.length > 1;
   const runningNext = running.length ? `Still running on this site: ${runningList(running)}. What ${many ? 'they find is' : 'it finds is'} not in this plan yet: `
     + `wait until ${many ? 'each has' : 'it has'} finished (an exit code; never start ${many ? 'one' : 'it'} again), then run this command again with --force.` : null;
-  out.result({ ok: true, days: plan.days.length, nights: totalN, route, for_the_reply: forReply, ...(daysLine ? { days_for_the_reply: daysLine } : {}), plan, ...(view ? { view } : {}), ...(misplaced.length ? { day_places: misplaced } : {}), ...(left.length ? { not_on_plan: left.map((f) => `${f._layer}:${f.properties.id}`) } : {}),
+  out.result({ ok: true, days: plan.days.length, nights: totalN, route, for_the_reply: forReply, ...(daysLine ? { days_for_the_reply: daysLine } : {}), plan, ...(view ? { view } : {}), ...(misplaced.length ? { day_places: misplaced } : {}), ...(offPlan.length ? { not_on_plan: offPlan.map((f) => `${f._layer}:${f.properties.id}`) } : {}),
+    ...(namedOff.length ? { named_not_on_plan: namedOff.map((f) => `${f._layer}:${f.properties.id}`) } : {}),
     ...(running.length ? { still_running: running.map((r) => r.label), next: runningNext } : {}) }, [
     runningNext,
     `map.config.json: plan with ${plan.days.length} days (${totalN} nights) from ${args.start}: ` + plan.days.map((d) => d.title).slice(0, 4).join(' | ') + (plan.days.length > 4 ? ' | …' : ''),
@@ -765,7 +811,9 @@ export async function run(argv, { turnLeftS = null } = {}) {
     drafted ? `Day texts: ${drafted} full day(s) say what they are for, from their sourced places (names and the page's reason); keep them or reword them in the traveller's words (≤ 140 characters, nothing those pages do not say).` : null,
     gaps.empty ? `${gaps.empty} of ${gaps.full} full days still have no places ("Day in …", or only the arrival): add 2-3 sourced places for each of those days (reference/itinerary.md Phase B step 1), then this command again with --force.` : null,
     ...misplaced.slice(0, 4).map((w) => `Day places: ${dayPlaceLine(w, plan.days)}.`),
-    left.length ? `Not on any day (each day already has --per-day ${perDay} of their kind): ${left.slice(0, 6).map((f) => f.properties.name_en || f.properties.name || f.properties.id).join(', ')}${left.length > 6 ? ` and ${left.length - 6} more` : ''}. Add nights, raise --per-day, or leave them out of the reply.` : null,
+    namedOff.length ? `Places the person named, on no day: ${namedOff.slice(0, 6).map((f) => `${nameOf(f)} (${far(f) ? 'far from every stop' : `each day already has --per-day ${perDay} places they named of its kind`})`).join(', ')}${namedOff.length > 6 ? ` and ${namedOff.length - 6} more` : ''}. `
+      + `Never leave one out: ${[namedOff.some(far) && `give one far from every stop its stop (uw set ${args._[0]} <layer>:<id> --props '{"stop":"<its stop id>"}')`, namedOff.some((f) => !far(f)) && `run this command again with --per-day ${perDay + 1}`].filter(Boolean).join(', then ')}${namedOff.every(far) ? ', then run this command again' : ''}.` : null,
+    left.length ? `Not on any day (each day already has --per-day ${perDay} of their kind): ${left.slice(0, 6).map(nameOf).join(', ')}${left.length > 6 ? ` and ${left.length - 6} more` : ''}. Add nights, raise --per-day, or leave them out of the reply.` : null,
     keptNotes.length ? `Day notes kept on their days: ${keptNotes.map((n) => `day ${n}`).join(', ')} (uw set ${args._[0]} plan:day<N> --note moves one).` : null,
     lostNotes.length ? `Day notes of days this plan no longer has: ${lostNotes.map((x) => `day ${x.n} "${x.note}"`).join('; ')}. Put each on its day (uw set ${args._[0]} plan:day<N> --note "…"), or say it in the reply.` : null,
     'Next: uw validate, then SKILL.md step 9 (refreshes the card). Never in the reply: file or folder names, commands or layer ids.',

@@ -126,7 +126,7 @@ test('validate: two places that cite a page naming neither fail while the turn h
   assert.equal(v.code, 1, v.out);
   const shared = v.json.errors.filter((e) => e.path === '$.plan.sights');
   assert.deepEqual(shared.map((e) => e.message), [`2 places cite one page (${ROUTES}): Plaza de España, Casa de Murillo. A page about a whole city or a list of places says which are worth it; it is not their source`]);
-  assert.equal(shared[0].fix, 'cite each place\'s own page (its own site, else its Wikipedia article): uw cite <that page> --grep "<its name>", then uw set own <layer>:<id> --props-file - with {"source_url":"<that page>","source":"<site>"}; it gives the place\'s item in the days that page too, so the days stay as they are');
+  assert.equal(shared[0].fix, 'cite each place\'s own page (its own site from instafy web search "<its name>" --chain reference-search --json, else its Wikipedia article): uw cite <that page> --grep "<its name>", then uw set own <layer>:<id> --props-file - with {"source_url":"<that page>","source":"<site>"}; it gives the place\'s item in the days that page too, so the days stay as they are');
   // each with its own page, as the fix says: no new plan, and each place's item in the days links its own page
   const days = cfgOf(site).plan.days.map((d) => (d.items || []).map((it) => it.ref?.id));
   for (const [id, page] of [['plaza-espana', 'https://en.wikipedia.org/wiki/Plaza_de_Espa%C3%B1a,_Seville'], ['murillo', 'https://en.wikipedia.org/wiki/Casa_de_Murillo']]) {
@@ -201,7 +201,7 @@ test('add-point and set refuse a page uw cite read that does not name the place,
   assert.equal(a.code, 2, a.out + a.err);
   assert.deepEqual(a.json, { ok: false, refused: 'source_not_named', layer: 'sights', id: 'plaza-espana', source_url: routes, next: 'uw cite <its own page> --grep "Plaza de España"' });
   assert.deepEqual(a.err.trim().split('\n'), [
-    `REFUSED: ${routes} (read by uw cite) does not name "Plaza de España": it is not this place's source. Cite its own page first (its own site, else its Wikipedia article), then run this command again with that page as its source_url:`,
+    `REFUSED: ${routes} (read by uw cite) does not name "Plaza de España": it is not this place's source. Cite its own page first (its own site from instafy web search "<its name>" --chain reference-search --json, else its Wikipedia article), then run this command again with that page as its source_url:`,
     '  uw cite <its own page> --grep "Plaza de España"',
     'Nothing was added.',
   ]);
@@ -252,7 +252,7 @@ test('add-point and set refuse a page another place already cites: cite its own 
   assert.deepEqual(a.json, { ok: false, refused: 'source_shared', layer: 'sights', id: 'indies', source_url: cathedral.page,
     next: 'uw cite <its own page> --grep "General Archive of the Indies"', cited_by: { ref: 'sights:cathedral', name: 'Cathedral of Seville' } });
   assert.deepEqual(a.err.trim().split('\n'), [
-    `REFUSED: ${cathedral.page} (read by uw cite) is the page Cathedral of Seville (sights:cathedral) cites too: it is not this place's source (a page two places share is about a city or a list of places). Cite its own page first (its own site, else its Wikipedia article), then run this command again with that page as its source_url:`,
+    `REFUSED: ${cathedral.page} (read by uw cite) is the page Cathedral of Seville (sights:cathedral) cites too: it is not this place's source (a page two places share is about a city or a list of places). Cite its own page first (its own site from instafy web search "<its name>" --chain reference-search --json, else its Wikipedia article), then run this command again with that page as its source_url:`,
     '  uw cite <its own page> --grep "General Archive of the Indies"',
     'If this page is the site of "General Archive of the Indies" itself, it is Cathedral of Seville\'s source that is wrong: give that place its own page (uw set shared sights:cathedral --props-file - with {"source_url":"<its own page>","source":"<site>"}), then run this command again. Nothing was added.',
   ]);
@@ -397,9 +397,10 @@ test('validate: a day with nothing to see names the reader, uw cite on each plac
   const v = await uw(['validate', site, '--json']);
   assert.equal(v.code, 1, v.out);
   const e = v.json.errors.find((x) => x.path === '$.plan.days');
-  assert.equal(e.message, '3 of 3 full days have nothing to see (no sourced place): Mon 2 Nov · Seville, Tue 3 Nov · Seville, Wed 4 Nov · Seville');
+  // the days show their places, marked not checked: not "nothing to see"
+  assert.equal(e.message, '3 of 3 full days have no place checked on a page of its own: Mon 2 Nov · Seville (2 places not checked), Tue 3 Nov · Seville (1 place not checked), Wed 4 Nov · Seville (2 places not checked)');
   assert.equal(e.fix, 'uw plan bare … --sights sights --force spreads the places already pinned over every day, the arrival day too: run it first when a stop has two places for each of its days. '
-    + 'Else cite 2-3 places for each of those days in this turn, each from its own page (its own site, else its Wikipedia article): uw cite <page> --grep "<its name>", never a browser card; '
+    + 'Else cite 2-3 places for each of those days in this turn, each from its own page (its own site from instafy web search "<its name>" --chain reference-search --json, else its Wikipedia article): uw cite <page> --grep "<its name>", never a browser card; '
     + 'then uw add-point bare --layer sights … with {"stop":…,"source_url":…}; the 5 places pinned with no page: uw set bare <layer>:<id> --props-file - with {"source_url":…,"source":…} '
     + '(reference/itinerary.md Phase B step 1), then run it; a place the lookup cannot pin goes on its day as {"text": "<name>", "url": "<its page>", "source": "<site>"}');
   assert.doesNotMatch(JSON.stringify(v.json.errors), /a page you read names/);

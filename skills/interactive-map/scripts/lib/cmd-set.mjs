@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs, makeOut, readJSON, writeJSON, writeGeoJSON, propsArg, UsageError, UserError } from './util.mjs';
 import { openSite, loadLayer, layerPath, withSiteLock, placeIndex } from './site.mjs';
-import { unnamedSource, unnamedSourceLine, lateSourceLine, sourceStamp, sourceNotRead, sourceNotReadRefusal, readPage } from './cmd-cite.mjs';
+import { unnamedSource, unnamedSourceLine, lateSourceLine, sourceStamp, sourceNotRead, sourceNotReadRefusal, readPage, OWN_PAGE_WAY } from './cmd-cite.mjs';
 import { cacheOff } from './net.mjs';
 import { isAreaPin } from './stays.mjs';
 import { isLodging } from './registry-geo.mjs';
@@ -14,7 +14,9 @@ import { NOT_CHECKED } from './cmd-plan.mjs';
 export const help = `set <dir> <layer>:<id> [--note "…"] [--name "…"] [--emoji 🏨] [--props '{"price":120}' | --props-file <file|->] [--unset key1,key2] [--remove] [--json]
 set <dir> plan:day<N> --note "…" | --unset note [--json]
   Changes properties of one feature in data/<layer>.geojson in place (other properties, metrics and geometry stay), or
-  removes it (--remove). No network. Use it to fix a note, label or prop after add-point / enrich instead of re-running them.
+  removes it (--remove: only a place the person asks to drop, never one they named or one pinned to see to get past a
+  refusal or a failing check; one they named, "asked": true, is refused unless the same command has --unset asked).
+  No network. Use it to fix a note, label or prop after add-point / enrich instead of re-running them.
   plan:day1 is the plan's first day: --note gives that day its own line (a note for day 1: "book the tickets ahead"),
   shown under the day's text in the Plan tab, above its places (a map made before day notes keeps it but does not
   show it: said); --note "" or --unset note takes it off. A place's or a stop's note shows on its own card, never in a
@@ -25,9 +27,10 @@ set <dir> plan:day<N> --note "…" | --unset note [--json]
   page read that does not name the place or that another place already cites, where uw validate fails it: a trip's
   places to see, an area to stay in that says why (exit 2, "cite its own page"). Elsewhere, or with under about 3
   minutes left on the turn's clock, it is said and taken.
-  A new source_url or source goes to the place's items in the plan's days too (the Plan tab's link under it; a place
-  the person named, "asked": true, is no longer marked not checked), so the days stay as they are: no new uw plan. An
-  item that links another page is left as it is.
+  A new source_url or source goes to the place's items in the plan's days too (the Plan tab's link under it; marked
+  not checked while the place has no page of its own), so the days stay as they are: no new uw plan. An item that links
+  another page is left as it is. --props '{"asked":true}' marks a place the person's message named (only that, never to
+  get past a check): its items in the days count for their day, as uw plan and uw validate count it.
   Text with an apostrophe or quotes: --props-file - <<'JSON', the object on the next line, then JSON (no shell quoting).`;
 
 /** `turn`: the turn's clock, as uw.mjs gives it to validate ({ turnLeftS, turnStartedMs }). */
@@ -53,8 +56,19 @@ export async function run(argv, turn = {}) {
     }
     const f = fc.features[i];
     const before = { ...f.properties };
-    let changed = [], late = null;
+    let changed = [], late = null, twin = null;
     if (args.remove) {
+      // a place the person named stays on the map and on its day: removed only when they ask to drop it, with its mark
+      // taken off in the same command. A turn removed every place it had pinned, the two the person named among them,
+      // seconds after a refusal, and its reply promised a day around them. One place pinned twice keeps its other pin,
+      // which takes the mark
+      if (f.properties.asked === true && !String(args.unset || '').split(',').map((x) => x.trim()).includes('asked')) {
+        const place = placeIndex(fc.features);
+        twin = fc.features.find((g, j) => j !== i && place[j] === place[i]) || null;
+        if (!twin) return { f, changed: [], named: true };
+        twin = { id: String(twin.properties.id), before: { ...twin.properties }, f: twin };
+        twin.f.properties.asked = true;
+      }
       fc.features.splice(i, 1);
       changed = ['(removed)'];
     } else {
@@ -83,11 +97,24 @@ export async function run(argv, turn = {}) {
       if (changed.includes('source_url') || changed.includes('-source_url')) sourceStamp(f.properties, before);
     }
     writeGeoJSON(layerPath(site, layer), fc);
-    // the place's items in the days link the page it cites (uw plan copied it there): a new page goes to them too
-    const dayItems = !args.remove && changed.some((k) => /^-?source(_url)?$/.test(k)) ? withDayItems(site, layer, id, before, f.properties) : 0;
+    // the place's items in the days link the page it cites (uw plan copied it there): a new page goes to them too, and
+    // so does a mark the person named it ("asked"), which counts it for its day
+    const dayItems = !args.remove && changed.some((k) => /^-?(source(_url)?|asked)$/.test(k)) ? withDayItems(site, layer, id, before, f.properties, { late: !!late }) : 0;
+    if (twin) withDayItems(site, layer, twin.id, twin.before, twin.f.properties);
     return { f, changed, dayItems, late };
   });
-  const { f, changed, dayItems, refused, late } = done;
+  const { f, changed, dayItems, refused, late, named } = done;
+  if (named) {
+    const ref = `${layer}:${id}`, name = f.properties.name_en || f.properties.name || id;
+    const next = `uw set ${args._[0]} ${ref} --unset asked --remove`;
+    if (out.json) process.stdout.write(JSON.stringify({ ok: false, refused: 'named_by_the_person', layer, id, next }, null, 2) + '\n');
+    console.error([
+      `REFUSED: "${name}" is a place the person named: it stays on the map and on its day, marked not checked while it has no page of its own. Nothing was changed.`,
+      `Never remove it to get past a refusal or a failing check. Its own page: ${OWN_PAGE_WAY}; uw cite <that page> --grep "<its name>", then uw set ${args._[0]} ${ref} --props-file - with {"source_url":"<that page>","source":"<site>"}.`,
+      `Only when the person asks to drop it: ${next}`,
+    ].join('\n'));
+    return 2;
+  }
   if (refused) {
     const { lines, refused: why, next } = sourceNotReadRefusal(refused, f.properties.name_en || f.properties.name || id, 'Nothing was changed.', args._[0]);
     if (out.json) process.stdout.write(JSON.stringify({ ok: false, refused: why, layer, id, source_url: refused.url, next, ...(refused.shared ? { cited_by: refused.shared } : {}) }, null, 2) + '\n');
@@ -100,7 +127,8 @@ export async function run(argv, turn = {}) {
   const miss = !args.remove && changed.some((k) => k === 'source_url' || /^name/.test(k)) ? unnamedSource(f.properties) : null;
   out.result({ ok: true, layer, id, changed, removed: !!args.remove, ...(dayItems ? { day_items: dayItems } : {}), ...(miss ? { source_not_named: miss } : {}) }, [
     args.remove ? `Removed ${layer}:${id} (${f.properties.name || ''}). Re-run enrich / legs / routes that used it.` : `Updated ${layer}:${id}: ${changed.join(', ')}.`,
-    dayItems ? `Its ${dayItems === 1 ? 'item' : `${dayItems} items`} in the plan's days link${dayItems === 1 ? 's' : ''} ${f.properties.source_url ? 'that page now' : 'no page now'}; the days are as they were.` : null,
+    dayItems && changed.some((k) => /^-?source(_url)?$/.test(k)) ? `Its ${dayItems === 1 ? 'item' : `${dayItems} items`} in the plan's days link${dayItems === 1 ? 's' : ''} ${f.properties.source_url ? 'that page now' : 'no page now'}${f.properties.source_url && !late ? '' : ', marked not checked'}; the days are as they were.` : null,
+    dayItems && changed.some((k) => /^-?asked$/.test(k)) ? `Its ${dayItems === 1 ? 'item' : `${dayItems} items`} in the plan's days ${f.properties.asked === true ? `count${dayItems === 1 ? 's' : ''} for ${dayItems === 1 ? 'its day' : 'their days'} as a place the person named` : `no longer count${dayItems === 1 ? 's' : ''} as a place the person named`}; the days are as they were.` : null,
   ]);
   if (late) out.warn(lateSourceLine(late));
   else if (miss) out.warn(unnamedSourceLine(miss, args._[0], `${layer}:${id}`));
@@ -240,26 +268,37 @@ export function sourceNotOwn(site, layer, f, { turnLeftS = null, turnStartedMs =
  *  its source_url, `source` = its source): the place's new page goes to each item that linked its old one (or none,
  *  while it had none), so the Plan tab never links a page the place no longer cites and the days need no new plan
  *  (one groups them by area again, which undoes what the person moved). An item that links another page keeps it.
- *  `uw set` and `uw add-point` (a place pinned again under its id) call it holding the site lock. Returns how many
- *  items changed. */
-export function withDayItems(site, layer, id, before, after) {
+ *  Such an item is marked not checked ("check": NOT_CHECKED, the Plan tab's "Not checked · on a page of its own")
+ *  while the place has no page, or one taken with too little time left that is not its own (`late`), and the mark goes
+ *  once it has its own. A mark that the person named the place ("asked") goes to all its items, which then count for
+ *  their day (marking it after the days were planned changed nothing in them). `uw set` and `uw add-point` (a place
+ *  pinned again under its id) call it holding the site lock. Returns how many items changed. */
+export function withDayItems(site, layer, id, before, after, { late = false } = {}) {
   let cfg;
   try { cfg = readJSON(site.cfgPath); } catch { return 0; }
   const days = Array.isArray(cfg?.plan?.days) ? cfg.plan.days : [];
   const was = typeof before.source_url === 'string' && before.source_url ? before.source_url : null;
+  const url = after.source_url || null;
+  const source = url && after.source ? String(after.source).slice(0, 40) : null;
+  const pageChanged = (was ?? null) !== url || (before.source ?? null) !== (after.source ?? null);
+  const asked = after.asked === true;
+  const askedChanged = (before.asked === true) !== asked;
   let n = 0;
   for (const d of days) for (const it of Array.isArray(d?.items) ? d.items : []) {
     if (!it || typeof it !== 'object' || String(it.ref?.layer) !== layer || String(it.ref?.id) !== id) continue;
-    if (!(was ? it.url === was : it.url === undefined)) continue;
-    const url = after.source_url || null;
-    const source = url && after.source ? String(after.source).slice(0, 40) : null;
-    if ((it.url ?? null) === url && (it.source ?? null) === source) continue;
-    if (url) it.url = url; else delete it.url;
-    if (source) it.source = source; else delete it.source;
-    // a place the person named is marked not checked only while it has no page (uw plan wrote the mark)
-    if (it.asked === true && url && it.check === NOT_CHECKED) delete it.check;
-    else if (it.asked === true && !url && it.check === undefined) it.check = NOT_CHECKED;
-    n++;
+    const was0 = JSON.stringify(it);
+    if (pageChanged && (was ? it.url === was : it.url === undefined)) {
+      if (url) it.url = url; else delete it.url;
+      if (source) it.source = source; else delete it.source;
+      // not checked while the place has no page of its own (uw plan writes the same mark)
+      if (url && !late && it.check === NOT_CHECKED) delete it.check;
+      else if ((!url || late) && it.check === undefined) it.check = NOT_CHECKED;
+    }
+    if (askedChanged) {
+      if (asked) it.asked = true; else delete it.asked;
+      if (!it.url && it.check === undefined) it.check = NOT_CHECKED;
+    }
+    if (JSON.stringify(it) !== was0) n++;
   }
   if (n) { writeJSON(site.cfgPath, cfg, { pretty: true }); site.config = cfg; }
   return n;

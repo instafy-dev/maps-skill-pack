@@ -188,10 +188,10 @@ open site in place; then `uw validate`, SKILL.md step 9, the reply.
 - Moving a place to another day: move its item and reword both days' texts in the same edit (never `uw plan
   --force` for it: it groups the days by area again, which undoes the move); `uw validate` says when a day's places
   are far apart or one is nearer another day's.
-- Dropping a place, only when the person asks: `uw set <site> <layer>:<id> --remove`, then remove its item and reword
-  its day's text. Never remove a place the person named, or one pinned to see, to get past a refusal or a failing
-  check: it gets its own page (Phase B step 1), and one the person named stays on its day as it is (`"asked":true`:
-  `uw plan` counts it, marked not checked while no page was read).
+- Dropping a place, only when the person asks: `uw set <site> <layer>:<id> --remove` (one they named: `--unset asked
+  --remove`), then remove its item and reword its day's text. Never remove a place the person named, or one pinned to
+  see, to get past a refusal or a failing check: it gets its own page (Phase B step 1), and one the person named stays
+  on its day as it is (`"asked":true`: `uw plan` counts it, marked not checked while no page was read).
 - Rail track still missing (the legs are arcs): run the lines/legs retry first (`reference/several-stops.md` step 4).
 - Changing a place's note or reason: keep its sourced facts (the walk, the register line) and add to them; never
   replace them with an "unverified" paragraph (that goes in the reply's unverified line).
@@ -219,8 +219,9 @@ Write for the traveller, 5-8 short lines:
    says "about 2 h … (estimate …)"; "check the operator's timetable, linked on each leg").
 5. Each day as `uw plan` printed it ("Days for the reply": no place it does not name; one not checked is said so),
    with highlights or warnings worth acting on (a closure, a pass to buy) only from the pages you opened. When the
-   time ran out with `uw validate` failing, or naming a full day with one place to see, say plainly what is missing
-   ("<day> has nothing to see yet") and offer to add it.
+   time ran out with `uw validate` failing, or naming a full day with one place to see, say plainly what is missing,
+   as the days show it ("<day> has nothing to see yet", "<place> is not checked yet", "<place> you named is on no
+   day") and offer to add it.
 6. `Sources:` in one line, by who publishes the data (e.g. "OpenStreetMap, Wikivoyage, the national park's site",
    the lodging register when one was used, plus the operator's journey planner when `uw transit` gave times).
 7. `Unverified:` prices and availability (never checked), train times not sourced, anything "Not found yet",

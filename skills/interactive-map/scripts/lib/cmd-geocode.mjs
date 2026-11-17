@@ -988,6 +988,8 @@ async function addPointRun(argv, ctx) {
     const prevC = prev?.geometry?.type === 'Point' ? prev.geometry.coordinates : null;
     const same = !!prevC && haversine(prevC, feature.geometry.coordinates) < 25;
     if (same) feature.properties = { ...prev.properties, ...feature.properties };
+    // a place the person named stays one when it is pinned again somewhere else (a wrong match moved under its id)
+    else if (prev?.properties?.asked === true && feature.properties.asked === undefined) feature.properties.asked = true;
     // a page uw validate fails as not the place's own (it does not name the place, or another place cites it) is
     // refused before anything is written, judged with the place as it is written (cmd-set.mjs sourceNotOwn; a uw
     // handoff step's places were judged by its own source check). Anywhere else, or with too little time left to cite,
@@ -1010,7 +1012,7 @@ async function addPointRun(argv, ctx) {
     const rel = p.slice(site.dir.length + 1);
     // pinned again under its id after the days were planned: its items in the days link its new page, as uw set does
     // (they kept linking the page it had before)
-    const dayItems = prev ? withDayItems(site, layer, id, prev.properties || {}, feature.properties) : 0;
+    const dayItems = prev ? withDayItems(site, layer, id, prev.properties || {}, feature.properties, { late: !!notOwn?.late }) : 0;
 
     // map.config.json: register the layer (so the point shows at once), drop its "not found yet" entry, add the
     // register's licence credit, and keep the options on screen
