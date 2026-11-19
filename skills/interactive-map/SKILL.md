@@ -18,8 +18,8 @@ Every command has `--help` and `--json`. Exit 0 ok, 1 error, 2 not found / needs
 
 1. Never type coordinates or invent places. Points, lines and areas come from commands; `--near`/`--center` from `geocode`.
 2. Check what `add-point` chose. On exit 2 retry once (better `--query`, `--pick N`, `--osm <id>`), unless "already
-   pinned": it is on the map, never pin it again. "Cite it first": cite, rerun. Still not found: keep going (it shows
-   as "Not found yet"); never stop early or leave an empty map.
+   pinned": it is on the map, never pin it again. Still not found: keep going (it shows as "Not found yet"); never
+   stop early or leave an empty map.
 3. Never write verdict, why or area text by hand without `cites`; every number comes from a metric or record.
    Estimates say "est.". Never call a place unsafe, dirty, illegal or unlicensed (a miss is "not found").
 4. Keep credits (`attribution`, photo and open-data credits).
@@ -85,8 +85,8 @@ After each: re-run the step-7 command and `uw validate <site> --signal`. Exit 4:
 
 **Phase C: reply** in 3-6 lines, even if your host asks for one sentence. No paths, "validates",
 commands, services or exit codes (Overpass, Photon, OSRM, "exit 4"): say it plainly ("the place search was busy");
-sources by publisher (OpenStreetMap, Wikipedia) in one line; say what is unverified; never where the map is
-("in the Studio preview": its card is under the reply). Start with the
+sources by publisher (OpenStreetMap, Wikipedia) in one line, as `uw validate` lists them; say what is unverified;
+never where the map is ("in the Studio preview": its card is under the reply). Start with the
 verdict as `uw question` printed it (the pick and why, by name, no map letter; then the persona line),
 the `Assumed:` line, what is estimated or partial (PARTIAL: "may be incomplete"), every `Tell the user` line
 (a register match: name the listing, never ask to confirm), anything "Not found yet" (what was searched; they can

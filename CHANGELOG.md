@@ -3,6 +3,51 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.38 (2026-11-19)
+
+- **The places the message names are pinned first, each marked as named.** A trip's map pinned the two places the
+  person named without the named mark: the trip guide gave it in a parenthetical of its step for places by area. "One
+  base" now has a step of its own for them (step 3): the places the message names are pinned before any other, each
+  with `"asked":true`, and only those; Phase B step 1 says the same for a trip of several stops (`uw plan` keeps such
+  a place on its day as the person gave it, marked not checked until its own page is read).
+- **`uw add-point` and `uw set` read a page no `uw cite` read themselves.** A trip's turn pinned its sights with their
+  articles; each was refused ("cite it first"), cited, and pinned again, one round trip a place, and its last pin was
+  refused so as its time ran out, leaving a day one place short. A `source_url` no `uw cite` read in the last hours is
+  now read by the command itself, as `uw cite` reads a page (robots.txt, link-only sites, bot checks, redirects hop by
+  hop; one shared read, `readAndKeep`), and kept as `uw cite` keeps it, before any lookup; the command says so ("Read
+  … for "<name>", as uw cite would", with the place's own site when the page links one). The page is then judged as
+  one `uw cite` read, by the place's names once it is found. One that cannot be read (HTTP 404, refused, no answer in
+  time) is refused with why (JSON `why`): nothing added or changed, and the place is not "not found yet". With every
+  cache off nothing is read, as before.
+- **Pinning a place that a "not found" entry names takes the entry off.** A map read "Not found yet: Main Market
+  Square" over its own pin for the square: the lookup by that name was refused (its best match, "Rynek Główny / Main
+  Square", is named only with words that name no place on their own), and the turn pinned that very square by its
+  local name, under another id. An entry now goes when a pin is that place: its id, any of its names or the query it
+  was looked up by is the entry's name or query; or, when the refused lookup's best match was a square, a park or a
+  quarter named only with words of the entry's name (two or more), kept on the entry as `"place"` (its OpenStreetMap
+  object, names, point and outline), a pin of that object, or of its name inside its outline or within 150 m of it. A
+  place a pin already is is not listed at all (the refusal names that pin; JSON `pinned_as`), and `uw validate` fails
+  an entry beside its own pin, as it failed one beside a pin of its name.
+- **`uw validate` lists the sources the map cites.** "Sources for the reply, as the map cites them (no other): …"
+  (JSON `sources_for_the_reply`): who publishes each place's and leg's source and each day item's own page, most
+  cited first; the place lookups' open data as "OpenStreetMap"; the person's own points none. A trip's reply named a
+  tourism site among its sources while no place cited it (its pages could not be read).
+- **The reply's days, gaps and sources come from `uw plan` and `uw validate`.** A reply called a map with no days
+  "incomplete" and blamed the gap on a square that was pinned, and the next reply asked the person to add a sight.
+  The trip guide's reply now says what is missing as the last `uw plan` and `uw validate` name it ("<day> has one
+  place to see", "no days yet: <day> needs one more place"), never with a cause they do not give; its `Sources:` line
+  is `uw validate`'s list and no other; its `Unverified:` line names what `uw validate` lists as not found yet; and it
+  never asks the person to add a place: it says which day is short and offers to add one. A note for a day the map
+  does not have yet says the same. SKILL.md's reply takes its sources from `uw validate`, and its "cite it first"
+  rule went with the refusal.
+- Tests: tests/reply-from-the-map.test.mjs (a trip scripted offline: the named places pinned first and on their day,
+  the square's entry gone with its pin, a page read by the add-point that pins its place, the days and `uw
+  validate` passing with the sources it lists, a page that cannot be read never among them; a place already pinned
+  never listed, and an entry beside its pin failing validate; the place an entry keeps and its guards; the sources
+  list; the guide's words). cite-first, own-page, named-places-kept, one-place-one-pin and full-days follow the new
+  behaviour and words, and every page the turn's own commands read in them is the local mock's.
+- package.json, the manifest and the CHANGELOG are at 0.1.38.
+
 ## 0.1.37 (2026-11-17)
 
 - **A place pinned to see keeps its pin through the plan's refusal, which says how to find its page.** A trip's map

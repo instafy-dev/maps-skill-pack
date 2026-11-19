@@ -10,11 +10,12 @@
 //    address led to); --grep is accent-insensitive;
 //  - uw validate checks every sight's page against what uw cite read: one that does not name its place (or is not a
 //    page) fails while the turn has time; one no uw cite read fails in the turn that planned the days, with the
-//    commands that read it (the turn's own add-point and set refuse such a page: tests/cite-first.test.mjs; a place a
-//    `uw handoff --apply` step pins carries its researcher's page); one place pinned twice is its own error, whose fix
-//    removes the later pin.
+//    commands that read it (the turn's own add-point and set read such a page themselves, and refuse one they cannot
+//    read: tests/cite-first.test.mjs; a place a `uw handoff --apply` step pins carries its researcher's page); one place
+//    pinned twice is its own error, whose fix removes the later pin.
 // Offline: the place search and the web pages are a local mock in this file; pages at https:// addresses (the plan's
-// links must be https) are put in the shared cache as uw cite keeps what it read.
+// links must be https) are put in the shared cache as uw cite keeps what it read, and every page the turn's own
+// add-point or set reads (one no uw cite read) is the mock's.
 // Run: node --test tests/one-place-one-pin.test.mjs
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -111,7 +112,7 @@ const newTrip = async (site) => {
 const page = (url) => ({ stop: 'seville', source_url: url, source: new URL(url).hostname.replace(/^www\./, '') });
 const pinAt = (site, s, opts = {}) => uw(['add-point', site, '--layer', 'sights', '--at', s.at.join(','), '--name', s.name, '--id', s.id, '--props-file', '-'], { input: JSON.stringify(page(s.page)), ...opts });
 /** A step `uw handoff --apply` runs itself: its places carry the research lanes' pages, which its own source check
- *  judges (the turn's own add-point refuses a page no uw cite read) */
+ *  judges (the turn's own add-point reads a page no uw cite read, and refuses one it cannot read) */
 const STEP = { env: { UW_HANDOFF_STEP: '1' } };
 const pinSquare = (site, id, url, more = [], opts = {}) => uw(['add-point', site, '--layer', 'sights', '--query', 'Plaza de España, Seville', '--near', CITY.join(','), '--id', id, ...more, '--props-file', '-', '--json'],
   { input: JSON.stringify({ ...page(url), ...(opts.why ? { why: opts.why } : {}) }) });
@@ -256,7 +257,10 @@ test('validate: a sight whose page does not name it, or that no uw cite read, fa
   const site = 'sources';
   await newTrip(site);
   readSights();
-  assert.equal((await pinAt(site, SIGHTS[3])).code, 2, 'the turn\'s own add-point refuses a page no uw cite read');
+  // the turn's own add-point reads a page no uw cite read (a page of the local mock here), and refuses one that is gone
+  const gone = await pinAt(site, { ...SIGHTS[3], page: `${mock.url}/en/casa-de-pilatos-gone` });
+  assert.equal(gone.code, 2, 'the turn\'s own add-point refuses a page it cannot read');
+  assert.match(gone.err, /could not be read \(HTTP 404: the page is missing or gone\)/);
   assert.equal((await pinAt(site, SIGHTS[1])).code, 2, 'and an address uw cite found is not a page');
   assert.equal((await pinAt(site, SIGHTS[2])).code, 2, 'and a page that does not name the place');
   for (const s of SIGHTS) assert.equal((await pinAt(site, s, ['pilatos', 'maria-luisa', 'murillo'].includes(s.id) ? STEP : {})).code, 0);
@@ -542,9 +546,9 @@ test('validate: a later turn that plans the days again judges only the pages of 
   assert.equal(again.code, 0, again.out + again.err);
   const later = await uw(['validate', site, '--json'], { clock: turn2, cache: cache2 });
   assert.deepEqual([...later.json.errors, ...later.json.warnings].filter((e) => e.path === '$.plan.sights').map((e) => e.message), [], 'the earlier turn\'s places are not judged unread');
-  // a place this turn pins with a page nobody read is: the turn's own add-point refuses it, and one a uw handoff --apply
-  // step pins in this turn is judged
-  const unread = 'https://www.example-guides.test/torre-del-oro';
+  // a place this turn pins with a page nobody read is: the turn's own add-point reads it (gone here: refused), and one a
+  // uw handoff --apply step pins in this turn is judged
+  const unread = `${mock.url}/en/torre-del-oro-gone`;
   const tower = (opts = {}) => uw(['add-point', site, '--layer', 'sights', '--at', '-5.996245,37.382426', '--name', 'Torre del Oro', '--id', 'torre', '--props-file', '-'],
     { input: JSON.stringify(page(unread)), clock: turn2, cache: cache2, ...opts });
   assert.equal((await tower()).code, 2);
@@ -552,8 +556,8 @@ test('validate: a later turn that plans the days again judges only the pages of 
   assert.equal((await uw(['plan', site, '--stops', 'stops', '--ids', 'seville', '--nights', '3', '--start', '2026-11-03', '--sights', 'sights,food', '--force'], { clock: hostClock(450), cache: cache2 })).code, 0);
   const now = await uw(['validate', site, '--json'], { clock: turn2, cache: cache2 });
   assert.deepEqual(now.json.errors.filter((e) => e.path === '$.plan.sights').map((e) => e.message), [`1 place cites a page no uw cite read: Torre del Oro (sights:torre: ${unread})`]);
-  // and uw set refuses to give an earlier place another page nobody read: nothing changes
-  const other = 'https://www.example-guides.test/alcazar';
+  // and uw set refuses to give an earlier place another page nobody could read: nothing changes
+  const other = `${mock.url}/en/alcazar-gone`;
   assert.equal((await uw(['set', site, 'sights:alcazar', '--props-file', '-'], { input: JSON.stringify({ source_url: other, source: 'Guides' }), clock: turn2, cache: cache2 })).code, 2);
   assert.equal(sightsOf(site).find((f) => f.properties.id === 'alcazar').properties.source_url, SIGHTS[0].page);
   const moved = await uw(['validate', site, '--json'], { clock: turn2, cache: cache2 });

@@ -324,9 +324,12 @@ test('the skill and its references never tell a turn to remove a place to pass a
   for (const [f, s] of removing) assert.match(s, /only when the person asks|Never remove a place/, `${f}: ${s}`);
   const md = flat(path.join(SKILL, 'reference', 'itinerary.md'));
   assert.match(md, /- Dropping a place, only when the person asks: `uw set <site> <layer>:<id> --remove` \(one they named: `--unset asked --remove`\), then remove its item and reword its day's text\. Never remove a place the person named, or one pinned to see, to get past a refusal or a failing check: it gets its own page \(Phase B step 1\), and one the person named stays on its day as it is \(`"asked":true`: `uw plan` counts it, marked not checked while no page was read\)\./);
-  assert.match(md, /2-3 sourced places in it \(Phase B step 1, with `"stop":"<slug>"`; one the person named also `"asked":true`\)\./);
+  // the places the message names are a step of their own, pinned first and marked, and only those
+  assert.match(md, /3\. \*\*The places the message names\*\*, pinned first, each with `"asked":true` \(Phase B step 1\); only those\. 4\. \*\*Places by area\*\*/);
+  assert.match(md, /2-3 sourced places in it \(Phase B step 1, with `"stop":"<slug>"`\)\. Never put a place on a day/);
+  assert.match(md, /The places the message names come first, each with `"asked":true` in its props: `uw plan` keeps it on its day as the person gave it, marked not checked until its own page is read \(never a place you chose\)\. Then each sight in a command of its own/);
   assert.match(md, /The reply \("Reply", at the end\): the stay with its dates and days as `uw plan` prints them, the `Assumed:` line \(the dates too, when the person gave none\), where to stay and why\./);
-  assert.match(md, /5\. Each day as `uw plan` printed it \("Days for the reply": no place it does not name; one not checked is said so\), with highlights or warnings worth acting on \(a closure, a pass to buy\) only from the pages you opened\. When the time ran out with `uw validate` failing, or naming a full day with one place to see, say plainly what is missing, as the days show it \("<day> has nothing to see yet", "<place> is not checked yet", "<place> you named is on no day"\) and offer to add it\./);
+  assert.match(md, /5\. Each day as `uw plan` printed it \("Days for the reply": no place it does not name; one not checked is said so\), with highlights or warnings worth acting on \(a closure, a pass to buy\) only from the pages you opened\. When the time ran out with `uw validate` failing, or naming a full day with one place to see, say plainly what is missing, as the last `uw plan` and `uw validate` name it \("<day> has nothing to see yet", "<day> has one place to see", "no days yet: <day> needs one more place", "<place> is not checked yet", "<place> you named is on no day"\), never with a cause they do not give\. Never ask the person to add a place: say which day is short and offer to add one\./);
   // the plan's help and the config reference say what "asked" does
   const config = flat(path.join(SKILL, 'reference', 'config.md'));
   assert.match(config, /`"asked": true` is a place the person's message named, given when it is pinned or later with `uw set` \(only that, never to get past a check; `uw plan` and `uw set` copy it to its items\): it counts for its day as an item with a `url` does, `uw plan` never leaves it off the days while a day has a place of its kind nobody named, and `uw set` refuses to remove it unless the same command has `--unset asked`\./);
@@ -593,7 +596,7 @@ test('the lines a turn meets first name the reference search for a place\'s own 
   await trip(site, { title: 'Vienna: first visit', city: 'Vienna', at: VIENNA.stop, nights: 3, area: VIENNA.area, stop: 'vienna' });
   const refused = await pin(site, NAMED[1], { stop: 'vienna', source_url: `${mock.url}/en/see-do/sights/secession`, source: 'city' });
   assert.equal(refused.code, 2, refused.out + refused.err);
-  assert.ok(refused.err.includes(`cite the place's own page that names it (${way})`), refused.err);
+  assert.ok(refused.err.includes(`could not be read (HTTP 404: the page is missing or gone): it is not this place's source. Give it its own page instead (${way})`), refused.err);
   // late, with the plan's refusal not run, validate's fixes are what the turn reads
   for (const s of [...NAMED, ...CHOSEN]) assert.equal((await pin(site, s, { stop: 'vienna' })).code, 0);
   assert.equal((await planVienna([], { clock: hostClock(450) }, site)).code, 0);
