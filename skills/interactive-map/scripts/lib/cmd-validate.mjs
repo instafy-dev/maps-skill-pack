@@ -11,7 +11,7 @@ import { STARTER_DIR, placeIndex } from './site.mjs';
 import { parseStops, expectOf, mergeExpect, uncovered, describeItems, featureNames } from './expect.mjs';
 import { stillRunning, runningList } from './running.mjs';
 import { REPLY_WITHIN_S } from './turn-advice.mjs';
-import { readPage, unnamedSource, sourceSetSince, notOwnPages, OWN_PAGE_WAY } from './cmd-cite.mjs';
+import { readPage, unnamedSource, sourceSetSince, notOwnPages, OWN_PAGE_WAY, siteOf, whereSource, publisherOf } from './cmd-cite.mjs';
 import { cacheOff } from './net.mjs';
 import { isAreaPin, isPlaceToStay, stopIsAStay, staysLookedUp, lookedAsFarAsItGoes, STAY_RADIUS_MAX } from './stays.mjs';
 import { isLodging } from './registry-geo.mjs';
@@ -39,7 +39,8 @@ export const help = `validate <dir> [--signal] [--strict] [--expect "<stop>:<nig
   finds is not on the map yet. Wait until it has finished; never start it again. A "not found yet" entry beside a pin
   of that place is an error too.
   Prints the sources the map cites, for the reply's Sources line ("Sources for the reply"; JSON
-  sources_for_the_reply): who publishes each place's, leg's and day's page or data, most cited first; no other.
+  sources_for_the_reply): who publishes each place's, leg's and day's page or data, and what the map shows with them
+  (a register's data or records, air quality, street photos), most cited first; no other.
   Exit 1 on errors, 0 when only warnings remain (--strict: warnings also fail).`;
 
 const LAYER_TYPES = ['points', 'lines', 'areas', 'grid', 'route', 'legs', 'heat'];
@@ -864,7 +865,7 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
   else if (total > 20 * 1024 * 1024) W('.', '', `site is ${fmtBytes(total)} (> 20 MB)`, 'remove unused files');
   const ifOk = !exists(path.join(dir, '.gitignore')) || !/\.uwcache/.test(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8'));
   if (exists(path.join(dir, '.uwcache')) && ifOk) W('.gitignore', '', '.uwcache/ is not ignored', 'add ".uwcache/" to .gitignore');
-  sources = sourcesCited(cfg, featuresByLayer);
+  sources = sourcesCited(cfg, featuresByLayer, shownWith(dir, cfg, featuresByLayer));
   return finish();
 
   // ---------------------------------------------------------------------------
@@ -960,30 +961,66 @@ function dirSize(d, skip) {
   return n;
 }
 
-/** Who publishes what the map cites, for the reply's "Sources:" line, most cited first: each place's and leg's source
- *  (the "source" it names: a site, "Wikipedia", a timetable; else its page's site) and each day item's that cites a
- *  page of its own; the open data the places come from as "OpenStreetMap" (whatever lookup found them), a register by
- *  its name; the person's own points, none. A trip's reply named a tourism site among its sources while no place cited
- *  it (its pages had not been read, and the places cite an encyclopedia). Pure; exported for the tests. */
-export function sourcesCited(cfg, featuresByLayer) {
-  const count = new Map();
-  const add = (label, url) => {
-    const l = typeof label === 'string' ? label.trim() : '';
-    let name = null;
-    if (/openstreetmap/i.test(l)) name = 'OpenStreetMap';
-    else if (/^user[- ]provided\b/i.test(l)) name = null;
-    else if (l) name = l.replace(/\s*\([^)]*\)\s*$/, '').trim().slice(0, 60) || null;
-    else if (typeof url === 'string' && /^https?:\/\//i.test(url)) { try { name = new URL(url).hostname.replace(/^www\./, ''); } catch { name = null; } }
-    if (name) count.set(name, (count.get(name) || 0) + 1);
+/** Who publishes what the map cites, for the reply's "Sources:" line, most cited first (by how many places, legs, days
+ *  and records cite it):
+ *  - each place's and leg's source (the publisher its "source" names: a site, "Wikipedia", a timetable; the open data
+ *    the place lookups found it in as "OpenStreetMap", a register by its name; the person's own points, none), and its
+ *    page's site when that source says where the place is or nothing (a pin looked up with an article: the article's
+ *    site, under the name other places give that site); each day item's that cites a page of its own;
+ *  - what the map shows with its places (`shown`, from its files): the sources of the data/metrics.json metrics a place
+ *    carries (a register's licence, a measured walk), the records about places on the map (by the publisher each names),
+ *    the air quality's source and the street photos' credit.
+ *  A trip's reply named a tourism site among its sources while no place cited it (its pages had not been read, and the
+ *  places cite an encyclopedia). Pure; exported for the tests. */
+export function sourcesCited(cfg, featuresByLayer, shown = {}) {
+  const props = [];
+  for (const l of Array.isArray(cfg?.layers) ? cfg.layers : []) for (const f of featuresByLayer.get(l?.id) || []) if (f?.properties) props.push(f.properties);
+  // the name a site's pages go by: the one a place that cites a page of it gives ("Wikipedia" for en.wikipedia.org)
+  const siteName = new Map();
+  for (const p of props) {
+    const s = siteOf(p.source_url), n = whereSource(p.source) ? null : publisherOf(p.source);
+    if (s && n && !siteName.has(s)) siteName.set(s, n);
+  }
+  const pageBy = (url) => { const s = siteOf(url); return s ? siteName.get(s) || (/openstreetmap/.test(s) ? 'OpenStreetMap' : s) : null; };
+  // a source's own record page (a register's dataset page, a place's OpenStreetMap page) is not another publisher
+  const letters = (t) => String(t || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+  const ownPage = (source, site) => String(source).toLowerCase().includes(site) || (letters(publisherOf(source)).length >= 4 && letters(site).includes(letters(publisherOf(source))));
+  const cites = (source, url) => {
+    const s = siteOf(url);
+    return [publisherOf(source), s && (!source || (whereSource(source) && !ownPage(source, s))) ? pageBy(url) : null];
   };
-  for (const l of Array.isArray(cfg?.layers) ? cfg.layers : []) for (const f of featuresByLayer.get(l?.id) || []) {
-    const p = f?.properties || {};
-    add(p.source, p.source_url);
-    if (p.duration_source || p.duration_source_url) add(p.duration_source, p.duration_source_url);
+  const metrics = Object.entries(shown.metrics && typeof shown.metrics === 'object' ? shown.metrics : {}).filter(([, m]) => typeof m?.source === 'string');
+  const count = new Map();
+  const tally = (names) => { for (const n of new Set(names.filter(Boolean))) count.set(n, (count.get(n) || 0) + 1); };
+  for (const p of props) {
+    tally([...cites(p.source, p.source_url), ...(p.duration_source || p.duration_source_url ? cites(p.duration_source, p.duration_source_url) : []),
+      ...metrics.filter(([k]) => p[k] !== undefined && p[k] !== null).map(([, m]) => publisherOf(m.source))]);
   }
   // a day's item names its place's page (a pinned place: counted above) or a page of its own (a place no lookup pinned)
-  for (const d of Array.isArray(cfg?.plan?.days) ? cfg.plan.days : []) for (const it of Array.isArray(d?.items) ? d.items : []) if (!it?.ref && (it?.url || it?.source)) add(it.source, it.url);
+  for (const d of Array.isArray(cfg?.plan?.days) ? cfg.plan.days : []) for (const it of Array.isArray(d?.items) ? d.items : []) if (!it?.ref && (it?.url || it?.source)) tally(cites(it.source, it.url));
+  for (const r of Array.isArray(shown.records) ? shown.records : []) tally([publisherOf(r?.prov?.source_label || r?.prov?.source)]);
+  if (shown.air) tally([publisherOf(shown.air)]);
+  // a credit ("Street photos: Panoramax contributors (CC BY-SA 4.0)") by its publisher's name
+  if (shown.photos) tally([publisherOf(String(shown.photos).replace(/<[^>]*>/g, ' ').replace(/^[^:]{1,30}:\s*/, '').replace(/\bcontributors\b/gi, ''))]);
   return [...count].sort((a, b) => b[1] - a[1]).map(([n]) => n);
+}
+
+/** What the map shows with its places, for sourcesCited: data/metrics.json's metrics, the records about places on the
+ *  map (data/records/*.json; an item record is its own place), the air file's source while the air layer is on, and
+ *  the street photos' credit. Unreadable files give nothing (validate names them above). */
+function shownWith(dir, cfg, featuresByLayer) {
+  const read = (rel) => {
+    if (typeof rel !== 'string' || /^(https?:)?\/\//i.test(rel) || rel.split(/[\\/]/).includes('..')) return null;
+    try { return JSON.parse(fs.readFileSync(path.join(dir, rel), 'utf8')); } catch { return null; }
+  };
+  const refs = new Set([...featuresByLayer].flatMap(([lid, feats]) => (feats || []).map((f) => `${lid}:${f?.properties?.id}`)));
+  let files = [];
+  try { files = fs.readdirSync(path.join(dir, 'data', 'records')).filter((f) => f.endsWith('.json')); } catch { /* no records */ }
+  const records = files.flatMap((f) => { const recs = read(`data/records/${f}`)?.records; return Array.isArray(recs) ? recs : []; })
+    .filter((r) => r && typeof r === 'object' && (r.type === 'item' || refs.has(String(r.ref))));
+  const air = cfg?.air && typeof cfg.air === 'object' && cfg.air.enabled !== false ? read(cfg.air.data || 'data/air.json')?.source : null;
+  const photos = cfg?.photos && typeof cfg.photos === 'object' ? read(typeof cfg.photos.data === 'string' ? cfg.photos.data : 'data/photos.json')?.attribution : null;
+  return { metrics: read('data/metrics.json')?.metrics ?? null, records, air: typeof air === 'string' ? air : null, photos: typeof photos === 'string' ? photos : null };
 }
 
 function report(out, args, dir, errors, warnings, sources = null) {

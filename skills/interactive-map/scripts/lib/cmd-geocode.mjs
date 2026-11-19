@@ -71,8 +71,9 @@ add-point <dir> --layer <id> --at lng,lat --name "Label" [...]     (only for coo
   support; --tier sets it), an option layer keeps the view framed on its points (uw fit; --no-fit skips), and a place
   that could not be added is listed under "missing" (shown as "Not found yet" on the map) until it is pinned under the id
   or name it was looked up by (by its OpenStreetMap object: --osm <its osm id> --name "<that name>"), by the same query,
-  or, for a square, a park or a quarter it found under another name ("Main Square" for "Main Market Square"), as that
-  place: its object, or a pin of its name inside it. A place a pin already is is not listed.`,
+  or, for a square, a park or a quarter it found under another name ("Main Square" for "Main Market Square"; not a
+  lake or a hall inside it), as that place: its object, or a pin of its name inside it. A place a pin already is is not
+  listed (the pin a run under its own id was to replace counts only by its own names and object).`,
 };
 
 /** The last line of a researched sight's --strict-name refusal: the trip guide's rule (reference/itinerary.md Phase B
@@ -534,9 +535,12 @@ export async function addPoint(argv, turn = {}) {
   try { return await addPointRun(argv, ctx); } catch (e) {
     // out of time or unavailable (the search / Overpass busy or down): the place is still listed as "Not found yet", so the reply can say so
     if (isSkip(e) && ctx.site && ctx.args?.query) {
-      noteMissing(ctx.site, { layer: ctx.layer, id: ctx.args.id, name: ctx.args.name || queryLabel(ctx.args.query), query: ctx.args.query,
+      const who = ctx.args.name || queryLabel(ctx.args.query);
+      const { listed, pinned } = noteMissing(ctx.site, { layer: ctx.layer, id: ctx.args.id, name: who, query: ctx.args.query,
         tried: [...(ctx.tried || []), `${e.service || 'search'} (busy: skipped)`] });
-      e.kept = `"${ctx.args.name || queryLabel(ctx.args.query)}" listed as "Not found yet" on the map`;
+      // a place a pin already is is not listed (noteMissing): said as it is, never as listed
+      if (pinned) e.kept = `nothing new: "${who}" is on the map already as ${pinned.layer}:${pinned.id}${pinned.names[0] && pinned.names[0] !== who ? ` ("${pinned.names[0]}")` : ''}`;
+      else if (listed) e.kept = `"${who}" listed as "Not found yet" on the map`;
     }
     throw e;
   }
@@ -1130,19 +1134,27 @@ function colorFor(k) { const s = String(k || '').toLowerCase(); return (COLORS.f
 // map.config.json "missing": places the user asked for that are not on the map yet (shown as "Not found yet"); which
 // pin is the place an entry names: missing.mjs
 /** The site's pins (missing.mjs pinOfFeature), every point layer map.config.json lists. */
-function sitePins(site, cfg) {
+function sitePins(site, cfg, own = null) {
   const pins = [];
   for (const l of Array.isArray(cfg?.layers) ? cfg.layers : []) {
     if (typeof l?.id !== 'string' || (l.type && l.type !== 'points')) continue;
     let fc = null;
     try { fc = loadLayer({ ...site, config: cfg }, l.id, { required: false }); } catch { /* validate names a layer it cannot read */ }
-    for (const f of fc?.features || []) if (f?.geometry?.type === 'Point') pins.push(pinOfFeature(l.id, f));
+    for (const f of fc?.features || []) {
+      if (f?.geometry?.type !== 'Point') continue;
+      const pin = pinOfFeature(l.id, f);
+      // the pin this run was to replace (its own id): that place only by what it is, its own names and object, never by
+      // its id or the name it was once looked up by (a wrong match, picked for that name, looked up again)
+      if (own?.id && l.id === own.layer && String(pin.id) === String(own.id)) Object.assign(pin, { byId: false, names: pin.names.filter((n) => n !== f.properties?.looked_up_as) });
+      pins.push(pin);
+    }
   }
   return pins;
 }
 /** List a place as "not found yet", unless a pin is that place already (missing.mjs: under its name, or the place its
- *  lookup found under another name, `place`): the page would say "Not found yet" beside its pin. → { listed, pinned }
- *  (`pinned`: that pin, { layer, id, names }). */
+ *  lookup found under another name, `place`): the page would say "Not found yet" beside its pin. The pin under this
+ *  run's own id, which the run was to replace, counts only by what it is (sitePins): a wrong match looked up again
+ *  under its id is never "that place". → { listed, pinned } (`pinned`: that pin, { layer, id, names }). */
 export function noteMissing(site, { layer, id, name, query, tried = [], place = null }) {
   if (!site?.config || !name) return { listed: false, pinned: null };
   try {
@@ -1153,7 +1165,7 @@ export function noteMissing(site, { layer, id, name, query, tried = [], place = 
     const entry = { name, layer, ...(id ? { id } : {}), ...(query && query !== name ? { query } : {}),
       tried: [...new Set(tried)].length ? [...new Set(tried)] : [searchLabel()], at: new Date().toISOString().slice(0, 10), ...(place ? { place } : {}) };
     const k = list.findIndex((m) => m && ((id && m.id === id && m.layer === layer) || missKey(m.name) === key));
-    const pinned = missingPinned(k >= 0 ? { ...list[k], ...entry } : entry, sitePins(site, cfg));
+    const pinned = missingPinned(k >= 0 ? { ...list[k], ...entry } : entry, sitePins(site, cfg, { layer, id }));
     if (pinned) {
       // on the map already: an older entry for it goes too
       if (k < 0) return { listed: false, pinned };

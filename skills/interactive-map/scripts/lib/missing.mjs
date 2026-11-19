@@ -20,13 +20,27 @@ const AREA_TYPE = /^(place=(square|quarter|neighbourhood|suburb|locality|borough
 /** The place a "not found" entry names when its lookup found it under another name, kept on the entry: the best match
  *  in range of a refusal for the name (`c`, a candidate), when it is a place a pin can stand inside (a square, a park,
  *  a quarter) and one of its names is made only of words the entry's name or query has, two or more ("Main Square"
- *  for "Main Market Square, Kraków": neither of its words names a place, so the lookup refused it). Its OpenStreetMap
- *  object, its names, its point and its outline (`bbox`: [w, s, e, n], when the search gave one) → or null. */
+ *  for "Main Market Square, Kraków": neither of its words names a place, so the lookup refused it), and the entry
+ *  names that place itself, not one inside it: the first and the last word of its name (the city it is in aside) are
+ *  words of that name or the kind of place it is ("square" for a square). "City Park Lake" is a lake in the "City
+ *  Park", "Old Town Hall" a hall in the "Old Town", "Fuente de la Plaza Mayor" a fountain on the "Plaza Mayor": a
+ *  pin of the area is not them. Its OpenStreetMap object, its names, its point and its outline (`bbox`: [w, s, e, n],
+ *  when the search gave one) → or null. */
 export function missedPlace(c, { name, query } = {}) {
   if (!c || !Array.isArray(c.coord) || !AREA_TYPE.test(String(c.type || ''))) return null;
   const asked = new Set([...wordsOf(name), ...wordsOf(queryLabel(query || ''))]);
+  const around = new Set([c.city, c.district, c.county, c.state, c.country].flatMap(wordsOf));
+  const all = wordsOf(name || queryLabel(query || ''));
+  const own = all.some((x) => !around.has(x)) ? all.filter((x) => !around.has(x)) : all;
+  const kind = new Set(wordsOf(String(c.type).split('=').pop().replace(/_/g, ' ')));
   const names = [...new Set([c.name, c.name_en].filter((n) => typeof n === 'string' && n.trim()))];
-  if (!names.some((n) => { const w = wordsOf(n); return w.length >= 2 && w.every((x) => asked.has(x)); })) return null;
+  const isIt = (n) => {
+    const w = wordsOf(n);
+    if (w.length < 2 || !w.every((x) => asked.has(x))) return false;
+    const its = (x) => w.includes(x) || kind.has(x);
+    return own.length > 0 && its(own[0]) && its(own[own.length - 1]);
+  };
+  if (!names.some(isIt)) return null;
   const bbox = Array.isArray(c.bbox) && c.bbox.length === 4 && c.bbox.every(Number.isFinite) ? c.bbox : null;
   return { ...(c.osm_id ? { osm_id: c.osm_id } : {}), names, at: c.coord, ...(bbox ? { bbox } : {}) };
 }
@@ -40,13 +54,13 @@ export function pinOfFeature(layer, f, query = null) {
     query, osm_id: p.osm_id || null, coord };
 }
 
-/** Is this pin (pinOfFeature) the place a "not found" entry names? Its id, in the entry's layer; one of its names, or
- *  the query it was looked up by, is the entry's name or query; or it is the place the entry's lookup found under
- *  another name (the entry's `place`, missedPlace): that OpenStreetMap object, or a pin named as that place inside its
- *  outline or within 150 m of it (another object of the same square). */
+/** Is this pin (pinOfFeature) the place a "not found" entry names? Its id, in the entry's layer (unless the pin says
+ *  `byId: false`); one of its names, or the query it was looked up by, is the entry's name or query; or it is the place
+ *  the entry's lookup found under another name (the entry's `place`, missedPlace): that OpenStreetMap object, or a pin
+ *  named as that place inside its outline or within 150 m of it (another object of the same square). */
 export function pinNamesMissing(m, pin) {
   if (!m || typeof m !== 'object' || !pin) return false;
-  if (m.id && pin.id != null && String(m.id) === String(pin.id) && (m.layer || pin.layer) === pin.layer) return true;
+  if (pin.byId !== false && m.id && pin.id != null && String(m.id) === String(pin.id) && (m.layer || pin.layer) === pin.layer) return true;
   const keys = new Set([...(pin.names || []), pin.query ? queryLabel(pin.query) : null, pin.query].map(missKey).filter(Boolean));
   if (keys.has(missKey(m.name)) || (m.query && keys.has(missKey(m.query)))) return true;
   const p = m.place;

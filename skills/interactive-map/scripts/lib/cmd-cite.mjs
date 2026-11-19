@@ -509,6 +509,24 @@ export function readSourceLine(read, name) {
     + (read.own_site ? ` It links the place's own site, its source before this page: ${read.own_site}.` : '');
 }
 
+/** The site a page is on ("en.wikipedia.org"), or null (no web page). */
+export function siteOf(url) {
+  try { const u = new URL(String(url ?? '')); return /^https?:$/.test(u.protocol) ? u.hostname.replace(/^www\./, '').toLowerCase() : null; } catch { return null; }
+}
+/** Does a place's "source" say where the place is, not who publishes its page? The open data a lookup found it in
+ *  (OpenStreetMap, a register or database), the person's own coordinates, an article's coordinates: what a lookup
+ *  writes. A page the place cites as well is then a source of its own (uw validate's list, uw set). */
+export const whereSource = (s) => /openstreetmap|^user[- ]provided\b|\bcoordinates\b|\bregist(?:er|ers|ry)\b|\bdatabase\b/i.test(String(s ?? ''));
+/** Who a source names as its publisher, as a place's card names it (without what is in brackets: "Wikipedia (its
+ *  article's coordinates)" is "Wikipedia", and without a licence): the open data of the place lookups is
+ *  "OpenStreetMap"; the person's own coordinates name nobody. → a name, or null. */
+export function publisherOf(source) {
+  const raw = String(source ?? '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!raw || /^user[- ]provided\b/i.test(raw)) return null;
+  if (/openstreetmap/i.test(raw)) return 'OpenStreetMap';
+  return raw.replace(/\s*\([^)]*\)/g, '').replace(/,?\s*\b(?:CC[ -]BY|ODbL|OGDL)\b.*$/i, '').replace(/[\s,;:·/-]+$/, '').trim().slice(0, 60) || null;
+}
+
 const refuse = (out, url, reason) => {
   out.result({ ok: false, url, refused: reason, tell: `This URL only: give the user the plain link and try a different source (for a place: ${OWN_PAGE_WAY}). ${url}` },
     [`refused: ${reason}`, `This URL only: do not fetch it another way. Give the user the plain link (${url}) and keep researching from a different source (the operator's or maker's own site, another reviewer, Wikivoyage, Wikipedia). For a place, its own page: ${OWN_PAGE_WAY}.`]);

@@ -24,14 +24,23 @@ All notable changes to this pack. Versions follow [semantic versioning](https://
   Square", is named only with words that name no place on their own), and the turn pinned that very square by its
   local name, under another id. An entry now goes when a pin is that place: its id, any of its names or the query it
   was looked up by is the entry's name or query; or, when the refused lookup's best match was a square, a park or a
-  quarter named only with words of the entry's name (two or more), kept on the entry as `"place"` (its OpenStreetMap
-  object, names, point and outline), a pin of that object, or of its name inside its outline or within 150 m of it. A
-  place a pin already is is not listed at all (the refusal names that pin; JSON `pinned_as`), and `uw validate` fails
-  an entry beside its own pin, as it failed one beside a pin of its name.
+  quarter named only with words of the entry's name (two or more) and the entry names that place itself (the first
+  and last words of its name, the city aside, are that place's words or its kind: "City Park Lake" is a lake in the
+  park, not the park), kept on the entry as `"place"` (its OpenStreetMap object, names, point and outline), a pin of
+  that object, or of its name inside its outline or within 150 m of it. A place a pin already is is not listed at all
+  (the refusal names that pin; JSON `pinned_as`), and `uw validate` fails an entry beside its own pin, as it failed
+  one beside a pin of its name. The pin a run under its own id was to replace counts only by its own names and object,
+  never by that id or the name it was once picked for: a wrong match looked up again and not found is listed, with
+  the guide's next step. A busy place search says what it did: the place listed, or the pin that already is it.
 - **`uw validate` lists the sources the map cites.** "Sources for the reply, as the map cites them (no other): …"
-  (JSON `sources_for_the_reply`): who publishes each place's and leg's source and each day item's own page, most
-  cited first; the place lookups' open data as "OpenStreetMap"; the person's own points none. A trip's reply named a
-  tourism site among its sources while no place cited it (its pages could not be read).
+  (JSON `sources_for_the_reply`): who publishes each place's and leg's source and each day item's own page, and what
+  the map shows with its places (the sources of the metrics a place carries, such as a register's licence, the records
+  about places on the map, air quality, street photos), most cited first; the place lookups' open data as
+  "OpenStreetMap"; the person's own points none. A place whose source says where it is (a lookup's open data, the
+  person's own coordinates) and that cites a page counts that page by its site, under the name other places give it.
+  `uw set` with a new `source_url` and no `source` drops the source that named the old page's publisher (not one that
+  says where the place is, nor one for a page of the same site), and says so. A trip's reply named a tourism site among
+  its sources while no place cited it (its pages could not be read).
 - **The reply's days, gaps and sources come from `uw plan` and `uw validate`.** A reply called a map with no days
   "incomplete" and blamed the gap on a square that was pinned, and the next reply asked the person to add a sight.
   The trip guide's reply now says what is missing as the last `uw plan` and `uw validate` name it ("<day> has one
@@ -43,8 +52,10 @@ All notable changes to this pack. Versions follow [semantic versioning](https://
 - Tests: tests/reply-from-the-map.test.mjs (a trip scripted offline: the named places pinned first and on their day,
   the square's entry gone with its pin, a page read by the add-point that pins its place, the days and `uw
   validate` passing with the sources it lists, a page that cannot be read never among them; a place already pinned
-  never listed, and an entry beside its pin failing validate; the place an entry keeps and its guards; the sources
-  list; the guide's words). cite-first, own-page, named-places-kept, one-place-one-pin and full-days follow the new
+  never listed, and an entry beside its pin failing validate; the place an entry keeps and its guards, a lake in a
+  park among them; a wrong match looked up again under its id, and a busy search, saying what they did; the sources
+  list, with a page counted by its site, a page's publisher dropped with it, and a register's data, records, air
+  quality and street photos; the guide's words). cite-first, own-page, named-places-kept, one-place-one-pin and full-days follow the new
   behaviour and words, and every page the turn's own commands read in them is the local mock's.
 - package.json, the manifest and the CHANGELOG are at 0.1.38.
 

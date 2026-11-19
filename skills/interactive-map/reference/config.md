@@ -460,7 +460,8 @@ is `for`) the `focus`, so one route layer can hold one route per hotel. A `#d=3`
   Places the user asked for that are not on the map yet: one "Not found yet: …" line in the sheet header (tap for
   what was searched). `add-point` adds an entry on a refusal and removes it once the place is pinned: under its id, a
   name or the query it was looked up by, or, when its lookup found a square, a park or a quarter under another name
-  (`"place"`: its OpenStreetMap object, names, point and outline), as that place; it lists none for a place a pin
+  and the entry names that place, not one inside it (`"place"`: its OpenStreetMap object, names, point and outline),
+  as that place; it lists none for a place a pin
   already is. validate warns while any remain (ask the user for their addresses), and fails an entry beside its own
   pin. Optional `hint` replaces "Send its street address to add it."
 - `votes`: `{ "<featureId>": { "up": ["Kim"], "down": [] } }`: chips on cards and list rows (write them from chat).

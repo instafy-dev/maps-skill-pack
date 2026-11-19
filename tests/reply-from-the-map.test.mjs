@@ -76,6 +76,14 @@ const LODGING = [
 const squareFeature = (lang) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: SQUARE.at },
   properties: { osm_type: SQUARE.osm_type, osm_id: SQUARE.osm_id, osm_key: SQUARE.osm_key, osm_value: SQUARE.osm_value, name: lang === 'en' ? SQUARE.name_en : SQUARE.name, extent: SQUARE.extent, ...AREA } });
 const SQUARE_QUERY = /^(Main Market Square|Rynek Główny|Main Square)\b/;
+// a park whose English name is two words of the name of a lake in it: the lake is another place than the park
+const PARK = { osm_type: 'W', osm_id: 4242, osm_key: 'leisure', osm_value: 'park', name: 'Park Miejski', name_en: 'City Park', at: [19.9201, 50.0702],
+  extent: [19.9150, 50.0730, 19.9250, 50.0680] };
+const parkFeature = (lang) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: PARK.at },
+  properties: { osm_type: PARK.osm_type, osm_id: PARK.osm_id, osm_key: PARK.osm_key, osm_value: PARK.osm_value, name: lang === 'en' ? PARK.name_en : PARK.name, extent: PARK.extent, ...AREA } });
+const PARK_QUERY = /^(City Park Lake|Park Miejski|City Park)\b/;
+// the place search is busy for this one query (HTTP 503)
+const BUSY_QUERY = /^Hala Targowa\b/;
 
 let mock;
 const hits = { pages: [], search: 0 };
@@ -104,8 +112,11 @@ before(async () => {
     if (u.pathname === '/api/' || u.pathname === '/api') {
       hits.search++;
       const q = u.searchParams.get('q') || '';
+      if (BUSY_QUERY.test(q)) { res.writeHead(503, { 'content-type': 'text/plain' }); res.end('busy'); return; }
+      const typed = u.searchParams.getAll('osm_tag').length > 0;
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ type: 'FeatureCollection', features: !u.searchParams.getAll('osm_tag').length && SQUARE_QUERY.test(q) ? [squareFeature(u.searchParams.get('lang'))] : [] }));
+      res.end(JSON.stringify({ type: 'FeatureCollection', features: typed ? [] : SQUARE_QUERY.test(q) ? [squareFeature(u.searchParams.get('lang'))]
+        : PARK_QUERY.test(q) ? [parkFeature(u.searchParams.get('lang'))] : [] }));
       return;
     }
     if (u.pathname === '/reverse') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ type: 'FeatureCollection', features: [] })); return; }
@@ -123,9 +134,9 @@ after(() => {
 });
 
 // a fresh turn by the pack's own clock (eight minutes for tool work), the cache on, as in a space
-const uw = (args, { input = null } = {}) => new Promise((resolve) => {
+const uw = (args, { input = null, env: more = {} } = {}) => new Promise((resolve) => {
   const env = { ...process.env, ...NO_WIKIPEDIA, UW_CACHE: path.join(tmp, 'cache'), UW_PHOTON: mock.url, UW_OVERPASS: `${mock.url}/api/interpreter`, UW_OSRM: mock.url,
-    UW_VALHALLA: mock.url, UW_ALLOW_LOCAL: '1', INSTAFY_LOOKUP_STATE: path.join(tmp, 'lookups.json'), UW_RETRY_PAUSE_MS: '0' };
+    UW_VALHALLA: mock.url, UW_ALLOW_LOCAL: '1', INSTAFY_LOOKUP_STATE: path.join(tmp, 'lookups.json'), UW_RETRY_PAUSE_MS: '0', ...more };
   for (const k of ['UW_NO_CACHE', 'UW_HANDOFF_STEP', 'UW_TURN_BUDGET', 'UW_TURN_GAP', 'INSTAFY_CACHE_DIR', 'INSTAFY_TURN_STARTED_AT', 'INSTAFY_TURN_DEADLINE', 'INSTAFY_TURN_CONTINUE_FILE', 'INSTAFY_STEP_TIMINGS_FILE', 'INSTAFY_JOB_DEADLINE', 'UW_RUN_ID']) delete env[k];
   const p = spawn(process.execPath, [UW, ...args], { cwd: tmp, env });
   let out = '', err = '';
@@ -219,6 +230,11 @@ test('a place a pin already is is never listed as not found, and validate fails 
   assert.equal(cfgOf(site).missing, undefined);
   const text = await pinBy(site, 'Main Market Square, Kraków', 'main-square', square);
   assert.ok(text.err.includes('Not listed as "not found yet": sights:market-square ("Rynek Główny") is that place, on the map already.'), text.err);
+  // under the pin's own id too: the pin is that place by its object, not only by its id
+  const own = await pinBy(site, 'Main Market Square, Kraków', 'market-square', square, ['--json']);
+  assert.equal(own.code, 2, own.out + own.err);
+  assert.equal(own.json.pinned_as, 'sights:market-square');
+  assert.equal(cfgOf(site).missing, undefined);
   // an entry an earlier version left beside the pin (written by hand here): validate fails it
   const cfg = cfgOf(site);
   cfg.missing = [{ name: 'Main Market Square', layer: 'sights', id: 'main-square', tried: ['OpenStreetMap search (Photon)'],
@@ -286,4 +302,131 @@ test('the trip guide pins the named places first, and its reply takes its days, 
   assert.match(md, /No such day yet \(no plan\): say which day is short as `uw plan` names it, and offer to add a place there; never ask the person to add one\./);
   const skill = fs.readFileSync(path.join(SKILL, 'SKILL.md'), 'utf8').replace(/\s+/g, ' ');
   assert.match(skill, /sources by publisher \(OpenStreetMap, Wikipedia\) in one line, as `uw validate` lists them;/);
+});
+
+// ---------------------------------------------------------------------------
+// What a "not found" entry keeps, and what the sources for the reply count
+
+test('a "not found" entry keeps an area only when its name names that area: a lake in a park, a hall in a quarter or a fountain on a square is another place', () => {
+  const cand = (type, name, name_en, more = {}) => ({ type, name, name_en, coord: [19.937113, 50.061496], osm_id: 'osm-w1', bbox: [19.9355, 50.0603, 19.9389, 50.0627], ...more });
+  assert.equal(missedPlace(cand('leisure=park', 'Park Miejski', 'City Park'), { name: 'City Park Lake', query: 'City Park Lake, Kraków' }), null, 'a lake in the park');
+  assert.equal(missedPlace(cand('place=quarter', 'Stare Miasto', 'Old Town'), { name: 'Old Town Hall' }), null, 'a hall in the quarter');
+  assert.equal(missedPlace(cand('leisure=park', 'Central Park', null), { name: 'Central Park Boathouse' }), null, 'a boathouse in the park');
+  assert.equal(missedPlace(cand('place=square', 'Plaza Mayor', null), { name: 'Fuente de la Plaza Mayor' }), null, 'a fountain on the square, its kind named first');
+  // the area itself, under a name with a word more: kept
+  assert.ok(missedPlace(cand('place=square', 'Stary Rynek', 'Old Market'), { name: 'Old Market Square' }), 'the last word is its kind');
+  assert.ok(missedPlace(cand('place=square', 'Rynek Główny', 'Main Square', { city: 'Kraków' }), { name: 'Main Market Square Kraków' }), 'the city it is in aside');
+});
+
+test('a pin of a park leaves the "not found" entry of a lake in it, and the lake is never said to be on the map', async () => {
+  const site = 'krakow-park';
+  await trip(site);
+  const lakeArgs = ['add-point', site, '--layer', 'sights', '--query', 'City Park Lake, Kraków', '--country', 'PL', '--strict-name', '--near', CITY.join(','), '--id', 'lake', '--json'];
+  const lake = await uw(lakeArgs);
+  assert.equal(lake.code, 2, lake.out + lake.err);
+  assert.equal(cfgOf(site).missing.length, 1);
+  assert.equal(cfgOf(site).missing[0].place, undefined, 'the park is not the lake');
+  const park = await uw(['add-point', site, '--layer', 'sights', '--query', 'Park Miejski, Kraków', '--country', 'PL', '--near', CITY.join(','), '--id', 'city-park']);
+  assert.equal(park.code, 0, park.out + park.err);
+  assert.deepEqual(cfgOf(site).missing.map((m) => m.name), ['City Park Lake'], 'the lake is still not found');
+  const again = await uw(lakeArgs);
+  assert.equal(again.code, 2, again.out + again.err);
+  assert.equal(again.json.pinned_as, undefined);
+  assert.ok(again.json.next, 'the guide\'s next step');
+  assert.doesNotMatch(again.err, /on the map already/);
+  assert.deepEqual(cfgOf(site).missing.map((m) => m.name), ['City Park Lake']);
+});
+
+test('a lookup that finds nothing under a pin\'s own id, run to replace a wrong match, lists the place and keeps the guide\'s next step', async () => {
+  const site = 'krakow-replace';
+  await trip(site);
+  // a wrong match pinned under the id the place was meant to have, picked for its name (so looked up as it)
+  assert.equal((await pinAt(site, { id: 'wawel', name: 'Wawel Cathedral', at: [19.9355, 50.0546] }, { looked_up_as: 'Wawel Royal Castle' })).code, 0);
+  const r = await uw(['add-point', site, '--layer', 'sights', '--query', 'Wawel Royal Castle, Kraków', '--country', 'PL', '--strict-name', '--near', CITY.join(','), '--id', 'wawel', '--replace', '--json']);
+  assert.equal(r.code, 2, r.out + r.err);
+  assert.equal(r.json.pinned_as, undefined, 'the pin it was to replace is not that place');
+  assert.ok(r.json.next, 'the guide\'s next step');
+  assert.doesNotMatch(r.err, /on the map already/);
+  assert.deepEqual(cfgOf(site).missing.map((m) => m.name), ['Wawel Royal Castle']);
+  assert.equal(sightsOf(site).find((f) => f.properties.id === 'wawel').properties.name, 'Wawel Cathedral', 'the pin is as it was');
+});
+
+test('a busy place search does not say it listed a place that a pin already is', async () => {
+  const site = 'krakow-busy';
+  assert.equal((await uw(['new', site, '--title', 'Food in Kraków', '--center', CITY.join(','), '--zoom', '13'])).code, 0);
+  assert.equal((await pinAt(site, { id: 'hala-targowa', name: 'Hala Targowa', at: MARKET.at }, {}, 'food')).code, 0);
+  // its own lookup state: the busy search is not remembered for the other tests
+  const r = await uw(['add-point', site, '--layer', 'food', '--query', 'Hala Targowa, Kraków', '--near', CITY.join(','), '--id', 'market', '--json'],
+    { env: { INSTAFY_LOOKUP_STATE: path.join(tmp, 'lookups-busy.json') } });
+  assert.equal(r.code, 4, r.out + r.err);
+  assert.equal(cfgOf(site).missing, undefined);
+  assert.doesNotMatch(String(r.json.kept), /listed as "Not found yet"/);
+  assert.match(String(r.json.kept), /food:hala-targowa/);
+});
+
+test('a pin\'s page counts by its own site when the pin\'s source names where it is (a lookup\'s open data, the person\'s own point), under the name other pins give that site', () => {
+  const f = (p) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: p });
+  const layers = new Map([['sights', [
+    f({ id: 'a', source: 'OpenStreetMap', source_url: 'https://en.wikipedia.org/wiki/A' }),
+    f({ id: 'b', source: 'user-provided coordinates', source_url: 'https://en.wikipedia.org/wiki/B' }),
+    f({ id: 'c', source: 'Wikipedia', source_url: 'https://en.wikipedia.org/wiki/C' }),
+    f({ id: 'd', source: 'OpenStreetMap search (Photon)', source_url: 'https://www.castle.example/' }),
+    // a register's own record page is that register, not another publisher
+    f({ id: 'e', source: 'City lodging register (data.example.gov 7780)', source_url: 'https://data.example.gov/dataset/7780' }),
+  ]]]);
+  assert.deepEqual(sourcesCited({ layers: [{ id: 'sights' }] }, layers), ['Wikipedia', 'OpenStreetMap', 'castle.example', 'City lodging register']);
+});
+
+test('a new page given without its publisher drops the old page\'s, so validate never lists a site no pin cites; another page of the same site keeps its name', async () => {
+  const site = 'stale-label';
+  assert.equal((await uw(['new', site, '--title', 'Old town', '--center', CITY.join(','), '--zoom', '13'])).code, 0);
+  const [mary, hall] = CHOSEN;
+  const tourism = 'https://visit.example/en/st-marys';
+  const hall2 = `${WIKI}Sukiennice`;
+  read(tourism, `${mary.name}\nThe church on the main square, from the tourism site.`);
+  read(mary.page, mary.text);
+  read(hall.page, hall.text);
+  read(hall2, 'Sukiennice\nThe Cloth Hall, the market hall in the middle of the main square.');
+  assert.equal((await pinAt(site, { ...mary, page: null }, { source_url: tourism, source: 'Visit Kraków' })).code, 0);
+  assert.equal((await pinAt(site, hall)).code, 0);
+  assert.equal((await uw(['validate', site, '--json'])).json.sources_for_the_reply, 'Visit Kraków, Wikipedia');
+  // the page changes and its publisher is not given: the old page's name goes with it
+  const set = await uw(['set', site, 'sights:st-marys', '--props-file', '-', '--json'], { input: JSON.stringify({ source_url: mary.page }) });
+  assert.equal(set.code, 0, set.out + set.err);
+  const pin = sightsOf(site).find((x) => x.properties.id === 'st-marys').properties;
+  assert.equal(pin.source_url, mary.page);
+  assert.equal(pin.source, undefined, 'no name of the old page\'s publisher');
+  assert.ok(set.json.changed.includes('-source'), JSON.stringify(set.json.changed));
+  assert.equal((await uw(['validate', site, '--json'])).json.sources_for_the_reply, 'Wikipedia');
+  // another page of the same site: the name it was given stays
+  const same = await uw(['set', site, 'sights:cloth-hall', '--props-file', '-'], { input: JSON.stringify({ source_url: hall2 }) });
+  assert.equal(same.code, 0, same.out + same.err);
+  assert.equal(sightsOf(site).find((x) => x.properties.id === 'cloth-hall').properties.source, 'Wikipedia');
+});
+
+test('validate\'s sources count what the map shows with its places: a register\'s data on them, its records, air quality and street photos', async () => {
+  const site = 'hotels';
+  assert.equal((await uw(['new', site, '--title', 'Where to stay', '--center', CITY.join(','), '--zoom', '14'])).code, 0);
+  for (const [id, dx] of [['hotel-a', 0], ['hotel-b', 300]]) {
+    const r = await uw(['add-point', site, '--layer', 'hotels', '--at', off(CITY, dx, 0).join(','), '--name', `Hotel ${id.slice(-1).toUpperCase()}`, '--id', id,
+      '--props', JSON.stringify({ source: 'OpenStreetMap', reg_licence: 'registered' })]);
+    assert.equal(r.code, 0, r.out + r.err);
+  }
+  const dir = path.join(tmp, site);
+  const now = new Date().toISOString();
+  fs.writeFileSync(path.join(dir, 'data', 'metrics.json'), JSON.stringify({ uw: { cmd: 'metrics' }, metrics: {
+    reg_licence: { label: 'Licence', basis: 'registry', source: 'The city hotel register (dataset 1)', display: true },
+    noise_db: { label: 'Noise', basis: 'estimated', source: 'A noise model no place carries' } } }));
+  fs.mkdirSync(path.join(dir, 'data', 'records'), { recursive: true });
+  const prov = (label) => ({ source: 'register/1', source_label: label, lane: 'open', observed_at: now, ttl_s: 0 });
+  fs.writeFileSync(path.join(dir, 'data', 'records', 'register.json'), JSON.stringify({ schema: 'uw.records@1', uw: { cmd: 'adapter', updated_at: now }, attribution: [], records: [
+    { type: 'claim', rid: 'r1', ref: 'hotels:hotel-a', attr: 'licence', value: 'registered', basis: 'registry', confidence: 'high', prov: prov('National lodging database (open data)') },
+    { type: 'claim', rid: 'r2', ref: 'hotels:gone', attr: 'licence', value: 'registered', basis: 'registry', confidence: 'high', prov: prov('A register of a hotel not on the map') }] }));
+  fs.writeFileSync(path.join(dir, 'data', 'air.json'), JSON.stringify({ source: 'Open-Meteo Air Quality API (CAMS)', generated_at: now, locations: [{ id: 'here', by_hour: { 12: 20 } }] }));
+  fs.writeFileSync(path.join(dir, 'data', 'photos.json'), JSON.stringify({ attribution: 'Street photos: Panoramax contributors (CC BY-SA 4.0)', items: {} }));
+  const cfg = cfgOf(site);
+  Object.assign(cfg, { air: { enabled: true, data: 'data/air.json' }, photos: { data: 'data/photos.json', layers: ['hotels'] } });
+  fs.writeFileSync(path.join(dir, 'map.config.json'), JSON.stringify(cfg, null, 2));
+  const v = await uw(['validate', site, '--json']);
+  assert.equal(v.json.sources_for_the_reply, 'OpenStreetMap, The city hotel register, National lodging database, Open-Meteo Air Quality API, Panoramax');
 });
