@@ -11,10 +11,11 @@ import { STARTER_DIR, placeIndex } from './site.mjs';
 import { parseStops, expectOf, mergeExpect, uncovered, describeItems, featureNames } from './expect.mjs';
 import { stillRunning, runningList } from './running.mjs';
 import { REPLY_WITHIN_S } from './turn-advice.mjs';
-import { readPage, unnamedSource, sourceSetSince, notOwnPages, OWN_PAGE_WAY } from './cmd-cite.mjs';
+import { readPage, unnamedSource, sourceSetSince, notOwnPages, OWN_PAGE_WAY, siteOf, whereSource, publisherOf } from './cmd-cite.mjs';
 import { cacheOff } from './net.mjs';
 import { isAreaPin, isPlaceToStay, stopIsAStay, staysLookedUp, lookedAsFarAsItGoes, STAY_RADIUS_MAX } from './stays.mjs';
 import { isLodging } from './registry-geo.mjs';
+import { missingPinned, pinOfFeature } from './missing.mjs';
 
 export const help = `validate <dir> [--signal] [--strict] [--expect "<stop>:<nights>,…"] [--json]
   Checks map.config.json (schema, enums, refs), every layer file (exists, valid GeoJSON, geometry fits the layer type,
@@ -35,7 +36,11 @@ export const help = `validate <dir> [--signal] [--strict] [--expect "<stop>:<nig
   read that names it: in the turn that built the stop or its stays, while its clock leaves time; later turns are
   warned, as is a stop with no place to stay at all.
   A uw command still running on the site (a place lookup whose command has not finished) is an error, named: what it
-  finds is not on the map yet. Wait until it has finished; never start it again.
+  finds is not on the map yet. Wait until it has finished; never start it again. A "not found yet" entry beside a pin
+  of that place is an error too.
+  Prints the sources the map cites, for the reply's Sources line ("Sources for the reply"; JSON
+  sources_for_the_reply): who publishes each place's, leg's and day's page or data, and what the map shows with them
+  (a register's data or records, air quality, street photos), most cited first; no other.
   Exit 1 on errors, 0 when only warnings remain (--strict: warnings also fail).`;
 
 const LAYER_TYPES = ['points', 'lines', 'areas', 'grid', 'route', 'legs', 'heat'];
@@ -127,7 +132,9 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
   const errors = [], warnings = [];
   const E = (file, p, message, fix) => errors.push({ level: 'error', file, path: p, message, fix });
   const W = (file, p, message, fix) => warnings.push({ level: 'warning', file, path: p, message, fix });
-  const finish = () => report(out, args, dir, errors, warnings);
+  // who publishes what the map cites, for the reply's Sources line (sourcesCited), once its layers are read
+  let sources = null;
+  const finish = () => report(out, args, dir, errors, warnings, sources);
 
   if (!exists(dir) || !fs.statSync(dir).isDirectory()) { E(args._[0], '', 'site directory does not exist', `create it: uw new ${args._[0]}`); return finish(); }
   const CFG = 'map.config.json';
@@ -756,9 +763,11 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
   }
   // --- a "Not found yet" entry for a place that is on the map after all: the page would say it is missing while it
   // shows it (r11: a stop placed on handoff --apply's second try kept the entry its first pass wrote)
+  // ("Main Market Square" beside its pin "Main Square", pinned by its local name: missing.mjs)
   if (Array.isArray(cfg.missing)) {
-    const stale = cfg.missing.filter((m) => m && typeof m.name === 'string' && (featuresByLayer.get(m.layer) || [])
-      .some((f) => (m.id && String(f?.properties?.id) === String(m.id)) || featureNames(f?.properties, m.name)));
+    const pins = [...featuresByLayer].flatMap(([lid, fs1]) => (fs1 || []).filter((f) => f?.geometry?.type === 'Point').map((f) => pinOfFeature(lid, f)));
+    const stale = cfg.missing.filter((m) => m && typeof m.name === 'string' && ((featuresByLayer.get(m.layer) || [])
+      .some((f) => (m.id && String(f?.properties?.id) === String(m.id)) || featureNames(f?.properties, m.name)) || !!missingPinned(m, pins)));
     if (stale.length) E(CFG, '$.missing', `listed as not found yet but on the map: ${stale.map((m) => m.name).join(', ')}`,
       `remove ${stale.length > 1 ? 'these entries' : 'the entry'} from "missing" in ${CFG} (the page shows that list as "Not found yet")`);
   }
@@ -856,6 +865,7 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
   else if (total > 20 * 1024 * 1024) W('.', '', `site is ${fmtBytes(total)} (> 20 MB)`, 'remove unused files');
   const ifOk = !exists(path.join(dir, '.gitignore')) || !/\.uwcache/.test(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8'));
   if (exists(path.join(dir, '.uwcache')) && ifOk) W('.gitignore', '', '.uwcache/ is not ignored', 'add ".uwcache/" to .gitignore');
+  sources = sourcesCited(cfg, featuresByLayer, shownWith(dir, cfg, featuresByLayer));
   return finish();
 
   // ---------------------------------------------------------------------------
@@ -951,14 +961,79 @@ function dirSize(d, skip) {
   return n;
 }
 
-function report(out, args, dir, errors, warnings) {
+/** Who publishes what the map cites, for the reply's "Sources:" line, most cited first (by how many places, legs, days
+ *  and records cite it):
+ *  - each place's and leg's source (the publisher its "source" names: a site, "Wikipedia", a timetable; the open data
+ *    the place lookups found it in as "OpenStreetMap", a register by its name; the person's own points, none), and its
+ *    page's site when that source says where the place is or nothing (a pin looked up with an article: the article's
+ *    site, under the name other places give that site); each day item's that cites a page of its own;
+ *  - what the map shows with its places (`shown`, from its files): the sources of the data/metrics.json metrics a place
+ *    carries (a register's licence, a measured walk), the records about places on the map (by the publisher each names),
+ *    the air quality's source and the street photos' credit.
+ *  A trip's reply named a tourism site among its sources while no place cited it (its pages had not been read, and the
+ *  places cite an encyclopedia). Pure; exported for the tests. */
+export function sourcesCited(cfg, featuresByLayer, shown = {}) {
+  const props = [];
+  for (const l of Array.isArray(cfg?.layers) ? cfg.layers : []) for (const f of featuresByLayer.get(l?.id) || []) if (f?.properties) props.push(f.properties);
+  // the name a site's pages go by: the one a place that cites a page of it gives ("Wikipedia" for en.wikipedia.org)
+  const siteName = new Map();
+  for (const p of props) {
+    const s = siteOf(p.source_url), n = whereSource(p.source) ? null : publisherOf(p.source);
+    if (s && n && !siteName.has(s)) siteName.set(s, n);
+  }
+  const pageBy = (url) => { const s = siteOf(url); return s ? siteName.get(s) || (/openstreetmap/.test(s) ? 'OpenStreetMap' : s) : null; };
+  // a source's own record page (a register's dataset page, a place's OpenStreetMap page) is not another publisher
+  const letters = (t) => String(t || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+  const ownPage = (source, site) => String(source).toLowerCase().includes(site) || (letters(publisherOf(source)).length >= 4 && letters(site).includes(letters(publisherOf(source))));
+  const cites = (source, url) => {
+    const s = siteOf(url);
+    return [publisherOf(source), s && (!source || (whereSource(source) && !ownPage(source, s))) ? pageBy(url) : null];
+  };
+  const metrics = Object.entries(shown.metrics && typeof shown.metrics === 'object' ? shown.metrics : {}).filter(([, m]) => typeof m?.source === 'string');
+  const count = new Map();
+  const tally = (names) => { for (const n of new Set(names.filter(Boolean))) count.set(n, (count.get(n) || 0) + 1); };
+  for (const p of props) {
+    tally([...cites(p.source, p.source_url), ...(p.duration_source || p.duration_source_url ? cites(p.duration_source, p.duration_source_url) : []),
+      ...metrics.filter(([k]) => p[k] !== undefined && p[k] !== null).map(([, m]) => publisherOf(m.source))]);
+  }
+  // a day's item names its place's page (a pinned place: counted above) or a page of its own (a place no lookup pinned)
+  for (const d of Array.isArray(cfg?.plan?.days) ? cfg.plan.days : []) for (const it of Array.isArray(d?.items) ? d.items : []) if (!it?.ref && (it?.url || it?.source)) tally(cites(it.source, it.url));
+  for (const r of Array.isArray(shown.records) ? shown.records : []) tally([publisherOf(r?.prov?.source_label || r?.prov?.source)]);
+  if (shown.air) tally([publisherOf(shown.air)]);
+  // a credit ("Street photos: Panoramax contributors (CC BY-SA 4.0)") by its publisher's name
+  if (shown.photos) tally([publisherOf(String(shown.photos).replace(/<[^>]*>/g, ' ').replace(/^[^:]{1,30}:\s*/, '').replace(/\bcontributors\b/gi, ''))]);
+  return [...count].sort((a, b) => b[1] - a[1]).map(([n]) => n);
+}
+
+/** What the map shows with its places, for sourcesCited: data/metrics.json's metrics, the records about places on the
+ *  map (data/records/*.json; an item record is its own place), the air file's source while the air layer is on, and
+ *  the street photos' credit. Unreadable files give nothing (validate names them above). */
+function shownWith(dir, cfg, featuresByLayer) {
+  const read = (rel) => {
+    if (typeof rel !== 'string' || /^(https?:)?\/\//i.test(rel) || rel.split(/[\\/]/).includes('..')) return null;
+    try { return JSON.parse(fs.readFileSync(path.join(dir, rel), 'utf8')); } catch { return null; }
+  };
+  const refs = new Set([...featuresByLayer].flatMap(([lid, feats]) => (feats || []).map((f) => `${lid}:${f?.properties?.id}`)));
+  let files = [];
+  try { files = fs.readdirSync(path.join(dir, 'data', 'records')).filter((f) => f.endsWith('.json')); } catch { /* no records */ }
+  const records = files.flatMap((f) => { const recs = read(`data/records/${f}`)?.records; return Array.isArray(recs) ? recs : []; })
+    .filter((r) => r && typeof r === 'object' && (r.type === 'item' || refs.has(String(r.ref))));
+  const air = cfg?.air && typeof cfg.air === 'object' && cfg.air.enabled !== false ? read(cfg.air.data || 'data/air.json')?.source : null;
+  const photos = cfg?.photos && typeof cfg.photos === 'object' ? read(typeof cfg.photos.data === 'string' ? cfg.photos.data : 'data/photos.json')?.attribution : null;
+  return { metrics: read('data/metrics.json')?.metrics ?? null, records, air: typeof air === 'string' ? air : null, photos: typeof photos === 'string' ? photos : null };
+}
+
+function report(out, args, dir, errors, warnings, sources = null) {
   const fail = errors.length > 0 || (args.strict && warnings.length > 0);
+  const named = sources?.length ? sources.join(', ') : null;
   if (out.json) {
-    process.stdout.write(JSON.stringify({ ok: !fail, errors, warnings }, null, 2) + '\n');
+    process.stdout.write(JSON.stringify({ ok: !fail, errors, warnings, ...(named ? { sources_for_the_reply: named } : {}) }, null, 2) + '\n');
   } else {
     const line = (m) => `${m.level === 'error' ? 'ERROR' : 'warn '} ${m.file}${m.path ? ' ' + m.path : ''}: ${m.message}${m.fix ? `\n      fix: ${m.fix}` : ''}`;
     for (const m of errors) console.log(line(m));
     for (const m of warnings) console.log(line(m));
+    // the reply's Sources line names these, and no other (a reply once named a tourism site no place cited)
+    if (named) console.log(`Sources for the reply, as the map cites them (no other): ${named}.`);
     // a reply sent while it fails says what is not done, in its own plain words (a reply once named a day the map did
     // not have, seconds after this line)
     console.log(fail ? `✗ ${errors.length} error(s), ${warnings.length} warning(s). Fix the errors and run validate again. A reply sent while they stand says plainly what they leave undone, never that the map is done.`

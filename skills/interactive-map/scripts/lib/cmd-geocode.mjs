@@ -3,14 +3,15 @@
 // answer); add-point appends/replaces a point in a layer file.
 import { parseArgs, makeOut, parseLngLat, haversine, round6, slugify, readJSON, writeJSON, writeGeoJSON, exists, bboxAround, propsArg, UsageError, UserError } from './util.mjs';
 import { fetchJSON, overpass, isSkip, withCap, ask, lookupState, cacheFor, partialLine } from './net.mjs';
-import { openSite, checkLayerId, layerPath, layerRelPath, configLayer, titleCase, viewCenter, viewBounds, withSiteLock, pinOf, samePlace, TRANSIT_KIND } from './site.mjs';
+import { openSite, checkLayerId, layerPath, layerRelPath, configLayer, titleCase, viewCenter, viewBounds, withSiteLock, pinOf, samePlace, TRANSIT_KIND, loadLayer } from './site.mjs';
 import { emojiFor } from './kinds.mjs';
 import { fitView } from './cmd-site.mjs';
 import { isLodging, registrySearch, acceptable, fmtRegistryCand, registryProps, queryLabel, slugFor } from './registry-geo.mjs';
 import { adapterFor, adapterNamedIn, adapterForArea } from '../adapters/lib/areas.mjs';
-import { unnamedSource, unnamedSourceLine, lateSourceLine, sourceStamp, sourceNotRead, sourceNotReadRefusal } from './cmd-cite.mjs';
+import { unnamedSource, unnamedSourceLine, lateSourceLine, sourceStamp, sourceNotRead, sourceNotReadRefusal, readSource, readSourceLine } from './cmd-cite.mjs';
 import { withDayItems, sourceNotOwn } from './cmd-set.mjs';
 import { handoffStep } from './running.mjs';
+import { missKey, clearMissing, missedPlace, missingPinned, pinOfFeature } from './missing.mjs';
 
 export const helps = {
   geocode: `geocode "<query>" [--near lng,lat] [--country <name|code>] [--limit 5] [--lang en|de|fr|default] [--source auto|osm|registry] [--json]
@@ -52,12 +53,13 @@ add-point <dir> --layer <id> --at lng,lat --name "Label" [...]     (only for coo
   check the list, then --pick N or --allow-mismatch. Query words that only name the area (the city, region or country
   the candidates are in) do not count as a name match. --strict-name: refuse unless a candidate's own name carries the
   query's name (use it for a researched place: a wrong hotel with the right reason is worse than "not found").
-  A source_url (in --props) that \`uw cite\` did not read in the last hours (or could not: HTTP 404, refused) is refused
-  before any lookup (exit 2, "cite it first", with the uw cite to run; nothing added): cite the page, then run the same
-  add-point again. So is an address uw cite found is not a page (an image, a PDF), and, once the place is found, a page
-  read that does not name it or a page another place already cites, where uw validate fails it: a trip's places to
-  see, an area to stay in that says why (exit 2, "cite its own page"; nothing added). Elsewhere, or with under about 3
-  minutes left on the turn's clock, it is said and the place added.
+  A source_url (in --props) that \`uw cite\` did not read in the last hours is read first, before any lookup, as uw cite
+  reads a page (robots.txt, link-only sites, bot checks; kept for uw validate). One that cannot be read (HTTP 404,
+  refused, no answer in time) is refused (exit 2, with why; nothing added): give the place its own page instead. So is
+  an address that is not a page (an image, a PDF), and, once the place is found, a page that does not name it or a
+  page another place already cites, where uw validate fails it: a trip's places to see, an area to stay in that says
+  why (exit 2, "cite its own page"; nothing added). Elsewhere, or with under about 3 minutes left on the turn's clock,
+  it is said and the place added.
   --country: only candidates in that country (an ISO code like JP, or its name).
   Taiwan lodging (a hotel/hostel/旅館/飯店/民宿 query, --kind hotel, or a layer like "hotels", in Taiwan by --near or the
   view): when the search's match is missing, far or unsure, Taiwan's lodging registers are searched by name (registered name,
@@ -68,7 +70,10 @@ add-point <dir> --layer <id> --at lng,lat --name "Label" [...]     (only for coo
   map.config.json: a new layer is registered (points; tier option for a layer named like hotels/options/stays, else
   support; --tier sets it), an option layer keeps the view framed on its points (uw fit; --no-fit skips), and a place
   that could not be added is listed under "missing" (shown as "Not found yet" on the map) until it is pinned under the id
-  or name it was looked up by (by its OpenStreetMap object: --osm <its osm id> --name "<that name>").`,
+  or name it was looked up by (by its OpenStreetMap object: --osm <its osm id> --name "<that name>"), by the same query,
+  or, for a square, a park or a quarter it found under another name ("Main Square" for "Main Market Square"; not a
+  lake or a hall inside it), as that place: its object, or a pin of its name inside it. A place a pin already is is not
+  listed (the pin a run under its own id was to replace counts only by its own names and object).`,
 };
 
 /** The last line of a researched sight's --strict-name refusal: the trip guide's rule (reference/itinerary.md Phase B
@@ -431,6 +436,9 @@ function toCandidate(f, near) {
   if (Array.isArray(p.extent) && p.extent.length === 4 && p.extent.every(Number.isFinite)) {
     const [w, n, e, s] = p.extent;
     c.extent_km = Math.round(haversine([w, n], [e, s]) / 100) / 10;
+    // its outline, for a "not found" entry whose place this is under another name (missing.mjs missedPlace); not
+    // printed with the candidate
+    Object.defineProperty(c, 'bbox', { value: [Math.min(w, e), Math.min(n, s), Math.max(w, e), Math.max(n, s)], enumerable: false });
   }
   if (near) c.distance_km = Math.round(haversine(near, coord) / 10) / 100;
   return c;
@@ -527,9 +535,12 @@ export async function addPoint(argv, turn = {}) {
   try { return await addPointRun(argv, ctx); } catch (e) {
     // out of time or unavailable (the search / Overpass busy or down): the place is still listed as "Not found yet", so the reply can say so
     if (isSkip(e) && ctx.site && ctx.args?.query) {
-      noteMissing(ctx.site, { layer: ctx.layer, id: ctx.args.id, name: ctx.args.name || queryLabel(ctx.args.query), query: ctx.args.query,
+      const who = ctx.args.name || queryLabel(ctx.args.query);
+      const { listed, pinned } = noteMissing(ctx.site, { layer: ctx.layer, id: ctx.args.id, name: who, query: ctx.args.query,
         tried: [...(ctx.tried || []), `${e.service || 'search'} (busy: skipped)`] });
-      e.kept = `"${ctx.args.name || queryLabel(ctx.args.query)}" listed as "Not found yet" on the map`;
+      // a place a pin already is is not listed (noteMissing): said as it is, never as listed
+      if (pinned) e.kept = `nothing new: "${who}" is on the map already as ${pinned.layer}:${pinned.id}${pinned.names[0] && pinned.names[0] !== who ? ` ("${pinned.names[0]}")` : ''}`;
+      else if (listed) e.kept = `"${who}" listed as "Not found yet" on the map`;
     }
     throw e;
   }
@@ -550,31 +561,45 @@ async function addPointRun(argv, ctx) {
   const source = sourceArg(args.source);
   if (args.source && !args.query) throw new UsageError('--source only applies to --query');
   if (args.tier && !TIERS.includes(args.tier)) throw new UsageError('--tier must be option, support or context');
-  // a source_url no uw cite read (or one it found is not a page) is not the place's source yet: refused before any
-  // lookup, while the turn can still cite (cmd-cite.mjs sourceNotRead). Nothing is written, and the place is not "not
-  // found yet"
-  const notRead = handoffStep() ? null : sourceNotRead(extra.source_url);
+  // a source_url no uw cite read is read here, as uw cite would read it (cmd-cite.mjs readSource): a turn pinned a
+  // sight with its article, was refused ("cite it first"), cited it and pinned it again, a round trip a place, and its
+  // last pin was refused that way as its time ran out. Once read, the page is judged as one uw cite read: by the
+  // place's names, once it is found (sourceNotOwn below). One that cannot be read (refused, HTTP 404, no answer in
+  // time), or that is not a page, is refused before any lookup: nothing is written, and the place is not "not found
+  // yet"
+  const askedName = args.name || queryLabel(args.query || '') || extra.name || '<its name>';
+  let notRead = handoffStep() ? null : sourceNotRead(extra.source_url);
+  let readNow = null;
+  if (notRead && !notRead.not_page) {
+    readNow = await readSource(extra.source_url);
+    notRead = readNow.failed ? { url: extra.source_url, failed: readNow.failed } : sourceNotRead(extra.source_url);
+  }
   if (notRead) {
-    const { lines, refused, next } = sourceNotReadRefusal(notRead, args.name || queryLabel(args.query || '') || extra.name || '<its name>', 'Nothing was added.');
-    if (out.json) process.stdout.write(JSON.stringify({ ok: false, refused, layer, id: args.id || null, source_url: extra.source_url, next }, null, 2) + '\n');
+    const { lines, refused, next } = sourceNotReadRefusal(notRead, askedName, 'Nothing was added.');
+    if (out.json) process.stdout.write(JSON.stringify({ ok: false, refused, layer, id: args.id || null, source_url: extra.source_url, ...(notRead.failed ? { why: notRead.failed } : {}), next }, null, 2) + '\n');
     console.error(lines.join('\n'));
     return 2;
   }
+  if (readNow?.read) console.error(readSourceLine(readNow.read, askedName));
 
   let chosen, cands = [], skipped = [], warnings = [], reg = null, regUsed = false;
   const tried = [];
   ctx.tried = tried;
   // a place that could not be added is listed on the map as "not found yet" (map.config.json "missing") until it is
-  const refuse = (code, lines, json) => {
-    noteMissing(site, { layer, id: args.id, name: args.name || queryLabel(args.query || ''), query: args.query, tried });
+  const refuse = (code, lines, json, place = null) => {
+    const missName = args.name || queryLabel(args.query || '');
+    const { pinned } = noteMissing(site, { layer, id: args.id, name: missName, query: args.query, tried, place });
     // a researched sight (--strict-name) ends on the trip guide's own rule, not only on another try: one sight tried
     // four times left the trip's other days without a sight. A place to stay is not a sight (`uw handoff` lists its
     // researched hotels itself)
-    const next = args['strict-name'] && !isLodging({ kind: args.kind || extra.kind, layer }) ? STRICT_NEXT : null;
-    if (out.json) process.stdout.write(JSON.stringify(next ? { ...json, next } : json, null, 2) + '\n');
-    // pinned by its OpenStreetMap object under another name, the place stayed "Not found yet" beside its own pin (the
-    // entry goes only under the id or name it was looked up by): the line says which
-    console.error([...lines, `Listed on the map as "not found yet" (map.config.json "missing"). In OpenStreetMap under another name (an object above, or one uw geocode finds by that name)? Pin that object under the ${args.id ? 'id and name' : 'name'} it was looked up by, which takes it off the list: ${pinAs(args, layer)}, with the same props.`, ...(next ? [next] : [])].join('\n'));
+    const next = args['strict-name'] && !isLodging({ kind: args.kind || extra.kind, layer }) && !pinned ? STRICT_NEXT : null;
+    if (out.json) process.stdout.write(JSON.stringify({ ...json, ...(pinned ? { pinned_as: `${pinned.layer}:${pinned.id}` } : {}), ...(next ? { next } : {}) }, null, 2) + '\n');
+    // pinned by its OpenStreetMap object under another name, the place stayed "Not found yet" beside its own pin: the
+    // entry goes under the id, a name or the query it was looked up by, and when that object, or another object of
+    // that place, is pinned (missing.mjs); a place pinned already is not listed
+    const listLine = pinned ? `Not listed as "not found yet": ${pinned.layer}:${pinned.id}${pinned.names[0] ? ` ("${pinned.names[0]}")` : ''} is that place, on the map already.`
+      : `Listed on the map as "not found yet" (map.config.json "missing"). In OpenStreetMap under another name (an object above, or one uw geocode finds by that name)? Pin that object under the ${args.id ? 'id and name' : 'name'} it was looked up by, which takes it off the list: ${pinAs(args, layer)}, with the same props.`;
+    console.error([...lines, listLine, ...(next ? [next] : [])].join('\n'));
     return code;
   };
   const maxKm = args['max-km'] ?? 8;
@@ -875,7 +900,10 @@ async function addPointRun(argv, ctx) {
           'Nothing was written. The place may be missing from OpenStreetMap or named differently. Try the local-language or official name,',
           'or geocode its street address (from the user or the official listing): --query "<street address>" --name "<name>" --props \'{"source":"…"}\'.',
           'If one candidate IS the place, re-run with --pick N. (--allow-mismatch accepts the best one as is.)'],
-        { ok: false, refused: standing ? 'stands_in' : mismatch + '_mismatch', query: args.query, candidates: cands, registry: reg?.candidates || [] });
+        { ok: false, refused: standing ? 'stands_in' : mismatch + '_mismatch', query: args.query, candidates: cands, registry: reg?.candidates || [] },
+        // the best match by another name, a square or a park this one's words name ("Main Square" for "Main Market
+        // Square"): a pin of it later takes the entry off the list (missing.mjs)
+        mismatch === 'name' && !standing ? missedPlace(chosen, { name: args.name || queryLabel(args.query || ''), query: args.query }) : null);
       }
       // a street address that resolved to a whole district or city is not the place (the search falls back to the area)
       const looksAddress = /\d+\s*(號|号|番地?)|\bno\.?\s*\d+|^\s*\d+[A-Za-z]?\s+\S+|\S+\s+\d+[A-Za-z]?\s*(,|$)/i.test(args.query);
@@ -971,7 +999,10 @@ async function addPointRun(argv, ctx) {
       // it is on the map: an earlier try of it under this id or name ("not found yet") is not missing any more
       const cfgNow = readJSON(site.cfgPath);
       const before = (cfgNow.missing || []).length;
-      clearMissing(cfgNow, { layer, id: args.id ? String(args.id) : null, name, query: args.query });
+      // (the place it found, by the id, names and query it was looked up by, its object and point, and the pin that is
+      // it: an entry for either goes)
+      clearMissing(cfgNow, { ...pinOfFeature(layer, feature, args.query), id: args.id ? String(args.id) : null });
+      clearMissing(cfgNow, pinOfFeature(layer, others[0]));
       const unlisted = (cfgNow.missing || []).length < before;
       if (unlisted) {
         if (!cfgNow.missing.length) delete cfgNow.missing;
@@ -1030,7 +1061,9 @@ async function addPointRun(argv, ctx) {
       cfgChanges.push(`registered layer "${layer}" (tier ${tier})`);
     } else if (args.tier && def.tier !== args.tier) { def.tier = args.tier; cfgChanges.push(`set ${layer} tier to ${args.tier}`); }
     const missBefore = (cfg.missing || []).length;
-    clearMissing(cfg, { layer, id, name, query: args.query });
+    // its entry goes: under its id, a name or the query it was looked up by, or as the place another lookup found
+    // under another name (missing.mjs: "Main Square" pinned by its local name took "Main Market Square" off)
+    clearMissing(cfg, pinOfFeature(layer, feature, args.query));
     if ((cfg.missing || []).length < missBefore) cfgChanges.push('removed its "not found yet" entry');
     if (!cfg.missing?.length) delete cfg.missing;
     if (regUsed) {
@@ -1098,24 +1131,55 @@ const COLORS = [[/cafe|coffee/, '#78350f'], [/restaurant|food|bakery|bar|pub/, '
   [/shop|market|mall|store/, '#c026d3'], [/gym|sport|fitness/, '#0891b2']];
 function colorFor(k) { const s = String(k || '').toLowerCase(); return (COLORS.find(([re]) => re.test(s)) || [null, '#1e293b'])[1]; }
 
-// map.config.json "missing": places the user asked for that are not on the map yet (shown as "Not found yet")
-const missKey = (s) => String(s || '').toLowerCase().replace(/[\s,，、]+/g, ' ').trim();
-export function noteMissing(site, { layer, id, name, query, tried = [] }) {
-  if (!site?.config || !name) return;
+// map.config.json "missing": places the user asked for that are not on the map yet (shown as "Not found yet"); which
+// pin is the place an entry names: missing.mjs
+/** The site's pins (missing.mjs pinOfFeature), every point layer map.config.json lists. */
+function sitePins(site, cfg, own = null) {
+  const pins = [];
+  for (const l of Array.isArray(cfg?.layers) ? cfg.layers : []) {
+    if (typeof l?.id !== 'string' || (l.type && l.type !== 'points')) continue;
+    let fc = null;
+    try { fc = loadLayer({ ...site, config: cfg }, l.id, { required: false }); } catch { /* validate names a layer it cannot read */ }
+    for (const f of fc?.features || []) {
+      if (f?.geometry?.type !== 'Point') continue;
+      const pin = pinOfFeature(l.id, f);
+      // the pin this run was to replace (its own id): that place only by what it is, its own names and object, never by
+      // its id or the name it was once looked up by (a wrong match, picked for that name, looked up again)
+      if (own?.id && l.id === own.layer && String(pin.id) === String(own.id)) Object.assign(pin, { byId: false, names: pin.names.filter((n) => n !== f.properties?.looked_up_as) });
+      pins.push(pin);
+    }
+  }
+  return pins;
+}
+/** List a place as "not found yet", unless a pin is that place already (missing.mjs: under its name, or the place its
+ *  lookup found under another name, `place`): the page would say "Not found yet" beside its pin. The pin under this
+ *  run's own id, which the run was to replace, counts only by what it is (sitePins): a wrong match looked up again
+ *  under its id is never "that place". → { listed, pinned } (`pinned`: that pin, { layer, id, names }). */
+export function noteMissing(site, { layer, id, name, query, tried = [], place = null }) {
+  if (!site?.config || !name) return { listed: false, pinned: null };
   try {
-    withSiteLock(site, () => {
+    return withSiteLock(site, () => {
     const cfg = readJSON(site.cfgPath);
     const list = Array.isArray(cfg.missing) ? cfg.missing : [];
     const key = missKey(name);
     const entry = { name, layer, ...(id ? { id } : {}), ...(query && query !== name ? { query } : {}),
-      tried: [...new Set(tried)].length ? [...new Set(tried)] : [searchLabel()], at: new Date().toISOString().slice(0, 10) };
+      tried: [...new Set(tried)].length ? [...new Set(tried)] : [searchLabel()], at: new Date().toISOString().slice(0, 10), ...(place ? { place } : {}) };
     const k = list.findIndex((m) => m && ((id && m.id === id && m.layer === layer) || missKey(m.name) === key));
-    if (k >= 0) list[k] = { ...list[k], ...entry, tried: [...new Set([...(list[k].tried || []), ...entry.tried])] }; else list.push(entry);
-    cfg.missing = list;
+    const pinned = missingPinned(k >= 0 ? { ...list[k], ...entry } : entry, sitePins(site, cfg, { layer, id }));
+    if (pinned) {
+      // on the map already: an older entry for it goes too
+      if (k < 0) return { listed: false, pinned };
+      list.splice(k, 1);
+      if (list.length) cfg.missing = list; else delete cfg.missing;
+    } else {
+      if (k >= 0) list[k] = { ...list[k], ...entry, tried: [...new Set([...(list[k].tried || []), ...entry.tried])] }; else list.push(entry);
+      cfg.missing = list;
+    }
     writeJSON(site.cfgPath, cfg, { pretty: true });
     site.config = cfg;
+    return { listed: !pinned, pinned };
     });
-  } catch { /* the refusal itself matters more */ }
+  } catch { /* the refusal itself matters more */ return { listed: false, pinned: null }; }
 }
 /** Take a place off the "Not found yet" list (an alternative the plan does not need, e.g. a researched hotel at a
  *  stop that already has its base). */
@@ -1123,20 +1187,13 @@ export function forgetMissing(site, entry) {
   try {
     return withSiteLock(site, () => {
       const cfg = readJSON(site.cfgPath);
-      const before = (cfg.missing || []).length;
-      clearMissing(cfg, entry);
-      if ((cfg.missing || []).length === before) return false;
+      if (!clearMissing(cfg, { layer: entry.layer, id: entry.id ?? null, names: [entry.name].filter(Boolean), query: entry.query || null })) return false;
       if (!cfg.missing.length) delete cfg.missing;
       writeJSON(site.cfgPath, cfg, { pretty: true });
       site.config = cfg;
       return true;
     });
   } catch { return false; }
-}
-function clearMissing(cfg, { layer, id, name, query }) {
-  if (!Array.isArray(cfg.missing)) return;
-  const keys = new Set([missKey(name), missKey(queryLabel(query || '')), missKey(query)].filter(Boolean));
-  cfg.missing = cfg.missing.filter((m) => !(m && ((m.id && m.id === id && (m.layer || layer) === layer) || keys.has(missKey(m.name)) || (m.query && keys.has(missKey(m.query))))));
 }
 
 // Parts of a place (entrances, platforms, stops): never the thing a person asked for by name.

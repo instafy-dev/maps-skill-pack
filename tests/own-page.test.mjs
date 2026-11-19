@@ -8,8 +8,9 @@
 //  - `uw set` and `uw add-point` refuse a source_url that is a page `uw cite` read that does not name the place (one
 //    place alone on such a page too), or a page another place cites, from what uw cite kept, where and when validate
 //    fails it (a trip's places to see, an area to stay in that says why, while the turn has time to cite): no second
-//    request ("cite its own page"; nothing added or changed); one it did not read is refused too; a map an earlier pack
-//    left with places on one page still validates, names them, and takes a note;
+//    request ("cite its own page"; nothing added or changed); one it did not read they read themselves, as uw cite
+//    would, and refuse when it cannot be read; a map an earlier pack left with places on one page still validates, names
+//    them, and takes a note;
 //  - a day with nothing to see names the reader: uw cite on each place's own page in this turn, never a browser card.
 // Offline: the place search and the web pages are a local mock in this file.
 // Run: node --test tests/own-page.test.mjs
@@ -224,12 +225,14 @@ test('add-point and set refuse a page uw cite read that does not name the place,
   assert.equal(fixed.code, 0, fixed.out + fixed.err);
   assert.equal(fixed.json.source_not_named, undefined);
   assert.doesNotMatch(fixed.err, /does not name|REFUSED/);
-  // a page uw cite did not read is no source yet: refused at once ("cite it first"), and not read
-  const reqs = hits.length;
+  // a page uw cite did not read is read by set itself, as uw cite would (its robots.txt, then the page): this one is
+  // gone, so it is refused with why, and nothing changed
+  const reqs = hits.length, kept = fs.readFileSync(file, 'utf8');
   const unread = await uw(['set', site, 'sights:pilatos', '--props-file', '-', '--json'], { input: JSON.stringify({ source_url: `${mock.url}/en/casa-de-pilatos`, source: 'Visita Sevilla' }) });
   assert.equal(unread.code, 2, unread.out + unread.err);
-  assert.equal(unread.json.refused, 'source_not_read');
-  assert.equal(hits.length, reqs, 'set makes no request');
+  assert.deepEqual([unread.json.refused, unread.json.why], ['source_not_read', 'HTTP 404: the page is missing or gone']);
+  assert.deepEqual(hits.slice(reqs), ['/robots.txt', '/en/casa-de-pilatos'], 'set read it once, the polite way');
+  assert.equal(fs.readFileSync(file, 'utf8'), kept, 'nothing was changed');
 });
 
 // Two places on one page met only `uw validate`, at the end of a turn: the archive beside a cathedral cited the

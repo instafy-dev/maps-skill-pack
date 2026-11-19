@@ -59,11 +59,11 @@ instead of steps 2-5:
    said: none found near it (exit 2), or places to stay not looked up yet (exit 4). `uw validate` fails while a stop's
    only stay is an area and `uw stay` has not looked there (widened to 3000 m when it found none), or while an area's
    note cites no page `uw cite` read.
-3. **Places by area**, before the plan: per day an area worth the day (a neighbourhood, a district a ride away, a day
-   trip), 2-3 sourced places in it (Phase B step 1, with `"stop":"<slug>"`; one the person named also `"asked":true`).
-   Never put a place on a day because a list had room. Every full day gets its places before the plan: `uw plan`
-   refuses one with fewer than two.
-4. **Plan**: `uw plan <site> --stops stops --ids <slug> --nights N --start <date> --stays stays --sights sights,food,daytrips`.
+3. **The places the message names**, pinned first, each with `"asked":true` (Phase B step 1); only those.
+4. **Places by area**, before the plan: per day an area worth the day (a neighbourhood, a district a ride away, a day
+   trip), 2-3 sourced places in it (Phase B step 1, with `"stop":"<slug>"`). Never put a place on a day because a list
+   had room. Every full day gets its places before the plan: `uw plan` refuses one with fewer than two.
+5. **Plan**: `uw plan <site> --stops stops --ids <slug> --nights N --start <date> --stays stays --sights sights,food,daytrips`.
    Every day is a loop from the base: a stop's places are grouped by area (the closest share a day, in walking
    order, the area nearest the base first; every day, the arrival day too, gets a place before any gets a second).
    Never "<city> → <city>": a stop named twice in a row is one stay. The reply ("Reply", at the end): the stay with
@@ -71,9 +71,8 @@ instead of steps 2-5:
    to stay and why.
 
 **Days that hang together.** `uw plan` and `uw validate` warn when a day has a place far from its other places, or
-nearer another day's (`day places: "<place>" (<day>) is 3.1 km from that day's other places but 0.2 km from
-"<place>" on <day>`). Move it to the day named, in the items and both days' texts, or rebuild with `uw plan … --force`
-(it groups by area). A day trip far out of town is judged on its own.
+nearer another day's ("day places: …"). Move it to the day named, in the items and both days' texts, or rebuild with
+`uw plan … --force` (it groups by area). A day trip far out of town is judged on its own.
 
 ## Phase B: make it worth following (one step at a time, while the turn clock shows more than ~3 min left)
 
@@ -93,12 +92,14 @@ rather than reply. Sights come from `uw cite` in this turn, never from a browser
    search "<its name>" --chain reference-search --json` lists. Its Wikipedia article only where the turn found no such
    site that names it and can be read. Checked for being current (closures, renovations, seasonal
    hours); that page is its `source_url`, read in this turn (`uw validate` fails while places share one, or while one
-   cites a page `uw cite` did not read or that does not name it; `uw add-point` and `uw set` refuse a `source_url` no
-   `uw cite` read ("cite it first"), and one that does not name the place or that another place cites ("cite its own
-   page"); an image is no page). A refused site (it bans agents, robots.txt, a bot
+   cites a page `uw cite` did not read or that does not name it; `uw add-point` and `uw set` read a `source_url` no
+   `uw cite` read themselves, as it would, and refuse one they cannot read, one that does not name the place or that
+   another place cites ("cite its own page"); an image is no page). A refused site (it bans agents, robots.txt, a bot
    check) is a plain link, never fetched another way. At most about 2 pages a sight. One place, one pin: a day short of
-   places takes another place (`uw add-point` refuses one already pinned, naming its pin). Then each sight in a command
-   of its own, one `uw add-point` per command (chained, one slow lookup held back the sights after it and the plan):
+   places takes another place (`uw add-point` refuses one already pinned, naming its pin). The places the message
+   names come first, each with `"asked":true` in its props: `uw plan` keeps it on its day as the person gave it,
+   marked not checked until its own page is read (never a place you chose). Then each sight in a command of its own,
+   one `uw add-point` per command (chained, one slow lookup held back the sights after it and the plan):
    ```
    uw add-point <site> --layer sights --query "<local-language name>" --country "<Country>" --strict-name --near <that station's lng,lat> --id <slug> --props-file - <<'JSON'
    {"stop":"<station id>","source_url":"<its own site's page>","source":"<site name>","why":"<what the page says to do there>"}
@@ -172,7 +173,7 @@ open site in place; then `uw validate`, SKILL.md step 9, the reply.
   items in the same edit, so no item contradicts the new text (`uw validate` warns about an item that repeats a
   day's text).
 - Places you recommend (a food spot, a day-trip destination, a transfer point) go on the map, each with the page
-  that names it, read with `uw cite <page> --grep "<its name>"` (`uw add-point` refuses a page it did not read):
+  that names it (`uw add-point` reads it as `uw cite <page> --grep "<its name>"` would, when no `uw cite` did):
   `uw add-point <site> --layer food|daytrips|sights --query "<local name>" --country "<Country>"
   --strict-name --near <base lng,lat> --props-file - <<'JSON'`, then `{"stop":"<station id>","source_url":"https://…","source":"<site>"}`
   and `JSON` on their own lines (a day trip adds `--max-km 80`; put the page's reason in `"why"`), then into the day as `{"text": "…", "ref":
@@ -181,7 +182,8 @@ open site in place; then `uw validate`, SKILL.md step 9, the reply.
   Prose items are only for how to get there.
 - A note for a day ("add a note to day 1: book the tickets ahead"): `uw set <site> plan:day1 --note "<the note>"`,
   the day's own line under its text in the Plan tab (`--note ""` takes it off; `uw plan --force` keeps it). Never
-  on a place or the stop: their notes show on their cards, not in the day.
+  on a place or the stop: their notes show on their cards, not in the day. No such day yet (no plan): say which day
+  is short as `uw plan` names it, and offer to add a place there; never ask the person to add one.
 - When the ask is per base, per city or per day, check every one against it before replying, and say which got
   nothing and why.
 - The departure day keeps its plan text unless you have something sourced for it.
@@ -220,12 +222,13 @@ Write for the traveller, 5-8 short lines:
 5. Each day as `uw plan` printed it ("Days for the reply": no place it does not name; one not checked is said so),
    with highlights or warnings worth acting on (a closure, a pass to buy) only from the pages you opened. When the
    time ran out with `uw validate` failing, or naming a full day with one place to see, say plainly what is missing,
-   as the days show it ("<day> has nothing to see yet", "<place> is not checked yet", "<place> you named is on no
-   day") and offer to add it.
-6. `Sources:` in one line, by who publishes the data (e.g. "OpenStreetMap, Wikivoyage, the national park's site",
-   the lodging register when one was used, plus the operator's journey planner when `uw transit` gave times).
-7. `Unverified:` prices and availability (never checked), train times not sourced, anything "Not found yet",
-   handoff unknowns.
+   as the last `uw plan` and `uw validate` name it ("<day> has nothing to see yet", "<day> has one place to see", "no
+   days yet: <day> needs one more place", "<place> is not checked yet", "<place> you named is on no day"), never with
+   a cause they do not give. Never ask the person to add a place: say which day is short and offer to add one.
+6. `Sources:` in one line, as `uw validate` lists them ("Sources for the reply"): who publishes what the map cites
+   (e.g. "OpenStreetMap, Wikipedia, the national park's site", a lodging register, a timetable), no other.
+7. `Unverified:` prices and availability (never checked), train times not sourced, anything `uw validate` lists as
+   not found yet, handoff unknowns.
 
 Never in the reply: file or folder names (not the handoff or site folder either: "Research details: handoff/…" helps
 nobody), command names, lookup services (Overpass, Photon, OSRM) or exit codes, layer ids (`stays:…`),

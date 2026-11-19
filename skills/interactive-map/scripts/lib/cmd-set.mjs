@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs, makeOut, readJSON, writeJSON, writeGeoJSON, propsArg, UsageError, UserError } from './util.mjs';
 import { openSite, loadLayer, layerPath, withSiteLock, placeIndex } from './site.mjs';
-import { unnamedSource, unnamedSourceLine, lateSourceLine, sourceStamp, sourceNotRead, sourceNotReadRefusal, readPage, OWN_PAGE_WAY } from './cmd-cite.mjs';
+import { unnamedSource, unnamedSourceLine, lateSourceLine, sourceStamp, sourceNotRead, sourceNotReadRefusal, readPage, readSource, readSourceLine, OWN_PAGE_WAY, siteOf, whereSource } from './cmd-cite.mjs';
 import { cacheOff } from './net.mjs';
 import { isAreaPin } from './stays.mjs';
 import { isLodging } from './registry-geo.mjs';
@@ -16,17 +16,22 @@ set <dir> plan:day<N> --note "…" | --unset note [--json]
   Changes properties of one feature in data/<layer>.geojson in place (other properties, metrics and geometry stay), or
   removes it (--remove: only a place the person asks to drop, never one they named or one pinned to see to get past a
   refusal or a failing check; one they named, "asked": true, is refused unless the same command has --unset asked).
-  No network. Use it to fix a note, label or prop after add-point / enrich instead of re-running them.
+  No network, but to read a new source_url (below). Use it to fix a note, label or prop after add-point / enrich instead
+  of re-running them.
   plan:day1 is the plan's first day: --note gives that day its own line (a note for day 1: "book the tickets ahead"),
   shown under the day's text in the Plan tab, above its places (a map made before day notes keeps it but does not
   show it: said); --note "" or --unset note takes it off. A place's or a stop's note shows on its own card, never in a
   day. uw plan --force keeps each day's note.
   Geometry and "id" cannot be changed here (re-run add-point for a different place).
-  A new source_url that \`uw cite\` did not read (or could not: HTTP 404, refused) is refused (exit 2, "cite it first",
-  with the uw cite to run; nothing changed), and so is an address uw cite found is not a page (an image, a PDF), and a
-  page read that does not name the place or that another place already cites, where uw validate fails it: a trip's
-  places to see, an area to stay in that says why (exit 2, "cite its own page"). Elsewhere, or with under about 3
-  minutes left on the turn's clock, it is said and taken.
+  A new source_url that \`uw cite\` did not read in the last hours is read first, as uw cite reads a page (robots.txt,
+  link-only sites, bot checks; kept for uw validate). One that cannot be read (HTTP 404, refused, no answer in time) is
+  refused (exit 2, with why; nothing changed): give the place its own page instead. So is an address that is not a page
+  (an image, a PDF), and a page that does not name the place or that another place already cites, where uw validate
+  fails it: a trip's places to see, an area to stay in that says why (exit 2, "cite its own page"). Elsewhere, or with
+  under about 3 minutes left on the turn's clock, it is said and taken.
+  A new source_url (or --unset source_url) given without "source" drops the "source" that named the old page's
+  publisher, so no list names a site the place no longer cites (kept: one that says where the place is, such as
+  OpenStreetMap, a register or coordinates, and one for a page of the same site): give "source" with the page.
   A new source_url or source goes to the place's items in the plan's days too (the Plan tab's link under it; marked
   not checked while the place has no page of its own), so the days stay as they are: no new uw plan. An item that links
   another page is left as it is. --props '{"asked":true}' marks a place the person's message named (only that, never to
@@ -45,6 +50,16 @@ export async function run(argv, turn = {}) {
   const [, layer, id] = m;
   // a day of the plan (a site's own layer called "plan" keeps its features)
   if (layer === 'plan' && (DAY_REF.test(id) || !loadLayer(site, 'plan', { required: false }))) return setDayNote(args, out, site, id);
+  // a new source_url no uw cite read is read here first, as uw cite would read it (cmd-cite.mjs readSource), then
+  // judged as a page uw cite read: a round trip a place ("cite it first", cite, set again) is gone. Outside the site's
+  // write lock: nothing waits on the network inside it
+  const given = args.remove ? null : propsArg(args);
+  let readNow = null;
+  const now = typeof given?.source_url === 'string' ? featureNow(site, layer, id) : null;
+  if (now && given.source_url !== now.properties?.source_url) {
+    const miss = sourceNotRead(given.source_url);
+    if (miss && !miss.not_page) readNow = await readSource(given.source_url);
+  }
   // the layer and map.config.json are read, changed and written under the site's write lock (another uw command may
   // write them at the same time); nothing here waits on the network
   const done = withSiteLock(site, () => {
@@ -56,7 +71,7 @@ export async function run(argv, turn = {}) {
     }
     const f = fc.features[i];
     const before = { ...f.properties };
-    let changed = [], late = null, twin = null;
+    let changed = [], late = null, twin = null, dropped = null;
     if (args.remove) {
       // a place the person named stays on the map and on its day: removed only when they ask to drop it, with its mark
       // taken off in the same command. A turn removed every place it had pinned, the two the person named among them,
@@ -72,7 +87,7 @@ export async function run(argv, turn = {}) {
       fc.features.splice(i, 1);
       changed = ['(removed)'];
     } else {
-      const extra = propsArg(args);
+      const extra = { ...given };
       if ('id' in extra) throw new UsageError('--props cannot change "id" (refs, votes and the URL hash use it)');
       if (args.note !== undefined) extra.note = args.note;
       if (args.name !== undefined) extra.name = args.name;
@@ -86,11 +101,21 @@ export async function run(argv, turn = {}) {
         if (k === 'id') throw new UsageError('cannot unset "id"');
         if (k in f.properties) { delete f.properties[k]; changed.push('-' + k); }
       }
+      // a new page (or none) given without its publisher: the "source" that named the old page's goes with it, unless
+      // it says where the place is (a lookup's open data, the person's own coordinates) or the page is on the same
+      // site. A pin kept a tourism site's name over its encyclopedia page, and uw validate listed that site
+      if (changed.some((k) => k === 'source_url' || k === '-source_url') && !('source' in extra) && before.source_url
+        && typeof f.properties.source === 'string' && !whereSource(f.properties.source) && siteOf(before.source_url) !== siteOf(f.properties.source_url)) {
+        dropped = f.properties.source;
+        delete f.properties.source;
+        changed.push('-source');
+      }
       if (!changed.length) return { f, changed, dayItems: 0 };
       // a new page no uw cite read (or one it found is not a page), or one uw validate fails as not the place's own,
       // is not its source: refused, nothing written (cmd-cite.mjs sourceNotRead, sourceNotOwn below). With too little
       // time left to cite, validate only warns about the latter: taken, and said
-      const notRead = changed.includes('source_url') ? sourceNotRead(f.properties.source_url) ?? sourceNotOwn(site, layer, f, turn) : null;
+      const failed = readNow?.failed && f.properties.source_url === given.source_url ? { url: given.source_url, failed: readNow.failed } : null;
+      const notRead = changed.includes('source_url') ? failed ?? sourceNotRead(f.properties.source_url) ?? sourceNotOwn(site, layer, f, turn) : null;
       if (notRead && !notRead.late) return { f, changed: [], refused: notRead };
       late = notRead;
       // a new page: when it was set (uw validate judges a page no uw cite read for a place this turn gave a source)
@@ -101,9 +126,9 @@ export async function run(argv, turn = {}) {
     // so does a mark the person named it ("asked"), which counts it for its day
     const dayItems = !args.remove && changed.some((k) => /^-?(source(_url)?|asked)$/.test(k)) ? withDayItems(site, layer, id, before, f.properties, { late: !!late }) : 0;
     if (twin) withDayItems(site, layer, twin.id, twin.before, twin.f.properties);
-    return { f, changed, dayItems, late };
+    return { f, changed, dayItems, late, dropped };
   });
-  const { f, changed, dayItems, refused, late, named } = done;
+  const { f, changed, dayItems, refused, late, named, dropped } = done;
   if (named) {
     const ref = `${layer}:${id}`, name = f.properties.name_en || f.properties.name || id;
     const next = `uw set ${args._[0]} ${ref} --unset asked --remove`;
@@ -117,22 +142,31 @@ export async function run(argv, turn = {}) {
   }
   if (refused) {
     const { lines, refused: why, next } = sourceNotReadRefusal(refused, f.properties.name_en || f.properties.name || id, 'Nothing was changed.', args._[0]);
-    if (out.json) process.stdout.write(JSON.stringify({ ok: false, refused: why, layer, id, source_url: refused.url, next, ...(refused.shared ? { cited_by: refused.shared } : {}) }, null, 2) + '\n');
+    if (out.json) process.stdout.write(JSON.stringify({ ok: false, refused: why, layer, id, source_url: refused.url, ...(refused.failed ? { why: refused.failed } : {}), next, ...(refused.shared ? { cited_by: refused.shared } : {}) }, null, 2) + '\n');
     console.error(lines.join('\n'));
     return 2;
   }
+  if (readNow?.read && changed.includes('source_url')) console.error(readSourceLine(readNow.read, f.properties.name_en || f.properties.name || id));
   if (!changed.length) { out.result({ ok: true, layer, id, changed: [] }, [`Nothing changed on ${layer}:${id}.`]); return 0; }
   // a page uw cite read that does not name the place is not its source: said now, while the turn can cite its own page
   // (two places once cited a routes page that named neither, and the reply vouched for it)
   const miss = !args.remove && changed.some((k) => k === 'source_url' || /^name/.test(k)) ? unnamedSource(f.properties) : null;
   out.result({ ok: true, layer, id, changed, removed: !!args.remove, ...(dayItems ? { day_items: dayItems } : {}), ...(miss ? { source_not_named: miss } : {}) }, [
     args.remove ? `Removed ${layer}:${id} (${f.properties.name || ''}). Re-run enrich / legs / routes that used it.` : `Updated ${layer}:${id}: ${changed.join(', ')}.`,
+    dropped ? `Its source "${dropped}" named the old page's publisher and went with it: give "source" with a source_url to name the new page's.` : null,
     dayItems && changed.some((k) => /^-?source(_url)?$/.test(k)) ? `Its ${dayItems === 1 ? 'item' : `${dayItems} items`} in the plan's days link${dayItems === 1 ? 's' : ''} ${f.properties.source_url ? 'that page now' : 'no page now'}${f.properties.source_url && !late ? '' : ', marked not checked'}; the days are as they were.` : null,
     dayItems && changed.some((k) => /^-?asked$/.test(k)) ? `Its ${dayItems === 1 ? 'item' : `${dayItems} items`} in the plan's days ${f.properties.asked === true ? `count${dayItems === 1 ? 's' : ''} for ${dayItems === 1 ? 'its day' : 'their days'} as a place the person named` : `no longer count${dayItems === 1 ? 's' : ''} as a place the person named`}; the days are as they were.` : null,
   ]);
   if (late) out.warn(lateSourceLine(late));
   else if (miss) out.warn(unnamedSourceLine(miss, args._[0], `${layer}:${id}`));
   return 0;
+}
+
+/** The place as it is now (no lock: only to know whether its new source_url needs reading), or null: no such place,
+ *  which the command then names. */
+function featureNow(site, layer, id) {
+  try { return (loadLayer(site, layer, { required: false })?.features || []).find((f) => String(f?.properties?.id) === id) || null; }
+  catch { return null; }
 }
 
 const DAY_REF = /^(?:day-?)?(\d{1,3})$/i;

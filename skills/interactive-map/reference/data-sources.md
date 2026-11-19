@@ -63,9 +63,9 @@ planner and the feed operators (Transitous lists them at transitous.org/sources)
 **Sourcing facts (`instafy web read`, `uw cite`).** Facts come from pages a person would read, not from the map
 lookups: in Instafy, `instafy web read <url> --json` and the `instafy-web-research` skill (which sites for which need,
 2-6 reads, cite each fact, link out instead of copying listings, stop at sign-ins and bot checks); elsewhere
-`uw cite`. A pin's `source_url` is a page `uw cite` read, in Instafy too: `uw add-point` and `uw set` refuse any
-other ("cite it first"), and an image or a PDF is no page. The map lookups (geocode, places, routes, isochrones) are
-light helpers for pins, routes and tiles: a small venue OpenStreetMap lacks is found on its own page, then pinned by
+`uw cite`. A pin's `source_url` is a page `uw cite` read, in Instafy too: `uw add-point` and `uw set` read one no
+`uw cite` read themselves, the same way, and refuse one they cannot read; an image or a PDF is no page. The map
+lookups (geocode, places, routes, isochrones) are light helpers for pins, routes and tiles: a small venue OpenStreetMap lacks is found on its own page, then pinned by
 its street address (`add-point --query "<address>" --name …`). Order: the operator's or venue's own site (from an
 OSM `website` tag or
 Wikipedia/Wikivoyage); then open data and the pack's sources above; then Wikivoyage / Wikipedia (CC BY-SA,
