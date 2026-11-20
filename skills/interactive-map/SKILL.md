@@ -28,8 +28,8 @@ Commands take `--help` and `--json`. Exit 0 ok, 1 error, 2 not found / needs you
    `JSON`): an apostrophe breaks single-quoted JSON.
 6. Facts come from pages you read (`instafy web read <url>`, skill `instafy-web-research`; a pin's `source_url` and
    else: `uw cite <url> --grep <what>`); unsourced = unverified. A listing read (what's on) is each item's source:
-   pin it by its venue (`--query "<venue>" --name "<item>"`, the date in `note`); its own page only for what was
-   asked that it lacks. `uw` only places pins, routes: one network command at a time, small areas; no Google APIs,
+   pin it by venue (`--layer events --query "<venue>" --name "<item>"`, date in `note`); its own page only for an
+   asked value it lacks. `uw` only places pins, routes: one network command at a time, small areas; no Google APIs,
    Nominatim, scraping. Sign-in, CAPTCHA, 429: stop.
 7. Never type a price or licence number. Never present a filed rate as a price, permitted hours as opening hours,
    or one register's answer as all.

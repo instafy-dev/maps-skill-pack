@@ -12,37 +12,52 @@ All notable changes to this pack. Versions follow [semantic versioning](https://
   unmarked, and its text starts with the area's name. The config reference says the same of `"asked"`.
 - **A sight's lookup never takes a hotel, a restaurant or a shop named after it.** `uw add-point` took a hotel that
   carries part of a bazaar's name, a restaurant on a quay whose street the search had found first, and a shop named
-  after a market hall, each pinned as the sight; a turn then removed the hotel and forced the plan. A business (a
-  place to stay, food or drink, a shop) whose own name adds a word to the query's ("De <name>" for "<name> <city>") is
-  now not that place unless the lookup asks for its kind (its layer, `--kind`, the props' kind or the query says so;
-  one named only with the query's words, "<name>" for "The <name>", still is): the street of the quay's name is taken
-  over the restaurant on it, and with nothing else the lookup is refused, saying what it found ("found a hotel named
-  "…" [tourism=hotel], not the sight "…""; JSON `refused: "named_after"` with `found`), listed as not found yet. A
-  pick (`--pick N`) or `--allow-mismatch` still takes it. So no wrong pin needs removing to get a plan through.
+  after a market hall, each pinned as the sight; a turn then removed the hotel and forced the plan. On a sight's layer
+  (sights, day trips, attractions, landmarks), a business (a place to stay, food or drink, a shop) whose own name adds
+  a word to the query's ("De <name>" for "<name> <city>") is now not that place unless the lookup asks for its kind
+  (`--kind`, the props' kind or the query says so). One named only with the query's words ("<name>" for "The <name>")
+  still is, and so is a shop whose name adds only its branch ("<name> <street>": a store asked for by its own name),
+  never a place to stay or eat by its name's first words. The street of the quay's name is taken over the restaurant
+  on it, and with nothing else the lookup is refused, saying what it found ("found a hotel named "…" [tourism=hotel],
+  not the sight "…""; JSON `refused: "named_after"` with `found`), listed as not found yet. A pick (`--pick N`) or
+  `--allow-mismatch` still takes it, and the refusal's hint for a place mapped under another name never offers the
+  business it refused. So no wrong pin needs removing to get a plan through. A lookup on any other layer (a listing's
+  venue, a list of bars, food spots, places to stay) takes the business its query names, as before.
 - **A place has one "not found yet" entry.** A trip's map listed one bridge twice: looked up as "<name>, <city>", then
   as "<name> <city>" under another id. A lookup of a place already listed under another id or wording (the same name
   once the city it ends on is set aside: the trip's stops, the expected stops, and what any lookup named after a comma)
   is now kept on the first entry (`"also"`), and the refusal says so; a pin of the place under any of its ids, names or
-  queries takes the entry off, and `uw validate` counts them so too.
+  queries takes the entry off, and `uw validate` counts them so too. On a trip of two stops or more, a place named with
+  one stop's name is never another stop's place of that name: two cities' cathedrals or old towns are two entries, and
+  a pin of one never takes the other's off. Nor is a stop's own place, looked up with no city, a place of that name in
+  another town named after a comma (a day trip's).
 - **No trip map is left without its days.** A map whose `uw plan` was refused for days short of places, by a turn that
   never planned again (its last command hung), had no Plan tab. A refused plan on a map with no days yet now writes
-  them as they are, as a draft (`"draft"`: how they were asked for, and what they were made of), and says so; JSON
-  `"draft": true` with the days for a reply that cannot wait (each short day named, "nothing to see yet" or with its
-  one place). The next `uw plan` replaces a draft without `--force`. `uw validate` plans a draft again, in the turn that
-  wrote it, once the places it was made of changed ("Days planned again …"; JSON `planned_again`), so the days have
-  what was pinned since; with too little time left they are written as they are, and the warnings name each short day
-  for the reply. A map whose days are already there keeps them when a plan is refused (nothing written), as before.
+  them as they are, as a draft (`"draft"`: how they were asked for, what they were made of, and the day texts it
+  wrote), and says so; JSON `"draft": true` with the days for a reply that cannot wait (each short day named, "nothing
+  to see yet" or with its one place). The next `uw plan` replaces a draft without `--force`. In the turn that wrote it,
+  `uw add-point` plans a draft again once it pins a place ("Days planned again with it …"; JSON `planned_again`), `uw
+  set --remove` once it removes one, and `uw validate` once its places changed otherwise, so the days have what the map
+  has even when the turn replies next; the days stay a draft (the plan command the refusal named still replaces them),
+  a day's text written over the draft's stays on its day and is named, and with too little time left the warnings name
+  each short day for the reply. A map whose days are already there keeps them when a plan is refused (nothing
+  written), as before.
 - **A listing read is each item's source.** An events map waited on each event's own page (each click asked the
   person) though the listing it had read named every event with its date and place. SKILL.md now takes a listing read
-  ("what's on") as each item's source: each item pinned by its venue (`--query "<venue>" --name "<item>"`, the date
-  in `note`), and an item's own page opened only for what was asked that the listing lacks.
+  ("what's on") as each item's source: each item pinned by its venue on an events layer (`--layer events --query
+  "<venue>" --name "<item>"`, the date in `note`), and an item's own page opened only for what was asked that the
+  listing lacks. On a trip's map too, a listing's items (a layer named events, whats-on, gigs, concerts, festivals or
+  exhibitions) share the listing: a page two places share is refused or failed for places to see only.
 - Tests: tests/named-kind-days.test.mjs (the guide's words for the named mark and an area's day; a hotel, a shop and a
-  restaurant named after a sight refused or passed over, with what was found, and taken when the lookup asks for that
-  kind; one entry for a place looked up twice, taken off by a pin under its second id; a refused plan's days on a map
-  with none, planned again by `uw validate` with a place pinned since, then as they are with too little time left,
-  each short day named; a draft kept in a later turn, and a plan of days already there kept when one is refused; two
-  events at their venues, cited to the listing). full-days, named-places-kept, one-base-trip and reply-from-the-map
-  follow the new behaviour and words.
+  restaurant named after a sight refused, with what was found, or passed over for the place itself, and taken by a
+  lookup for food; a shop asked for as a sight by its own name taken, and an event at a bar venue; one entry for a place looked up
+  twice, taken off by a pin under its second id, and two entries for places of one name in two stops or in a stop and
+  a day trip's town, by the city after a comma or after the name; a refused plan's days on a map with none, planned
+  again by `uw add-point` with each place pinned since (given a point or looked up), by `uw set --remove`, and by `uw
+  validate` with a place no lookup of the turn's own placed, keeping a day's own text, then as they are with too little
+  time left, each short day named; a draft kept in a later turn, and a plan of days already there kept when one is
+  refused; two events at their venues, cited to the listing, on a map and on a trip's map). full-days,
+  named-places-kept, one-base-trip and reply-from-the-map follow the new behaviour and words.
 - package.json, the manifest and the CHANGELOG are at 0.1.39.
 
 ## 0.1.38 (2026-11-19)

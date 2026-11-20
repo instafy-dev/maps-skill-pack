@@ -3,7 +3,10 @@
 // one stop: days in one place, each day a loop from the same base. The agent then adds one sourced line of text per
 // day; it never has to type the skeleton (or a date) by hand.
 import fs from 'node:fs';
+import path from 'node:path';
 import crypto from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { parseArgs, makeOut, parseList, readJSON, writeJSON, writeGeoJSON, haversine, representativePoint, clipWords, slugify, UsageError, UserError } from './util.mjs';
 import { openSite, loadLayer, layerPath, checkLayerId } from './site.mjs';
 import { expectOf, featureNames } from './expect.mjs';
@@ -53,8 +56,9 @@ export const help = `plan <dir> --stops <layer> --start YYYY-MM-DD [--ids taipei
   area: a day trip), and near where to add one instead of a place whose page cannot be found; do that, then run the
   same command again. A map with no days yet still gets them, as they are, as a draft ("draft"; JSON "draft": true,
   with the days for a reply that cannot wait): no trip map is left without its Plan tab. The next uw plan replaces a
-  draft without --force, and uw validate plans it again in the turn that wrote it once its places change. A map whose
-  days are already there keeps them (nothing written). With less time left, the place search down, or a uw command still running on the site (named
+  draft without --force, keeping a day's text written over the draft's on its day (named). In the turn that wrote it,
+  uw add-point (a place pinned) and uw validate plan a draft again once its places change, so its days have what the
+  map has (still a draft). A map whose days are already there keeps them (nothing written). With less time left, the place search down, or a uw command still running on the site (named
   below), the days are written as they are. A place with no page of its own (none, or one taken with too little time
   left that is not its own) is marked not checked in its day. A place the person named is never left off the days
   while a day has a place of its kind they did not name (it takes that place's room). The plan keeps those layers ("sights")
@@ -70,9 +74,44 @@ export const help = `plan <dir> --stops <layer> --start YYYY-MM-DD [--ids taipei
   map has them ("days_for_the_reply").`;
 
 /** A plan `uw plan` wrote while it refused days short of places: the days as they were, with how it was asked for
- *  ("draft": its arguments and `inputs`, planInputs' of the places it was made of). Replaced by the next uw plan,
- *  without --force; planned again by uw validate in the turn that wrote it once its places change. */
+ *  ("draft": its arguments, `inputs`, planInputs' of the places it was made of, and `texts`, textKey's of the day texts
+ *  it wrote). Replaced by the next uw plan, without --force; planned again in the turn that wrote it once its places
+ *  change (planDraftAgain), and still a draft then. */
 export const isDraft = (plan) => !!plan && typeof plan.draft === 'object' && plan.draft !== null && typeof plan.draft.start === 'string' && typeof plan.draft.stops === 'string';
+/** A day's text as a draft keeps it (a short hash): a text that differs is the turn's own words. Pure. */
+const textKey = (t) => crypto.createHash('sha256').update(String(t ?? '')).digest('hex').slice(0, 12);
+/** Plan a draft's days again (uw plan, with the arguments it was asked with), in the turn that wrote it, once the
+ *  places it was made of changed, while no other uw command runs on the site and outside a step of uw handoff --apply
+ *  (it plans the days itself): what uw add-point does once it pinned a place, and uw validate first. A turn pinned two
+ *  places after a refused plan, its next command hung, and it replied with days that had neither. The days stay a
+ *  draft (UW_PLAN_DRAFT): the turn's own uw plan, the same command the refusal named, still replaces them without
+ *  --force; never --force here, so a plan that is no longer a draft is never replaced. A day's text the turn wrote
+ *  over the draft's stays on its day (run). `dir`: the site's folder; `siteArg`: as the command was given it.
+ *  → null (nothing to do, or it could not run) or { days_for_the_reply, short (days still short of places),
+ *  kept_texts? (the days that kept their own text) }. */
+export function planDraftAgain(dir, siteArg, { turnStartedMs = null } = {}) {
+  let cfg = null;
+  try { cfg = readJSON(path.join(dir, 'map.config.json')); } catch { return null; }
+  if (!isDraft(cfg?.plan) || handoffStep()) return null;
+  if (turnStartedMs != null && !(Date.parse(cfg.plan.planned_at ?? '') >= turnStartedMs)) return null;
+  if (stillRunning(dir).length) return null;
+  let site = null;
+  try { site = openSite(dir); } catch { return null; }
+  const featuresOf = (id) => { try { return loadLayer(site, id, { required: false })?.features || []; } catch { return []; } };
+  if (planInputs(cfg.plan.draft, featuresOf) === cfg.plan.draft.inputs) return null;
+  const uwMjs = fileURLToPath(new URL('../uw.mjs', import.meta.url));
+  const r = spawnSync(process.execPath, [uwMjs, 'plan', siteArg, ...draftArgs(cfg.plan.draft), '--json'],
+    { encoding: 'utf8', env: { ...process.env, UW_PLAN_DRAFT: '1' }, timeout: 60000 });
+  let json = null;
+  try { json = JSON.parse(r.stdout || ''); } catch { return null; }
+  if (!json || (r.status !== 0 && r.status !== 2)) return null;
+  return { days_for_the_reply: json.days_for_the_reply || null, short: r.status === 2, ...(json.kept_texts?.length ? { kept_texts: json.kept_texts } : {}) };
+}
+/** The days that kept their own text, said for the turn (" Day 2 keeps its own text: …"), or ''. */
+const keptTextsLine = (days) => (!days?.length ? '' : days.length === 1 ? ` Day ${days[0]} keeps its own text: check it still fits its places.`
+  : ` Days ${days.slice(0, -1).join(', ')} and ${days[days.length - 1]} keep their own texts: check each still fits its places.`);
+/** What uw add-point and uw validate say of a draft they planned again (planDraftAgain's). */
+export const draftAgainLine = (r, since) => `Days planned again ${since}${r.short ? ' (still short of places)' : ''}: ${r.days_for_the_reply || 'none'}.${keptTextsLine(r.kept_texts)}`;
 const DRAFT_ARGS = ['stops', 'ids', 'nights', 'start', 'legs', 'stays', 'sights', 'per-day', 'title'];
 /** The arguments a draft keeps, to plan it again (draftArgs). */
 function draftOf(args) {
@@ -779,6 +818,24 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
   const keptNotes = [];
   built.days.forEach((d, i) => { if (noteOf(oldDays[i])) { d.note = noteOf(oldDays[i]); keptNotes.push(i + 1); } });
   const lostNotes = oldDays.map((d, i) => ({ n: i + 1, note: noteOf(d) })).filter((x) => x.note && x.n > built.days.length);
+  // the day texts this plan writes (a draft keeps them: a text that differs later is the turn's own words), and a day's
+  // own words written over a draft's (the area a day is for, as the trip guide words it): they stay on that day (by its
+  // title, its date) when the draft is planned again without --force, as a note does, named so the turn checks they
+  // still fit its places; a draft is planned again on its own (planDraftAgain), and would otherwise put the places'
+  // names back over them unseen. --force replaces them, as it replaces any plan's texts
+  const wroteTexts = built.days.map((d) => textKey(d.text));
+  const keptTexts = [], lostTexts = [];
+  if (isDraft(cfg.plan) && !args.force && Array.isArray(cfg.plan.draft.texts)) {
+    oldDays.forEach((d, i) => {
+      if (typeof d?.text !== 'string' || !d.text.trim() || typeof cfg.plan.draft.texts[i] !== 'string' || textKey(d.text) === cfg.plan.draft.texts[i]) return;
+      const j = built.days.findIndex((n) => n.title === d.title);
+      if (j >= 0) { built.days[j].text = d.text; keptTexts.push(j + 1); } else lostTexts.push({ n: i + 1, text: d.text });
+    });
+  }
+  const textLines = [
+    keptTexts.length ? `Day texts kept on their days (words written over the draft's): ${keptTexts.map((n) => `day ${n}`).join(', ')}; check each still fits its places.` : null,
+    lostTexts.length ? `Day texts of days this plan no longer has: ${lostTexts.map((x) => `day ${x.n} "${x.text}"`).join('; ')}. Put each on its day, or say it in the reply.` : null,
+  ].filter(Boolean);
   // --sights: the ask is what to see each day, so validate fails while a full day has no sourced place, and in the turn
   // that planned the days while one has only one ("planned_at": a later turn keeps the days the person changed). A
   // --per-day of 1 is a person who asked for one place a day ("per_day")
@@ -786,8 +843,11 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
   // tells them from a place pinned after the days were planned (a lookup still running then), which is on no day either
   const onPlan = new Set(built.days.flatMap((d) => d.items.map((it) => it.ref && `${it.ref.layer}:${it.ref.id}`)).filter(Boolean));
   const unplaced = sights.map((f) => `${f._layer}:${f.properties?.id}`).filter((r) => !onPlan.has(r));
-  const request = refusal ? draftOf(args) : null;
-  if (request) request.inputs = planInputs(request, (id) => (id === stopLayer ? sfc.features : withLayer(id)));
+  // a draft planned again on its own (planDraftAgain: uw add-point, uw validate) stays a draft, whatever the days now
+  // have: the turn's own uw plan, the command the refusal named, still replaces it without --force
+  const again = process.env.UW_PLAN_DRAFT === '1' && isDraft(cfg.plan);
+  const request = refusal || again ? draftOf(args) : null;
+  if (request) Object.assign(request, { inputs: planInputs(request, (id) => (id === stopLayer ? sfc.features : withLayer(id))), texts: wroteTexts });
   const plan = sightLayers.length ? { title: built.title, sights: sightLayers, ...(args['per-day'] != null ? { per_day: perDay } : {}), ...(unplaced.length ? { unplaced } : {}),
     ...(request ? { draft: request } : {}), planned_at: new Date().toISOString(), days: built.days } : built;
   cfg.plan = plan;
@@ -823,8 +883,8 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
   if (refusal) {
     // what the refusal says, and that the days are on the map as they are for now (the days for a reply that cannot
     // wait: each short day named, "nothing to see yet" or with its one place)
-    if (out.json) process.stdout.write(JSON.stringify({ ...refusal.json, draft: true, days_for_the_reply: daysForReply(plan) }, null, 2) + '\n');
-    console.error(refusal.lines.join('\n'));
+    if (out.json) process.stdout.write(JSON.stringify({ ...refusal.json, draft: true, days_for_the_reply: daysForReply(plan), ...(keptTexts.length ? { kept_texts: keptTexts } : {}) }, null, 2) + '\n');
+    console.error([...refusal.lines, ...textLines].join('\n'));
     return 2;
   }
   const totalN = nights.reduce((a, b) => a + b, 0);
@@ -852,7 +912,7 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
   const runningNext = running.length ? `Still running on this site: ${runningList(running)}. What ${many ? 'they find is' : 'it finds is'} not in this plan yet: `
     + `wait until ${many ? 'each has' : 'it has'} finished (an exit code; never start ${many ? 'one' : 'it'} again), then run this command again with --force.` : null;
   out.result({ ok: true, days: plan.days.length, nights: totalN, route, for_the_reply: forReply, ...(daysLine ? { days_for_the_reply: daysLine } : {}), plan, ...(view ? { view } : {}), ...(misplaced.length ? { day_places: misplaced } : {}), ...(offPlan.length ? { not_on_plan: offPlan.map((f) => `${f._layer}:${f.properties.id}`) } : {}),
-    ...(namedOff.length ? { named_not_on_plan: namedOff.map((f) => `${f._layer}:${f.properties.id}`) } : {}),
+    ...(namedOff.length ? { named_not_on_plan: namedOff.map((f) => `${f._layer}:${f.properties.id}`) } : {}), ...(keptTexts.length ? { kept_texts: keptTexts } : {}),
     ...(running.length ? { still_running: running.map((r) => r.label), next: runningNext } : {}) }, [
     runningNext,
     `map.config.json: plan with ${plan.days.length} days (${totalN} nights) from ${args.start}: ` + plan.days.map((d) => d.title).slice(0, 4).join(' | ') + (plan.days.length > 4 ? ' | …' : ''),
@@ -868,6 +928,7 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
     left.length ? `Not on any day (each day already has --per-day ${perDay} of their kind): ${left.slice(0, 6).map(nameOf).join(', ')}${left.length > 6 ? ` and ${left.length - 6} more` : ''}. Add nights, raise --per-day, or leave them out of the reply.` : null,
     keptNotes.length ? `Day notes kept on their days: ${keptNotes.map((n) => `day ${n}`).join(', ')} (uw set ${args._[0]} plan:day<N> --note moves one).` : null,
     lostNotes.length ? `Day notes of days this plan no longer has: ${lostNotes.map((x) => `day ${x.n} "${x.note}"`).join('; ')}. Put each on its day (uw set ${args._[0]} plan:day<N> --note "…"), or say it in the reply.` : null,
+    ...textLines,
     'Next: uw validate, then SKILL.md step 9 (refreshes the card). Never in the reply: file or folder names, commands or layer ids.',
   ]);
   return 0;

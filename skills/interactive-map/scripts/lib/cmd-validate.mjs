@@ -1,13 +1,13 @@
 // `validate`: check a site thoroughly; every message names file + JSON path + a fix.
-import { emptyPlanDays, isPlanSkeletonText, dayPlaceWarnings, dayPlaceLine, isDraft, planInputs, draftArgs } from './cmd-plan.mjs';
-import { pathToFileURL, fileURLToPath } from 'node:url';
+import { emptyPlanDays, isPlanSkeletonText, dayPlaceWarnings, dayPlaceLine, isDraft, planDraftAgain, draftAgainLine } from './cmd-plan.mjs';
+import { pathToFileURL } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parseArgs, makeOut, exists, fmtBytes } from './util.mjs';
 import { checkV2, V2_TOP_KEYS, V2_LAYER_KEYS } from './validate-v2.mjs';
-import { STARTER_DIR, placeIndex, openSite, loadLayer } from './site.mjs';
+import { STARTER_DIR, placeIndex } from './site.mjs';
 import { parseStops, expectOf, mergeExpect, uncovered, describeItems, featureNames } from './expect.mjs';
 import { stillRunning, runningList } from './running.mjs';
 import { REPLY_WITHIN_S } from './turn-advice.mjs';
@@ -39,8 +39,9 @@ export const help = `validate <dir> [--signal] [--strict] [--expect "<stop>:<nig
   finds is not on the map yet. Wait until it has finished; never start it again. A "not found yet" entry beside a pin
   of that place is an error too.
   A trip's days that uw plan wrote as a draft (it refused days short of places) are planned again first, in the turn
-  that wrote them, once the places they were made of changed (one pinned since): the days it can, each short day named
-  ("Days planned again …"; JSON planned_again).
+  that wrote them, once the places they were made of changed (one pinned since): the days it can, still a draft, each
+  short day named, a day's own text kept ("Days planned again …"; JSON planned_again: days_for_the_reply, short,
+  kept_texts).
   Prints the sources the map cites, for the reply's Sources line ("Sources for the reply"; JSON
   sources_for_the_reply): who publishes each place's, leg's and day's page or data, and what the map shows with them
   (a register's data or records, air quality, street photos), most cited first; no other.
@@ -163,23 +164,13 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       `wait until ${many ? 'each has' : 'it has'} finished (an exit code; never start ${many ? 'one' : 'it'} again), then ${cfg.plan ? 'uw plan … --force (its days take what was found) and ' : ''}validate again`);
   }
   // A trip's days that uw plan wrote as a draft (it refused days short of places, and wrote them as they were) are
-  // planned again here, in the turn that wrote them, once the places they were made of changed: a turn pinned two more
-  // places after the refusal and replied, and its map had no Plan tab. uw plan decides as it always does: still short
-  // with time left, a draft again; else the days as they are, each short day named below
-  if (!running.length && isDraft(cfg.plan) && (turnStartedMs == null || Date.parse(cfg.plan.planned_at ?? '') >= turnStartedMs)) {
-    let siteNow = null;
-    try { siteNow = openSite(dir); } catch { /* named below */ }
-    const featuresOf = (id) => { try { return loadLayer(siteNow, id, { required: false })?.features || []; } catch { return []; } };
-    if (siteNow && planInputs(cfg.plan.draft, featuresOf) !== cfg.plan.draft.inputs) {
-      const uwMjs = fileURLToPath(new URL('../uw.mjs', import.meta.url));
-      const r = spawnSync(process.execPath, [uwMjs, 'plan', args._[0], ...draftArgs(cfg.plan.draft), '--force', '--json'], { encoding: 'utf8', env: process.env, timeout: 60000 });
-      let json = null;
-      try { json = JSON.parse(r.stdout || ''); } catch { /* not planned: the draft stays as it is */ }
-      if (json && (r.status === 0 || r.status === 2)) {
-        replanned = { days_for_the_reply: json.days_for_the_reply || null, draft: r.status === 2 };
-        try { cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8')); } catch { /* validated as it is */ }
-      }
-    }
+  // planned again here, in the turn that wrote them, once the places they were made of changed (cmd-plan.mjs
+  // planDraftAgain; uw add-point does so once it pins a place, so this is for any other change): a turn pinned two
+  // more places after the refusal and replied, and its map had no Plan tab. uw plan decides as it always does: still
+  // short with time left, refused (each short day named below); else the days as they are. A day's own words stay
+  if (!running.length && isDraft(cfg.plan)) {
+    replanned = planDraftAgain(dir, args._[0], { turnStartedMs });
+    if (replanned) { try { cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8')); } catch { /* validated as it is */ } }
   }
 
   const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -790,8 +781,10 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
   // ("Main Market Square" beside its pin "Main Square", pinned by its local name: missing.mjs)
   if (Array.isArray(cfg.missing)) {
     const pins = [...featuresByLayer].flatMap(([lid, fs1]) => (fs1 || []).filter((f) => f?.geometry?.type === 'Point').map((f) => pinOfFeature(lid, f)));
-    // (a place looked up with its city after its name is the place of that name: the trip's stops are the area)
-    const area = areaWords([...expectOf(cfg).map((e) => e.name), ...nightStops.flatMap((s) => [s.pr.name, s.pr.name_en, s.pr.looked_up_as])].filter(Boolean));
+    // (a place looked up with its city after its name is the place of that name: the trip's stops are the area; on a
+    // trip of two stops or more, one city's place is never another's of that name)
+    const area = areaWords([...expectOf(cfg).map((e) => e.name), ...nightStops.flatMap((s) => [s.pr.name, s.pr.name_en, s.pr.looked_up_as])].filter(Boolean), [],
+      { stops: Math.max(expectOf(cfg).length, nightStops.length) });
     const stale = cfg.missing.filter((m) => m && typeof m.name === 'string' && ((featuresByLayer.get(m.layer) || [])
       .some((f) => (m.id && String(f?.properties?.id) === String(m.id)) || featureNames(f?.properties, m.name)) || !!missingPinned(m, pins, area)));
     if (stale.length) E(CFG, '$.missing', `listed as not found yet but on the map: ${stale.map((m) => m.name).join(', ')}`,
@@ -1057,7 +1050,7 @@ function report(out, args, dir, errors, warnings, sources = null, replanned = nu
   } else {
     const line = (m) => `${m.level === 'error' ? 'ERROR' : 'warn '} ${m.file}${m.path ? ' ' + m.path : ''}: ${m.message}${m.fix ? `\n      fix: ${m.fix}` : ''}`;
     // the draft's days, planned again with the places pinned since: what the map's Plan tab has now
-    if (replanned) console.log(`Days planned again with the places pinned since the draft${replanned.draft ? ' (still a draft: days short of places)' : ''}: ${replanned.days_for_the_reply || 'none'}.`);
+    if (replanned) console.log(draftAgainLine(replanned, 'with the places pinned since'));
     for (const m of errors) console.log(line(m));
     for (const m of warnings) console.log(line(m));
     // the reply's Sources line names these, and no other (a reply once named a tourism site no place cited)

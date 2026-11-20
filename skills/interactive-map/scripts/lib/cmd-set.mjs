@@ -3,19 +3,21 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs, makeOut, readJSON, writeJSON, writeGeoJSON, propsArg, UsageError, UserError } from './util.mjs';
 import { openSite, loadLayer, layerPath, withSiteLock, placeIndex } from './site.mjs';
-import { unnamedSource, unnamedSourceLine, lateSourceLine, sourceStamp, sourceNotRead, sourceNotReadRefusal, readPage, readSource, readSourceLine, OWN_PAGE_WAY, siteOf, whereSource } from './cmd-cite.mjs';
+import { unnamedSource, unnamedSourceLine, lateSourceLine, sourceStamp, sourceNotRead, sourceNotReadRefusal, readPage, readSource, readSourceLine, OWN_PAGE_WAY, siteOf, whereSource, LISTING_LAYER } from './cmd-cite.mjs';
 import { cacheOff } from './net.mjs';
 import { isAreaPin } from './stays.mjs';
 import { isLodging } from './registry-geo.mjs';
 import { expectOf } from './expect.mjs';
 import { REPLY_WITHIN_S } from './turn-advice.mjs';
-import { NOT_CHECKED } from './cmd-plan.mjs';
+import { NOT_CHECKED, planDraftAgain, draftAgainLine } from './cmd-plan.mjs';
 
 export const help = `set <dir> <layer>:<id> [--note "…"] [--name "…"] [--emoji 🏨] [--props '{"price":120}' | --props-file <file|->] [--unset key1,key2] [--remove] [--json]
 set <dir> plan:day<N> --note "…" | --unset note [--json]
   Changes properties of one feature in data/<layer>.geojson in place (other properties, metrics and geometry stay), or
   removes it (--remove: only a place the person asks to drop, never one they named or one pinned to see to get past a
   refusal or a failing check; one they named, "asked": true, is refused unless the same command has --unset asked).
+  A trip's days that uw plan wrote as a draft in this turn (it refused days short of places) are planned again without
+  a place removed ("Days planned again without it …"; JSON planned_again), still a draft.
   No network, but to read a new source_url (below). Use it to fix a note, label or prop after add-point / enrich instead
   of re-running them.
   plan:day1 is the plan's first day: --note gives that day its own line (a note for day 1: "book the tickets ahead"),
@@ -28,7 +30,8 @@ set <dir> plan:day<N> --note "…" | --unset note [--json]
   refused (exit 2, with why; nothing changed): give the place its own page instead. So is an address that is not a page
   (an image, a PDF), and a page that does not name the place or that another place already cites, where uw validate
   fails it: a trip's places to see, an area to stay in that says why (exit 2, "cite its own page"). Elsewhere, or with
-  under about 3 minutes left on the turn's clock, it is said and taken.
+  under about 3 minutes left on the turn's clock, it is said and taken. A listing's items (a layer named events,
+  whats-on, gigs, concerts, festivals or exhibitions) share the listing they were read from: never refused for that.
   A new source_url (or --unset source_url) given without "source" drops the "source" that named the old page's
   publisher, so no list names a site the place no longer cites (kept: one that says where the place is, such as
   OpenStreetMap, a register or coordinates, and one for a page of the same site): give "source" with the page.
@@ -151,8 +154,13 @@ export async function run(argv, turn = {}) {
   // a page uw cite read that does not name the place is not its source: said now, while the turn can cite its own page
   // (two places once cited a routes page that named neither, and the reply vouched for it)
   const miss = !args.remove && changed.some((k) => k === 'source_url' || /^name/.test(k)) ? unnamedSource(f.properties) : null;
-  out.result({ ok: true, layer, id, changed, removed: !!args.remove, ...(dayItems ? { day_items: dayItems } : {}), ...(miss ? { source_not_named: miss } : {}) }, [
+  // a place removed from the days uw plan wrote as a draft in this turn: they are planned again without it, as uw
+  // add-point plans them again with a place it pins (cmd-plan.mjs planDraftAgain). A change of a place's page is in its
+  // items already (above)
+  const replanned = args.remove ? planDraftAgain(site.dir, args._[0], turn) : null;
+  out.result({ ok: true, layer, id, changed, removed: !!args.remove, ...(dayItems ? { day_items: dayItems } : {}), ...(miss ? { source_not_named: miss } : {}), ...(replanned ? { planned_again: replanned } : {}) }, [
     args.remove ? `Removed ${layer}:${id} (${f.properties.name || ''}). Re-run enrich / legs / routes that used it.` : `Updated ${layer}:${id}: ${changed.join(', ')}.`,
+    replanned ? draftAgainLine(replanned, 'without it') : null,
     dropped ? `Its source "${dropped}" named the old page's publisher and went with it: give "source" with a source_url to name the new page's.` : null,
     dayItems && changed.some((k) => /^-?source(_url)?$/.test(k)) ? `Its ${dayItems === 1 ? 'item' : `${dayItems} items`} in the plan's days link${dayItems === 1 ? 's' : ''} ${f.properties.source_url ? 'that page now' : 'no page now'}${f.properties.source_url && !late ? '' : ', marked not checked'}; the days are as they were.` : null,
     dayItems && changed.some((k) => /^-?asked$/.test(k)) ? `Its ${dayItems === 1 ? 'item' : `${dayItems} items`} in the plan's days ${f.properties.asked === true ? `count${dayItems === 1 ? 's' : ''} for ${dayItems === 1 ? 'its day' : 'their days'} as a place the person named` : `no longer count${dayItems === 1 ? 's' : ''} as a place the person named`}; the days are as they were.` : null,
@@ -233,6 +241,8 @@ function dayNotesShown(site) {
  *    pinned places but the stops' and the places to stay's (the trip guide plans --sights sights,food,daytrips), for
  *    a place that is not itself a stop, a place to stay or an area;
  *  - for an area to stay in that says why (a note or why), on its own page, in the turn that pins it.
+ *  A listing's items (cmd-cite.mjs LISTING_LAYER: events read from a "what's on" page) share the listing, each one's
+ *  source: never refused for that, nor counted against a place to see.
  *  Anywhere else it judges no page, and this returns null: the command says what it says of a page that does not name
  *  the place, as before. Returns the page another place cites ({ url, name, shared: { ref, name }, by? }) or a page
  *  read that names none of the place's names ({ url, name, not_named, by }), `late` when the turn's clock leaves too
@@ -276,11 +286,12 @@ export function sourceNotOwn(site, layer, f, { turnLeftS = null, turnStartedMs =
     if (!judged.includes(layer)) judged = null;
   }
   if (judged) {
-    const all = judged.flatMap((lid) => (layers.get(lid)?.features || []).map((g) => ({ lid, g })));
+    // (a listing's items share the listing they were read from: only places to see count for a page places share)
+    const all = judged.filter((lid) => !LISTING_LAYER.test(lid)).flatMap((lid) => (layers.get(lid)?.features || []).map((g) => ({ lid, g })));
     const place = placeIndex(all.map((x) => x.g));
     const me = place[all.findIndex((x) => x.g === f)];
     const page = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u) ? u.replace(/#.*$/, '') : null);
-    const other = all.find(({ g }, i) => place[i] !== me && page(g?.properties?.source_url) === page(url));
+    const other = LISTING_LAYER.test(layer) ? null : all.find(({ g }, i) => place[i] !== me && page(g?.properties?.source_url) === page(url));
     const late = timeToCite ? {} : { late: true };
     if (other) {
       const o = other.g.properties;
