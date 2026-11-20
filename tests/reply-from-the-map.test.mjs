@@ -292,7 +292,7 @@ test('validate\'s sources for the reply: who publishes what the map cites, most 
 test('the trip guide pins the named places first, and its reply takes its days, gaps and sources from uw plan and uw validate, never asking the person to add a place', () => {
   const md = fs.readFileSync(path.join(SKILL, 'reference', 'itinerary.md'), 'utf8').replace(/\s+/g, ' ');
   const oneBase = md.slice(md.indexOf('## One base'), md.indexOf('## Phase B'));
-  assert.match(oneBase, / 3\. \*\*The places the message names\*\*, pinned first, each with `"asked":true` \(Phase B step 1\); only those\. 4\. \*\*Places by area\*\*/);
+  assert.match(oneBase, / 3\. \*\*The places the message names\*\*, pinned first, each with `"asked":true` \(Phase B step 1\): only one whose own name the message says, never one you chose for an area it names\. [^#]*? 4\. \*\*Places by area\*\*/);
   assert.doesNotMatch(oneBase, /one the person named also/, 'no longer a parenthetical');
   assert.match(md, /The places the message names come first, each with `"asked":true` in its props: `uw plan` keeps it on its day as the person gave it, marked not checked until its own page is read \(never a place you chose\)\./);
   const reply = md.slice(md.indexOf('## Reply'));

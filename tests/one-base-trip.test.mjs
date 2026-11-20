@@ -96,12 +96,13 @@ test('validate: a plan made with --sights fails while a full day has nothing to 
   const { dir, cfgPath } = await makeSite('lx-bare');
   fs.writeFileSync(path.join(dir, 'data', 'sights.geojson'), JSON.stringify({ type: 'FeatureCollection', features: [] }));
   const args = ['plan', 'lx-bare', '--stops', 'stops', '--ids', 'lisbon', '--nights', '3', '--start', '2026-10-29', '--stays', 'stays', '--sights', 'sights,food,daytrips'];
-  // while the turn has time, no place yet is no plan: refused, with the places to add near the base
+  // while the turn has time, no place yet is refused, with the places to add near the base; the days are on the map
+  // as they are for now (a draft the next run replaces)
   const refused = await run(args);
   assert.equal(refused.code, 2, refused.err + refused.out);
-  assert.match(refused.err, /^REFUSED: 3 of 3 full days would have fewer than 2 places to see with their own page \(a full day takes 2-3\): Thu 29 Oct · Lisbon \(0\), Fri 30 Oct · Lisbon \(0\), Sat 31 Oct · Lisbon \(0\)\. Nothing was written\.$/m);
+  assert.match(refused.err, /^REFUSED: 3 of 3 full days would have fewer than 2 places to see with their own page \(a full day takes 2-3\): Thu 29 Oct · Lisbon \(0\), Fri 30 Oct · Lisbon \(0\), Sat 31 Oct · Lisbon \(0\)\. The days are on the map as they are for now: a draft, which this command replaces\.$/m);
   assert.match(refused.err, /^Add 6 more places near the base, Hotel in Baixa \(--near -?[\d.]+,-?[\d.]+\), each from its own page \(its own site from instafy web search "<its name>" --chain reference-search --json, else its Wikipedia article\): /m);
-  assert.equal(JSON.parse(fs.readFileSync(cfgPath, 'utf8')).plan, undefined, 'nothing was written');
+  assert.equal(JSON.parse(fs.readFileSync(cfgPath, 'utf8')).plan.days.length, 3, 'the days as they are, a draft for now');
   // with too little time left the days are written as they are, and uw validate fails them
   const plan = await run(args, late());
   assert.equal(plan.code, 0, plan.err + plan.out);

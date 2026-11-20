@@ -11,7 +11,7 @@ A site is a folder: `index.html`, `map.config.json` (content), `style.json`, `cu
 commands), `bound.json` (optional: buttons that ask an agent), `engine/` (kit-owned).
 
 Run `uw <command>`: it is on PATH in every shell (on `uw: not found`, run `node <this skill's folder>/scripts/uw.mjs`).
-Every command has `--help` and `--json`. Exit 0 ok, 1 error, 2 not found / needs your decision, 3 snapshot skipped,
+Commands take `--help` and `--json`. Exit 0 ok, 1 error, 2 not found / needs your decision, 3 snapshot skipped,
 **4 unavailable** (a service busy or down, not a wrong name: the map is valid; go on).
 
 ## Hard rules
@@ -27,8 +27,10 @@ Every command has `--help` and `--json`. Exit 0 ok, 1 error, 2 not found / needs
    with `uw set <site> <layer>:<id> …`. Props with words go on stdin (`--props-file - <<'JSON'`, the object, then
    `JSON`): an apostrophe breaks single-quoted JSON.
 6. Facts come from pages you read (`instafy web read <url>`, skill `instafy-web-research`; a pin's `source_url` and
-   else: `uw cite <url> --grep <what>`); unsourced = unverified. `uw` only places pins, routes: one network command
-   at a time, small areas; no Google APIs, Nominatim, scraping. Sign-in, CAPTCHA, 429: stop.
+   else: `uw cite <url> --grep <what>`); unsourced = unverified. A listing read (what's on) is each item's source:
+   pin it by its venue (`--query "<venue>" --name "<item>"`, the date in `note`); its own page only for what was
+   asked that it lacks. `uw` only places pins, routes: one network command at a time, small areas; no Google APIs,
+   Nominatim, scraping. Sign-in, CAPTCHA, 429: stop.
 7. Never type a price or licence number. Never present a filed rate as a price, permitted hours as opening hours,
    or one register's answer as all.
 8. A trip's stops with nights only: `uw new … --expect "Lisbon:3"` (days: `uw plan`, stays: `uw stay`);
@@ -59,8 +61,8 @@ Long commands: `--detach`, then `uw wait` (exit 75: again).
 5. Places for the 1-2 things asked most, small radius:
    `uw places <site> --layer mrt --kinds mrt_station --around hotels --radius 800`, same with `--layer cafes --kinds cafe`.
 6. `uw enrich <site> --layer hotels --route-to mrt --nearest mrt --count cafes`.
-   They ask about licences: where a lodging register covers the area (`uw adapter list --at <lng,lat>`), run it
-   with `--layer hotels --records` (licence chip).
+   Licences asked: where a lodging register covers the area (`uw adapter list --at <lng,lat>`), run it with
+   `--layer hotels --records`.
 7. `uw question <site> --kind choose-one --options hotels --criteria calm_night:3,walk_min_mrt:2,cafes:1,calm_night_area:0
    --lenses sleep,night,move --lens sleep --force`. Sleep = the door (`calm_night`, or `noise_night_db` when
    measured; added if left out); the walk area (`calm_night_area`) is context. List everything you want: unmeasured
@@ -70,7 +72,7 @@ Long commands: `--detach`, then `uw wait` (exit 75: again).
 9. `instafy preview check --port <port>` (the JSON's `port`; refreshes the card's picture): fix every error it lists;
    open the PNGs it names. Public link only on request (`instafy-frontend-previews`).
 
-**Phase B: refine (in order, one at a time, while the time printed by question/validate allows)**
+**Phase B: refine (in order, one at a time, while question/validate's clock allows)**
 After each: re-run the step-7 command and `uw validate <site> --signal`. Exit 4: note it for Phase C.
 - First, each layer printed PARTIAL (verdict note "MRT data partial"): run the re-fetch it names, then step 6.
   Never call an option shortest/longest on partial data.
@@ -80,8 +82,7 @@ After each: re-run the step-7 command and `uw validate <site> --signal`. Exit 4:
   `uw isochrone <site> --layer walk --from layer:hotels --minutes 10`, `uw feel <site> --around hotels`,
   `uw enrich <site> --layer hotels --feel --feel-within walk`,
   `uw areas <site> --lens quiet_night,lively_night --within walk --options hotels`.
-- `uw doorstep <site> --layer hotels`, `uw photos <site> --layer hotels` (30-60 s).
-- Also `lines`, `route`, `legs`, `wiki`, `air`.
+- `uw doorstep <site> --layer hotels`, `uw photos <site> --layer hotels`.
 
 **Phase C: reply** in 3-6 lines, even if your host asks for one sentence. No paths, "validates",
 commands, services or exit codes (Overpass, Photon, OSRM, "exit 4"): say it plainly ("the place search was busy");
@@ -98,8 +99,7 @@ send its address).
   site or card), `uw validate <site>`, then step 9. Same after any later change to a site someone may have open.
   Trips: `reference/itinerary.md` "Later changes to a trip"; a day's note: `uw set <site> plan:day1 --note "…"`.
 - With a question, other layers become dots. If S1/S2 fail, give the busiest layer `"tier": "context"`.
-- Do things (only if planned): `bound.json` intents + `"bind": true`; handlers `pack:check_registry`,
-  `pack:find_hotels_nearby` or your own `handlers/<name>.mjs` (recipe 27).
+- Do things (only if planned): `bound.json` intents + `"bind": true`, its handlers (recipe 27).
 - No map (a plan, a list, a page of hours or directions): `instafy bind init sites/<slug> --starter timeline|ranked|blank`,
   never a map site.
 - Restyle only if asked: `basemap.overrides` / `layers[].style`. Commands never overwrite another's file: new `--layer` or

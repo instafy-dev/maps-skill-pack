@@ -172,7 +172,8 @@ test('the refusal names how to find each pinned place\'s page and keeps them; th
   const refused = await planVienna(['--json']);
   assert.equal(refused.code, 2, refused.out + refused.err);
   assert.deepEqual(refused.json.short_days, [{ title: 'Wed 18 Nov · Vienna', places: 0 }, { title: 'Fri 20 Nov · Vienna', places: 0 }]);
-  assert.equal(cfgOf(site).plan, undefined, 'nothing was written');
+  assert.equal(refused.json.draft, true, 'the days as they are, a draft for now');
+  assert.equal(cfgOf(site).plan.draft.start, '2026-11-18');
   assert.deepEqual(sightIds(site), all, 'every place stays pinned');
   // each place pinned with no page, with the search that finds its own site; the named ones count as they are
   assert.deepEqual(refused.json.no_page.map((x) => [x.ref, x.search]), [
@@ -183,7 +184,7 @@ test('the refusal names how to find each pinned place\'s page and keeps them; th
   const text = await planVienna();
   assert.equal(text.code, 2);
   const lines = text.err.trim().split('\n');
-  assert.equal(lines[0], 'REFUSED: 2 of 3 full days would have fewer than 2 places to see with their own page (a full day takes 2-3): Wed 18 Nov · Vienna (0), Fri 20 Nov · Vienna (0). Nothing was written.');
+  assert.equal(lines[0], 'REFUSED: 2 of 3 full days would have fewer than 2 places to see with their own page (a full day takes 2-3): Wed 18 Nov · Vienna (0), Fri 20 Nov · Vienna (0). The days are on the map as they are for now: a draft, which this command replaces.');
   assert.equal(lines[1], 'The 5 places pinned with no page count on no day until each has its own: keep them (never remove a place to get past this). '
     + 'Each one\'s page: its own site from the reference search below, else its Wikipedia article; uw cite <that page> --grep "<its name>", '
     + 'then uw set vienna <layer>:<id> --props-file - with {"source_url":"<that page>","source":"<site>"}.');
@@ -285,7 +286,7 @@ test('a trip whose tourism listing refuses agents: the refusal says where each n
   const refused = await plan();
   assert.equal(refused.code, 2, refused.out + refused.err);
   const [first, next, ...rest] = refused.err.trim().split('\n');
-  assert.match(first, /^REFUSED: 1 of 2 full days would have no place to see with its own page \(one a day: --per-day 1\): Wed 18 Nov · Ljubljana \(0\)\. Nothing was written\.$/);
+  assert.match(first, /^REFUSED: 1 of 2 full days would have no place to see with its own page \(one a day: --per-day 1\): Wed 18 Nov · Ljubljana \(0\)\. The days are on the map as they are for now: a draft, which this command replaces\.$/);
   assert.match(next, /^Add 1 more place near the base, Old Quarter Residence \(--near 14\.506533,46\.049269\), each from its own page \(its own site from instafy web search "<its name>" --chain reference-search --json, else its Wikipedia article\): uw cite <that page> --grep "<its name>", then uw add-point ljubljana --layer sights /);
   assert.deepEqual(rest, []);
   // as it says: a place from its Wikipedia article
@@ -324,8 +325,9 @@ test('the skill and its references never tell a turn to remove a place to pass a
   for (const [f, s] of removing) assert.match(s, /only when the person asks|Never remove a place/, `${f}: ${s}`);
   const md = flat(path.join(SKILL, 'reference', 'itinerary.md'));
   assert.match(md, /- Dropping a place, only when the person asks: `uw set <site> <layer>:<id> --remove` \(one they named: `--unset asked --remove`\), then remove its item and reword its day's text\. Never remove a place the person named, or one pinned to see, to get past a refusal or a failing check: it gets its own page \(Phase B step 1\), and one the person named stays on its day as it is \(`"asked":true`: `uw plan` counts it, marked not checked while no page was read\)\./);
-  // the places the message names are a step of their own, pinned first and marked, and only those
-  assert.match(md, /3\. \*\*The places the message names\*\*, pinned first, each with `"asked":true` \(Phase B step 1\); only those\. 4\. \*\*Places by area\*\*/);
+  // the places the message names are a step of their own, pinned first and marked, and only those: a place whose own
+  // name the message says, never one chosen for an area it names
+  assert.match(md, /3\. \*\*The places the message names\*\*, pinned first, each with `"asked":true` \(Phase B step 1\): only one whose own name the message says, never one you chose for an area it names\. [^#]*? 4\. \*\*Places by area\*\*/);
   assert.match(md, /2-3 sourced places in it \(Phase B step 1, with `"stop":"<slug>"`\)\. Never put a place on a day/);
   assert.match(md, /The places the message names come first, each with `"asked":true` in its props: `uw plan` keeps it on its day as the person gave it, marked not checked until its own page is read \(never a place you chose\)\. Then each sight in a command of its own/);
   assert.match(md, /The reply \("Reply", at the end\): the stay with its dates and days as `uw plan` prints them, the `Assumed:` line \(the dates too, when the person gave none\), where to stay and why\./);

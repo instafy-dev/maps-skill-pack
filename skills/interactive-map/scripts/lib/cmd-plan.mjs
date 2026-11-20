@@ -3,6 +3,7 @@
 // one stop: days in one place, each day a loop from the same base. The agent then adds one sourced line of text per
 // day; it never has to type the skeleton (or a date) by hand.
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import { parseArgs, makeOut, parseList, readJSON, writeJSON, writeGeoJSON, haversine, representativePoint, clipWords, slugify, UsageError, UserError } from './util.mjs';
 import { openSite, loadLayer, layerPath, checkLayerId } from './site.mjs';
 import { expectOf, featureNames } from './expect.mjs';
@@ -46,11 +47,14 @@ export const help = `plan <dir> --stops <layer> --start YYYY-MM-DD [--ids taipei
   add places. --sights also says the trip is about what to see each day, and a full day (the arrival day of the trip
   too) takes 2-3 places, each with its own page (a place the person named, "asked": true, counts as it is, marked not
   checked while it has none): while the turn clock shows more than about 3 minutes left and the place search answers,
-  a plan whose full days would have fewer than two is refused (exit 2, nothing written), naming those days, each place
+  a plan whose full days would have fewer than two is refused (exit 2), naming those days, each place
   pinned with no page (with the reference search that finds its own site, else its Wikipedia article: keep it, never
   remove it), how many more places to add near each base (near a day's own place when it lies out of the base's
   area: a day trip), and near where to add one instead of a place whose page cannot be found; do that, then run the
-  same command again. With less time left, the place search down, or a uw command still running on the site (named
+  same command again. A map with no days yet still gets them, as they are, as a draft ("draft"; JSON "draft": true,
+  with the days for a reply that cannot wait): no trip map is left without its Plan tab. The next uw plan replaces a
+  draft without --force, and uw validate plans it again in the turn that wrote it once its places change. A map whose
+  days are already there keeps them (nothing written). With less time left, the place search down, or a uw command still running on the site (named
   below), the days are written as they are. A place with no page of its own (none, or one taken with too little time
   left that is not its own) is marked not checked in its day. A place the person named is never left off the days
   while a day has a place of its kind they did not name (it takes that place's room). The plan keeps those layers ("sights")
@@ -64,6 +68,36 @@ export const help = `plan <dir> --stops <layer> --start YYYY-MM-DD [--ids taipei
   finished, then plan again with --force. The stay or route for the reply, with its dates and the "Assumed:" line they
   need, is in the JSON too ("for_the_reply"), and with --sights the days for the reply, each with its places as the
   map has them ("days_for_the_reply").`;
+
+/** A plan `uw plan` wrote while it refused days short of places: the days as they were, with how it was asked for
+ *  ("draft": its arguments and `inputs`, planInputs' of the places it was made of). Replaced by the next uw plan,
+ *  without --force; planned again by uw validate in the turn that wrote it once its places change. */
+export const isDraft = (plan) => !!plan && typeof plan.draft === 'object' && plan.draft !== null && typeof plan.draft.start === 'string' && typeof plan.draft.stops === 'string';
+const DRAFT_ARGS = ['stops', 'ids', 'nights', 'start', 'legs', 'stays', 'sights', 'per-day', 'title'];
+/** The arguments a draft keeps, to plan it again (draftArgs). */
+function draftOf(args) {
+  const d = {};
+  for (const k of DRAFT_ARGS) if (args[k] != null && args[k] !== '') d[k === 'per-day' ? 'per_day' : k] = k === 'per-day' ? Number(args[k]) : String(args[k]);
+  return d;
+}
+/** A draft's arguments for uw plan again (its site and --force aside). Pure. */
+export function draftArgs(d) {
+  return DRAFT_ARGS.flatMap((k) => { const v = d?.[k === 'per-day' ? 'per_day' : k]; return v == null || v === '' ? [] : [`--${k}`, String(v)]; });
+}
+/** What a plan's days are made of, as a short hash: each place of its layers (stops, stays, legs, places to see) by
+ *  layer, id, point, stop, rank, page and the named mark (a stop's nights come from the arguments, or are written
+ *  with the plan). `featuresOf(layer id)` → features. Pure. */
+export function planInputs(d, featuresOf) {
+  const rows = [];
+  for (const id of new Set([d?.stops, d?.stays, d?.legs, ...parseList(d?.sights || '')].filter(Boolean))) {
+    for (const f of featuresOf(id) || []) {
+      const p = f?.properties || {};
+      const at = f?.geometry?.type === 'Point' && Array.isArray(f.geometry.coordinates) ? f.geometry.coordinates.slice(0, 2).map((x) => Math.round(Number(x) * 1e5)) : null;
+      rows.push(JSON.stringify([id, p.id ?? null, at, p.stop ?? null, p.rank ?? null, p.source_url ?? null, p.asked === true]));
+    }
+  }
+  return crypto.createHash('sha256').update(rows.sort().join('\n')).digest('hex').slice(0, 16);
+}
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -141,7 +175,7 @@ export function shortDays(days, want = 2) {
  *  `focusOf(ref)` / `placeOf(ref)`: the feature a day's focus / item names; `days`: all the days (for the places pinned
  *  with no page); `searchFor(item)`: the words to search a place by. → { lines, json }. Pure. */
 export function shortDaysRefusal({ site, short, want, full, layers, focusOf, placeOf = () => null, stopLayer, sameAreaKm = planChecks().same_area_km,
-  days: all = short.map((x) => x.day), searchFor = (it) => String(it.text || it.ref.id) }) {
+  days: all = short.map((x) => x.day), searchFor = (it) => String(it.text || it.ref.id), drafted = false }) {
   const bases = new Map();
   const place = (it) => it?.ref && layers.includes(it.ref.layer) && !/^Base: /.test(String(it.text || ''));
   const noPage = (it) => place(it) && !counts(it);
@@ -193,9 +227,10 @@ export function shortDaysRefusal({ site, short, want, full, layers, focusOf, pla
   else lines.push('Then run this command again.');
   const next = lines.join('\n');
   const days = short.map(({ day, have }) => `${day.title} (${have})`);
+  const written = drafted ? 'The days are on the map as they are for now: a draft, which this command replaces.' : 'Nothing was written.';
   const first = want < 2
-    ? `REFUSED: ${short.length} of ${full} full days would have no place to see with its own page (one a day: --per-day 1): ${days.join(', ')}. Nothing was written.`
-    : `REFUSED: ${short.length} of ${full} full days would have fewer than 2 places to see with their own page (a full day takes 2-3): ${days.join(', ')}. Nothing was written.`;
+    ? `REFUSED: ${short.length} of ${full} full days would have no place to see with its own page (one a day: --per-day 1): ${days.join(', ')}. ${written}`
+    : `REFUSED: ${short.length} of ${full} full days would have fewer than 2 places to see with their own page (a full day takes 2-3): ${days.join(', ')}. ${written}`;
   return { lines: [first, ...lines], json: { ok: false, refused: 'days_short_of_places', places_a_day: want,
     short_days: short.map(({ day, have }) => ({ title: day.title, places: have })), add: add.map(({ base, instead: _, days: __, ...b }) => b),
     ...(instead.length ? { instead: instead.map(({ name, near, stop, instead: places, days: on }) => ({ name, near, stop, places, days: on })) } : {}),
@@ -698,7 +733,7 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
   // --sights takes several layers (sights,food,daytrips): every sourced place a lane or a follow-up pinned
   const legs = withLayer(args.legs), stays = withLayer(args.stays), sights = parseList(args.sights || '').flatMap((id) => withLayer(id));
   const cfg = readJSON(site.cfgPath);
-  if (cfg.plan && !args.force) throw new UserError('map.config.json already has a "plan"; pass --force to rebuild it (hand-written day texts are replaced)');
+  if (cfg.plan && !args.force && !isDraft(cfg.plan)) throw new UserError('map.config.json already has a "plan"; pass --force to rebuild it (hand-written day texts are replaced)');
   // the places whose page is not their own, as uw validate judges them (taken with too little time left to cite):
   // marked not checked in their days, as validate tells the reply to name them
   const notOwn = sights.length ? notOwnPages(sights.map((f) => ({ lid: f._layer, f })), { turnStartedMs }).refs : new Set();
@@ -714,6 +749,12 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
   const sightLayers = parseList(args.sights || '');
   const running = stillRunning(site.dir);
   const short = sightLayers.length && !handoffStep() && !running.length ? shortDays(built.days, perDay < 2 ? 1 : 2) : [];
+  // Refused on a map with no days yet (or only a draft), the days it can are still written, as they are: a draft the
+  // next run of this command replaces (no --force needed), and that uw validate plans again in this turn once the places
+  // it was made of change. A turn that never ran the plan again after a refusal left its map with no Plan tab at all,
+  // and a day's note nowhere to go. A plan of days already there stays as it is (a later turn's, the person's)
+  let refusal = null;
+  const drafting = !cfg.plan || isDraft(cfg.plan);
   if (short.length && (turnLeftS == null || turnLeftS > REPLY_WITHIN_S) && !(await import('./cmd-geocode.mjs')).geocodeDown()) {
     const focusOf = (ref) => (!ref ? null : ref.layer === stopLayer ? byId.get(String(ref.id)) : stays.find((f) => f._layer === ref.layer && String(f.properties?.id) === String(ref.id))) || null;
     const placeOf = (ref) => (ref ? sights.find((f) => f._layer === ref.layer && String(f.properties?.id) === String(ref.id)) : null) || null;
@@ -724,10 +765,12 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       const name = String(it.text || label(p)), town = s ? cityOf(s.properties) : '';
       return town && !name.toLowerCase().includes(town.toLowerCase()) ? `${name} ${town}` : name;
     };
-    const { lines, json } = shortDaysRefusal({ site: args._[0], short, want: perDay < 2 ? 1 : 2, full: emptyPlanDays(built).full, layers: sightLayers, focusOf, placeOf, stopLayer, days: built.days, searchFor });
-    if (out.json) process.stdout.write(JSON.stringify(json, null, 2) + '\n');
-    console.error(lines.join('\n'));
-    return 2;
+    refusal = shortDaysRefusal({ site: args._[0], short, want: perDay < 2 ? 1 : 2, full: emptyPlanDays(built).full, layers: sightLayers, focusOf, placeOf, stopLayer, days: built.days, searchFor, drafted: drafting });
+    if (!drafting) {
+      if (out.json) process.stdout.write(JSON.stringify(refusal.json, null, 2) + '\n');
+      console.error(refusal.lines.join('\n'));
+      return 2;
+    }
   }
   // a day's own note (uw set <site> plan:dayN --note) is the person's: the new plan keeps it on the same day; one on a
   // day the new plan no longer has is named, never dropped quietly
@@ -743,8 +786,10 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
   // tells them from a place pinned after the days were planned (a lookup still running then), which is on no day either
   const onPlan = new Set(built.days.flatMap((d) => d.items.map((it) => it.ref && `${it.ref.layer}:${it.ref.id}`)).filter(Boolean));
   const unplaced = sights.map((f) => `${f._layer}:${f.properties?.id}`).filter((r) => !onPlan.has(r));
+  const request = refusal ? draftOf(args) : null;
+  if (request) request.inputs = planInputs(request, (id) => (id === stopLayer ? sfc.features : withLayer(id)));
   const plan = sightLayers.length ? { title: built.title, sights: sightLayers, ...(args['per-day'] != null ? { per_day: perDay } : {}), ...(unplaced.length ? { unplaced } : {}),
-    planned_at: new Date().toISOString(), days: built.days } : built;
+    ...(request ? { draft: request } : {}), planned_at: new Date().toISOString(), days: built.days } : built;
   cfg.plan = plan;
   // days in one place: the stop is the city the whole map shows, so the places list has no group for it (the Plan tab
   // names it), nor for the station `uw station` placed in it (a one-city map listed "Stations 1"); both stay on the
@@ -774,6 +819,13 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
   let view = null;
   if (frame.length) {
     try { view = (await fitView(site, { layers: frame.join(',') })).view; } catch (e) { out.warn(`could not frame the trip's places (${e.message}); run: uw fit ${args._[0]}`); }
+  }
+  if (refusal) {
+    // what the refusal says, and that the days are on the map as they are for now (the days for a reply that cannot
+    // wait: each short day named, "nothing to see yet" or with its one place)
+    if (out.json) process.stdout.write(JSON.stringify({ ...refusal.json, draft: true, days_for_the_reply: daysForReply(plan) }, null, 2) + '\n');
+    console.error(refusal.lines.join('\n'));
+    return 2;
   }
   const totalN = nights.reduce((a, b) => a + b, 0);
   const route = routeLine(stops, nights, plan, args.start);
