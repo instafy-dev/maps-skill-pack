@@ -57,6 +57,8 @@ const ANSWERS = {
     hit(off(CITY, 250, 350), ['N', 7201, 'shop', 'gift'], 'Lembranças do Mercado do Bolhão'),
     hit([-8.4265, 41.5503], ['W', 7202, 'amenity', 'marketplace'], 'Mercado do Bolhão', { city: 'Braga', county: 'Braga' }),
   ],
+  // a café asked for by its own name, with an article the café's name does not have
+  'The Majestic, Porto': [hit(off(CITY, -100, 120), ['N', 7004, 'amenity', 'cafe'], 'Majestic')],
   // the venues of a listing's events
   'Praça da Ribeira, Porto': [hit(off(RIBEIRA, 120, 60), ['W', 7301, 'place', 'square'], 'Praça da Ribeira')],
   'Avenida dos Aliados, Porto': [hit(off(CITY, -40, 380), ['W', 7302, 'highway', 'pedestrian'], 'Avenida dos Aliados')],
@@ -177,6 +179,10 @@ test('a sight\'s lookup refuses a hotel named after it, saying what it found: no
   const picked = await lookUp(site, 'sights', 'Bolhão Market Hall, Porto', 'market-hall', ['--pick', '1']);
   assert.equal(picked.code, 0, picked.out + picked.err);
   assert.equal(cfgOf(site).missing, undefined);
+  // a business named only with the query's words is the place asked for (a famous café, by its name)
+  const cafe = await lookUp(site, 'sights', 'The Majestic, Porto', 'majestic', ['--strict-name']);
+  assert.equal(cafe.code, 0, cafe.out + cafe.err);
+  assert.deepEqual([cafe.json.chosen.name, cafe.json.chosen.type], ['Majestic', 'amenity=cafe']);
 });
 
 test('a quay is its street, never the restaurant on it; a lookup for food takes the restaurant', async () => {

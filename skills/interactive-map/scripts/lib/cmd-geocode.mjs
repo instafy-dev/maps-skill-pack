@@ -55,9 +55,10 @@ add-point <dir> --layer <id> --at lng,lat --name "Label" [...]     (only for coo
   the candidates are in) do not count as a name match. --strict-name: refuse unless a candidate's own name carries the
   query's name (use it for a researched place: a wrong hotel with the right reason is worse than "not found").
   A hotel, a restaurant or café, or a shop named after the place (a hotel called after a bazaar, a restaurant that
-  takes a quay's name) is not that place unless its own name is the query's or the lookup asks for its kind (its
-  layer, --kind or the query says so: a place to stay, food or drink, a shop): another candidate is taken, else it is
-  refused, saying what it found (exit 2, "named_after": "found a hotel named …, not the sight …").
+  takes a quay's name) is not that place unless its own name adds no word to the query's ("<Name>" for "The <Name>")
+  or the lookup asks for its kind (its layer, --kind or the query says so: a place to stay, food or drink, a shop):
+  another candidate is taken, else it is refused, saying what it found (exit 2, "named_after": "found a hotel named …,
+  not the sight …").
   A place has one "not found yet" entry: one looked up again under another id or wording (with its city after its
   name: "<name> <city>") is kept on its first entry ("also"), and a pin of it under either takes it off.
   A source_url (in --props) that \`uw cite\` did not read in the last hours is read first, before any lookup, as uw cite
@@ -719,9 +720,10 @@ async function addPointRun(argv, ctx) {
       // a playground, a car park … in the place the query names is not that place, unless the query asks for one
       if (STANDS_IN.test(c.type || '') && !kindAsked(c, args.query, args.kind, extra.kind)) { c.type_ok = false; c.stands_in = true; }
       // a hotel, a restaurant or a shop named after it is not it either ("Hotel Castle Garden" for the bazaar, the
-      // restaurant "De Graslei" for the quay), unless the lookup asks for that kind or it carries the query's very name
+      // restaurant "De Graslei" for the quay), unless the lookup asks for that kind or its own name adds nothing to the
+      // query's words (a famous café asked for by its name, "The <name>")
       const biz = businessOf(c);
-      if (biz && c.type_ok !== false && closeness(c) < 3 && !kindAsked(c, args.query, args.kind, extra.kind)
+      if (biz && c.type_ok !== false && !nameWithinQuery(args.query, [c.name, c.name_en], area) && !kindAsked(c, args.query, args.kind, extra.kind)
         && !businessAsked(biz, { query: args.query, kind: args.kind || extra.kind, layer })) { c.type_ok = false; c.named_after = biz; }
     } };
     annotate(cands, args.query);
@@ -1249,7 +1251,7 @@ function kindAsked(c, ...said) {
 // A business named after a place (a hotel, a restaurant or a café, a shop) is not that place: the bazaar "Castle Garden
 // Bazaar" found the "Hotel Castle Garden", the quay "Graslei" the restaurant "De Graslei" on it, a market hall a shop
 // that takes its name. One is the place only when the lookup asks for its kind (its layer, --kind or its query says
-// so: a place to stay, food or drink, a shop) or its own name is the query's.
+// so: a place to stay, food or drink, a shop) or its own name adds no word to the query's (nameWithinQuery).
 const BUSINESS = [
   { kind: 'lodging', type: /^(tourism=(hotel|hostel|guest_house|motel|apartment|chalet)|building=hotel)$/ },
   { kind: 'food', type: /^amenity=(restaurant|cafe|fast_food|bar|pub|biergarten|food_court|ice_cream)$/ },
@@ -1265,6 +1267,15 @@ const SIGHT_LAYER = /^(sights?|daytrips?|day-trips?|attractions?|landmarks?)$/i;
 const BUSINESS_WORD = { hotel: 'a hotel', hostel: 'a hostel', guest_house: 'a guest house', motel: 'a motel', apartment: 'a holiday flat', chalet: 'a chalet',
   restaurant: 'a restaurant', cafe: 'a café', fast_food: 'a fast-food place', bar: 'a bar', pub: 'a pub', biergarten: 'a beer garden', food_court: 'a food court',
   ice_cream: 'an ice-cream shop' };
+/** Is one of a candidate's own names made only of the query's words (accents, case and punctuation aside, and the
+ *  area's names it adds)? "<Name>" for "The <Name>, <City>" is; "De <Name>" for "<Name> <City>", or "Hotel Castle
+ *  Garden" for "Castle Garden Bazaar", adds a word: a business so named is named after the place. Pure. */
+function nameWithinQuery(query, names, area = []) {
+  const words = (x) => String(x || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+  const around = new Set(area.flatMap(words));
+  const asked = new Set(words(query));
+  return names.filter(Boolean).some((n) => { const own = words(n).filter((w) => !around.has(w)); return own.length > 0 && own.every((w) => asked.has(w)); });
+}
 /** The kind of business a candidate is (lodging, food, shop), or null. */
 const businessOf = (c) => BUSINESS.find((b) => b.type.test(String(c?.type || '')))?.kind || null;
 /** What a refusal calls it: "a hotel", "a restaurant", "a shop". */

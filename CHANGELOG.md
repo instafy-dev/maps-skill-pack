@@ -13,8 +13,9 @@ All notable changes to this pack. Versions follow [semantic versioning](https://
 - **A sight's lookup never takes a hotel, a restaurant or a shop named after it.** `uw add-point` took a hotel that
   carries part of a bazaar's name, a restaurant on a quay whose street the search had found first, and a shop named
   after a market hall, each pinned as the sight; a turn then removed the hotel and forced the plan. A business (a
-  place to stay, food or drink, a shop) whose own name is not the query's is now not that place unless the lookup asks
-  for its kind (its layer, `--kind`, the props' kind or the query says so): the street of the quay's name is taken
+  place to stay, food or drink, a shop) whose own name adds a word to the query's ("De <name>" for "<name> <city>") is
+  now not that place unless the lookup asks for its kind (its layer, `--kind`, the props' kind or the query says so;
+  one named only with the query's words, "<name>" for "The <name>", still is): the street of the quay's name is taken
   over the restaurant on it, and with nothing else the lookup is refused, saying what it found ("found a hotel named
   "…" [tourism=hotel], not the sight "…""; JSON `refused: "named_after"` with `found`), listed as not found yet. A
   pick (`--pick N`) or `--allow-mismatch` still takes it. So no wrong pin needs removing to get a plan through.
