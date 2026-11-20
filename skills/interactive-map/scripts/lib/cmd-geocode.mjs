@@ -6,12 +6,13 @@ import { fetchJSON, overpass, isSkip, withCap, ask, lookupState, cacheFor, parti
 import { openSite, checkLayerId, layerPath, layerRelPath, configLayer, titleCase, viewCenter, viewBounds, withSiteLock, pinOf, samePlace, TRANSIT_KIND, loadLayer } from './site.mjs';
 import { emojiFor } from './kinds.mjs';
 import { fitView } from './cmd-site.mjs';
-import { isLodging, registrySearch, acceptable, fmtRegistryCand, registryProps, queryLabel, slugFor } from './registry-geo.mjs';
+import { isLodging, LODGING_RE, registrySearch, acceptable, fmtRegistryCand, registryProps, queryLabel, slugFor } from './registry-geo.mjs';
 import { adapterFor, adapterNamedIn, adapterForArea } from '../adapters/lib/areas.mjs';
 import { unnamedSource, unnamedSourceLine, lateSourceLine, sourceStamp, sourceNotRead, sourceNotReadRefusal, readSource, readSourceLine } from './cmd-cite.mjs';
 import { withDayItems, sourceNotOwn } from './cmd-set.mjs';
 import { handoffStep } from './running.mjs';
-import { missKey, clearMissing, missedPlace, missingPinned, pinOfFeature } from './missing.mjs';
+import { missKey, clearMissing, missedPlace, missingPinned, pinOfFeature, areaWords, sameMissing } from './missing.mjs';
+import { expectOf } from './expect.mjs';
 
 export const helps = {
   geocode: `geocode "<query>" [--near lng,lat] [--country <name|code>] [--limit 5] [--lang en|de|fr|default] [--source auto|osm|registry] [--json]
@@ -53,13 +54,27 @@ add-point <dir> --layer <id> --at lng,lat --name "Label" [...]     (only for coo
   check the list, then --pick N or --allow-mismatch. Query words that only name the area (the city, region or country
   the candidates are in) do not count as a name match. --strict-name: refuse unless a candidate's own name carries the
   query's name (use it for a researched place: a wrong hotel with the right reason is worse than "not found").
+  On a sight's layer (sights, daytrips, attractions, landmarks), a hotel, a restaurant or café, or a shop named after
+  the place (a hotel called after a bazaar, a restaurant that takes a quay's name) is not that place unless its own
+  name adds no word to the query's ("<Name>" for "The <Name>"), a shop's adds only its branch ("<Name> <street>"), or
+  the lookup asks for its kind (--kind or the query says so: a place to stay, food or drink, a shop): another
+  candidate is taken, else it is refused, saying what it found (exit 2, "named_after": "found a hotel named …, not the
+  sight …"). Other layers (a listing's venues, a list of bars) take the business the query names.
+  A place has one "not found yet" entry: one looked up again under another id or wording (with its city after its
+  name: "<name> <city>") is kept on its first entry ("also"), and a pin of it under either takes it off. On a trip of
+  two stops or more, a place named with one stop's name is never another stop's place of that name; nor is a stop's
+  own place, looked up with no city, one of that name in another town named after a comma (a day trip's).
   A source_url (in --props) that \`uw cite\` did not read in the last hours is read first, before any lookup, as uw cite
   reads a page (robots.txt, link-only sites, bot checks; kept for uw validate). One that cannot be read (HTTP 404,
   refused, no answer in time) is refused (exit 2, with why; nothing added): give the place its own page instead. So is
   an address that is not a page (an image, a PDF), and, once the place is found, a page that does not name it or a
   page another place already cites, where uw validate fails it: a trip's places to see, an area to stay in that says
   why (exit 2, "cite its own page"; nothing added). Elsewhere, or with under about 3 minutes left on the turn's clock,
-  it is said and the place added.
+  it is said and the place added. A listing's items (a layer named events, whats-on, gigs, concerts, festivals or
+  exhibitions) share the listing they were read from, each one's source: never refused for a page they share.
+  A trip's days that uw plan wrote as a draft in this turn (it refused days short of places) are planned again with
+  the place pinned, so the Plan tab has it at once ("Days planned again with it …", each short day named; JSON
+  planned_again); they stay a draft, which the plan command the refusal named replaces.
   --country: only candidates in that country (an ISO code like JP, or its name).
   Taiwan lodging (a hotel/hostel/旅館/飯店/民宿 query, --kind hotel, or a layer like "hotels", in Taiwan by --near or the
   view): when the search's match is missing, far or unsure, Taiwan's lodging registers are searched by name (registered name,
@@ -536,11 +551,11 @@ export async function addPoint(argv, turn = {}) {
     // out of time or unavailable (the search / Overpass busy or down): the place is still listed as "Not found yet", so the reply can say so
     if (isSkip(e) && ctx.site && ctx.args?.query) {
       const who = ctx.args.name || queryLabel(ctx.args.query);
-      const { listed, pinned } = noteMissing(ctx.site, { layer: ctx.layer, id: ctx.args.id, name: who, query: ctx.args.query,
+      const { listed, pinned, with: same } = noteMissing(ctx.site, { layer: ctx.layer, id: ctx.args.id, name: who, query: ctx.args.query,
         tried: [...(ctx.tried || []), `${e.service || 'search'} (busy: skipped)`] });
       // a place a pin already is is not listed (noteMissing): said as it is, never as listed
       if (pinned) e.kept = `nothing new: "${who}" is on the map already as ${pinned.layer}:${pinned.id}${pinned.names[0] && pinned.names[0] !== who ? ` ("${pinned.names[0]}")` : ''}`;
-      else if (listed) e.kept = `"${who}" listed as "Not found yet" on the map`;
+      else if (listed) e.kept = same ? `"${who}" kept as "Not found yet" on the map, once, with "${same}" (the same place)` : `"${who}" listed as "Not found yet" on the map`;
     }
     throw e;
   }
@@ -588,7 +603,7 @@ async function addPointRun(argv, ctx) {
   // a place that could not be added is listed on the map as "not found yet" (map.config.json "missing") until it is
   const refuse = (code, lines, json, place = null) => {
     const missName = args.name || queryLabel(args.query || '');
-    const { pinned } = noteMissing(site, { layer, id: args.id, name: missName, query: args.query, tried, place });
+    const { pinned, with: same } = noteMissing(site, { layer, id: args.id, name: missName, query: args.query, tried, place });
     // a researched sight (--strict-name) ends on the trip guide's own rule, not only on another try: one sight tried
     // four times left the trip's other days without a sight. A place to stay is not a sight (`uw handoff` lists its
     // researched hotels itself)
@@ -596,9 +611,11 @@ async function addPointRun(argv, ctx) {
     if (out.json) process.stdout.write(JSON.stringify({ ...json, ...(pinned ? { pinned_as: `${pinned.layer}:${pinned.id}` } : {}), ...(next ? { next } : {}) }, null, 2) + '\n');
     // pinned by its OpenStreetMap object under another name, the place stayed "Not found yet" beside its own pin: the
     // entry goes under the id, a name or the query it was looked up by, and when that object, or another object of
-    // that place, is pinned (missing.mjs); a place pinned already is not listed
+    // that place, is pinned (missing.mjs); a place pinned already is not listed. The business a sight's lookup just
+    // refused (named after the place) is never offered as that object
+    const elsewhere = json?.refused === 'named_after' ? 'one uw geocode finds by that name, never the business above' : 'an object above, or one uw geocode finds by that name';
     const listLine = pinned ? `Not listed as "not found yet": ${pinned.layer}:${pinned.id}${pinned.names[0] ? ` ("${pinned.names[0]}")` : ''} is that place, on the map already.`
-      : `Listed on the map as "not found yet" (map.config.json "missing"). In OpenStreetMap under another name (an object above, or one uw geocode finds by that name)? Pin that object under the ${args.id ? 'id and name' : 'name'} it was looked up by, which takes it off the list: ${pinAs(args, layer)}, with the same props.`;
+      : `${same ? `Listed on the map as "not found yet" once (map.config.json "missing"), with "${same}": the same place, looked up before.` : 'Listed on the map as "not found yet" (map.config.json "missing").'} In OpenStreetMap under another name (${elsewhere})? Pin that object under the ${args.id ? 'id and name' : 'name'} it was looked up by, which takes it off the list: ${pinAs(args, layer)}, with the same props.`;
     console.error([...lines, listLine, ...(next ? [next] : [])].join('\n'));
     return code;
   };
@@ -711,6 +728,14 @@ async function addPointRun(argv, ctx) {
       else c.type_ok = qType ? qType.ok.test(c.type || '') : placeKind ? placeKind.test(c.type || '') : null;
       // a playground, a car park … in the place the query names is not that place, unless the query asks for one
       if (STANDS_IN.test(c.type || '') && !kindAsked(c, args.query, args.kind, extra.kind)) { c.type_ok = false; c.stands_in = true; }
+      // a sight's lookup: a hotel, a restaurant or a shop named after it is not it either ("Hotel Castle Garden" for the
+      // bazaar, the restaurant "De Graslei" for the quay), unless the lookup asks for that kind, its own name adds
+      // nothing to the query's words (a famous café asked for by its name, "The <name>"), or a shop's adds only its
+      // branch (a store asked for by its own name). Any other lookup (a listing's venue, a list of bars) takes the
+      // business its query names: an event at "Mikkeller" is at the bar "Mikkeller Bar"
+      const biz = SIGHT_LAYER.test(layer) ? businessOf(c) : null;
+      if (biz && c.type_ok !== false && !nameWithinQuery(args.query, [c.name, c.name_en], area) && !(biz === 'shop' && branchOfQuery(args.query, [c.name, c.name_en], area))
+        && !kindAsked(c, args.query, args.kind, extra.kind) && !businessAsked(biz, { query: args.query, kind: args.kind || extra.kind })) { c.type_ok = false; c.named_after = biz; }
     } };
     annotate(cands, args.query);
     // --allow-far: distance never decides (a stop far from the map's first view is still that stop)
@@ -784,7 +809,7 @@ async function addPointRun(argv, ctx) {
       if (better) chosen = better;
       // the chosen one is a part (entrance, platform, stop) but the station / main object is listed too: take that
       if (PART_TYPE.test(chosen.type || '')) {
-        const main = cands.find((c) => c !== chosen && !tooFar(c) && c.name_match !== false && !PART_TYPE.test(c.type || '') && haversine(c.coord, chosen.coord) < 400);
+        const main = cands.find((c) => c !== chosen && !tooFar(c) && c.name_match !== false && !c.named_after && !PART_TYPE.test(c.type || '') && haversine(c.coord, chosen.coord) < 400);
         if (main) chosen = main;
       }
       // The kind the name's head word suggests (a garden, a park, a square), when the pick is not of it: the place of
@@ -889,18 +914,22 @@ async function addPointRun(argv, ctx) {
       const namedLike = cands.filter((c) => c.name_match === true && !tooFar(c));
       const standing = !mismatch || cands.some(good) ? null : chosen.stands_in ? chosen
         : namedLike.length && namedLike.every((c) => c.stands_in) ? namedLike[0] : null;
+      // what the lookup found is a business named after the place (a hotel, a restaurant, a shop), and nothing that is it
+      const business = !mismatch || standing || cands.some(good) ? null : chosen.named_after ? chosen : namedLike.find((c) => c.named_after) || null;
       if (mismatch && args.pick === undefined && !args['allow-mismatch']) {
         const what = standing ? `"${standing.name}" [${standing.type}] only stands in the place "${args.query}" names and takes its name; no other candidate is named like it`
+          : business ? `found ${businessWord(business)} named "${business.name}"${business.name_en && business.name_en !== business.name ? ` (${business.name_en})` : ''} [${business.type}], not the sight "${queryLabel(args.query)}" (a hotel, a restaurant or a shop named after a place is not that place)`
           : mismatch === 'name' ? `no candidate's name looks like "${args.query}"` : `no candidate nearby is the kind of place "${args.query}" names`;
         // the search does not index old / alternative names; OSM often keeps them (disused:name=亞士都飯店 on the renamed hotel)
         const alt = near && mismatch === 'name' ? await altNameSearch(args.query, near).catch(() => []) : [];
         if (near && mismatch === 'name') tried.push('OpenStreetMap old/alternative names (Overpass)');
-        return refuse(2, [`REFUSED: ${what} (best in range: "${chosen.name}${chosen.name_en ? ' / ' + chosen.name_en : ''}" [${chosen.type}]):`,
+        return refuse(2, [business ? `REFUSED: ${what}:` : `REFUSED: ${what} (best in range: "${chosen.name}${chosen.name_en ? ' / ' + chosen.name_en : ''}" [${chosen.type}]):`,
           ...cands.map(fmtCand), ...altLines(alt, args, layer), ...regLines(),
           'Nothing was written. The place may be missing from OpenStreetMap or named differently. Try the local-language or official name,',
           'or geocode its street address (from the user or the official listing): --query "<street address>" --name "<name>" --props \'{"source":"…"}\'.',
           'If one candidate IS the place, re-run with --pick N. (--allow-mismatch accepts the best one as is.)'],
-        { ok: false, refused: standing ? 'stands_in' : mismatch + '_mismatch', query: args.query, candidates: cands, registry: reg?.candidates || [] },
+        { ok: false, refused: standing ? 'stands_in' : business ? 'named_after' : mismatch + '_mismatch', query: args.query,
+          ...(business ? { found: { name: business.name, type: business.type, kind: business.named_after } } : {}), candidates: cands, registry: reg?.candidates || [] },
         // the best match by another name, a square or a park this one's words name ("Main Square" for "Main Market
         // Square"): a pin of it later takes the entry off the list (missing.mjs)
         mismatch === 'name' && !standing ? missedPlace(chosen, { name: args.name || queryLabel(args.query || ''), query: args.query }) : null);
@@ -1001,8 +1030,9 @@ async function addPointRun(argv, ctx) {
       const before = (cfgNow.missing || []).length;
       // (the place it found, by the id, names and query it was looked up by, its object and point, and the pin that is
       // it: an entry for either goes)
-      clearMissing(cfgNow, { ...pinOfFeature(layer, feature, args.query), id: args.id ? String(args.id) : null });
-      clearMissing(cfgNow, pinOfFeature(layer, others[0]));
+      const area = siteArea(site, cfgNow);
+      clearMissing(cfgNow, { ...pinOfFeature(layer, feature, args.query), id: args.id ? String(args.id) : null }, area);
+      clearMissing(cfgNow, pinOfFeature(layer, others[0]), area);
       const unlisted = (cfgNow.missing || []).length < before;
       if (unlisted) {
         if (!cfgNow.missing.length) delete cfgNow.missing;
@@ -1063,7 +1093,7 @@ async function addPointRun(argv, ctx) {
     const missBefore = (cfg.missing || []).length;
     // its entry goes: under its id, a name or the query it was looked up by, or as the place another lookup found
     // under another name (missing.mjs: "Main Square" pinned by its local name took "Main Market Square" off)
-    clearMissing(cfg, pinOfFeature(layer, feature, args.query));
+    if (missBefore) clearMissing(cfg, pinOfFeature(layer, feature, args.query), siteArea(site, cfg));
     if ((cfg.missing || []).length < missBefore) cfgChanges.push('removed its "not found yet" entry');
     if (!cfg.missing?.length) delete cfg.missing;
     if (regUsed) {
@@ -1101,6 +1131,12 @@ async function addPointRun(argv, ctx) {
     try { view = (await fitView(site, { out })).view; cfgChanges.push(`view framed on the options (zoom ${view.zoom})`); }
     catch (e) { warnings.push(`could not fit the view (${e.message}); run: uw fit ${args._[0]}`); }
   }
+  // the days uw plan wrote as a draft in this turn (it refused days short of places): planned again with this place,
+  // so the Plan tab has it even when the turn replies next (a turn pinned two places after a refused plan, its next
+  // command hung, and it replied with days that had neither). Still a draft: the plan command the refusal named
+  // replaces it as before (cmd-plan.mjs planDraftAgain)
+  const { planDraftAgain, draftAgainLine } = await import('./cmd-plan.mjs');
+  const replanned = planDraftAgain(site.dir, args._[0], ctx.turn);
 
   for (const w of warnings) out.warn(w);
   const partialNote = !regUsed && chosen.data_status === 'partial' ? partialLine(`${layer}:${id} ${name}`, chosen.data_reason || 'found by a fallback source', `check its place on the map; re-run this add-point later for the full answer`) : null;
@@ -1108,7 +1144,7 @@ async function addPointRun(argv, ctx) {
   const altList = regUsed ? cands : cands.filter((c) => c !== chosen);
   out.result({ ok: true, ...(partialNote ? { status: 'partial', partial: partialNote } : { status: 'ok' }), layer, file: rel, id, replaced, source: regUsed ? 'registry' : args.at ? 'user' : args.osm ? 'osm' : chosen.provider || 'search',
     chosen: { ...chosen, name, id }, alternatives: altList, registry_alternatives: reg ? reg.candidates.filter((c) => c !== chosen) : [],
-    warnings, config: cfgChanges, view, ...(dayItems ? { day_items: dayItems } : {}), ...(sourceMiss ? { source_not_named: sourceMiss } : {}) }, [
+    warnings, config: cfgChanges, view, ...(dayItems ? { day_items: dayItems } : {}), ...(sourceMiss ? { source_not_named: sourceMiss } : {}), ...(replanned ? { planned_again: replanned } : {}) }, [
     `${replaced ? 'Replaced' : 'Added'} ${layer}:${id} — ${props.emoji} ${name}${props.name_en && props.name_en !== name ? ` (${props.name_en})` : ''}` +
       (regUsed ? ` [registry: ${chosen.name}${chosen.name_local ? ' / ' + chosen.name_local : ''} · licence ${chosen.registry.licence_id || '—'} · match ${chosen.confidence} on ${chosen.by.join('+')}]`
         : ` [${chosen.type || 'user point'}]`) +
@@ -1118,7 +1154,8 @@ async function addPointRun(argv, ctx) {
       : !regUsed && cands.length > 1 ? 'Alternatives (use --pick N to choose another):\n' + cands.map((c, k) => (c === chosen ? '  * ' : '    ') + fmtCand(c, k)).join('\n') : null,
     reg && reg.candidates.filter((c) => c !== chosen).length ? 'Register alternatives (--source registry --pick N):\n' + reg.candidates.map((c, k) => (c === chosen ? '  * ' : '    ') + fmtRegistryCand(c, k)).join('\n') : null,
     cfgChanges.length ? `map.config.json: ${cfgChanges.join('; ')}.` : null,
-    dayItems ? `Its ${dayItems === 1 ? 'item' : `${dayItems} items`} in the plan's days link${dayItems === 1 ? 's' : ''} ${feature.properties.source_url ? 'its page now' : 'no page now'}; the days are as they were.` : null,
+    dayItems && !replanned ? `Its ${dayItems === 1 ? 'item' : `${dayItems} items`} in the plan's days link${dayItems === 1 ? 's' : ''} ${feature.properties.source_url ? 'its page now' : 'no page now'}; the days are as they were.` : null,
+    replanned ? draftAgainLine(replanned, 'with it') : null,
   ]);
 }
 
@@ -1133,15 +1170,23 @@ function colorFor(k) { const s = String(k || '').toLowerCase(); return (COLORS.f
 
 // map.config.json "missing": places the user asked for that are not on the map yet (shown as "Not found yet"); which
 // pin is the place an entry names: missing.mjs
-/** The site's pins (missing.mjs pinOfFeature), every point layer map.config.json lists. */
+/** The site's pins (missing.mjs pinOfFeature), every point layer map.config.json lists; `.area`: the words of the
+ *  names its area goes by (siteArea). */
 function sitePins(site, cfg, own = null) {
   const pins = [];
+  const expected = expectOf(cfg);
+  const names = expected.map((e) => e.name);
+  let stops = 0;
   for (const l of Array.isArray(cfg?.layers) ? cfg.layers : []) {
     if (typeof l?.id !== 'string' || (l.type && l.type !== 'points')) continue;
     let fc = null;
     try { fc = loadLayer({ ...site, config: cfg }, l.id, { required: false }); } catch { /* validate names a layer it cannot read */ }
+    // a trip's stops, as uw validate finds them: a place with nights, never a place to stay (a hotel's name names no area)
+    const staysHere = fc?.uw?.cmd === 'stay' || isLodging({ layer: l.id });
     for (const f of fc?.features || []) {
       if (f?.geometry?.type !== 'Point') continue;
+      const pr = f.properties || {};
+      if (!staysHere && Number.isInteger(pr.nights) && pr.nights >= 1 && pr.id != null) { stops += 1; names.push(pr.name, pr.name_en, pr.looked_up_as); }
       const pin = pinOfFeature(l.id, f);
       // the pin this run was to replace (its own id): that place only by what it is, its own names and object, never by
       // its id or the name it was once looked up by (a wrong match, picked for that name, looked up again)
@@ -1149,14 +1194,21 @@ function sitePins(site, cfg, own = null) {
       pins.push(pin);
     }
   }
-  return pins;
+  return Object.assign(pins, { area: areaWords(names.filter(Boolean), [], { stops: Math.max(expected.length, stops) }) });
 }
+/** The words of the names the map's area goes by: the trip's stops (a place with nights, the stops "expect" names), so
+ *  a place looked up with its city after its name ("St Michael's Bridge Ghent") is the place of that name, and on a
+ *  trip of two stops or more one city's place is never another's of that name (missing.mjs placeIn). */
+const siteArea = (site, cfg) => sitePins(site, cfg).area;
 /** List a place as "not found yet", unless a pin is that place already (missing.mjs: under its name, or the place its
  *  lookup found under another name, `place`): the page would say "Not found yet" beside its pin. The pin under this
  *  run's own id, which the run was to replace, counts only by what it is (sitePins): a wrong match looked up again
- *  under its id is never "that place". → { listed, pinned } (`pinned`: that pin, { layer, id, names }). */
+ *  under its id is never "that place". A place has one entry: one looked up again under another id or wording ("St
+ *  Michael's Bridge Ghent" after "St Michael's Bridge, Ghent": the same name once the city it ends on is set aside,
+ *  missing.mjs sameMissing) is kept on the first one's entry ("also"), whose pin takes it off.
+ *  → { listed, pinned, with } (`pinned`: that pin, { layer, id, names }; `with`: the entry's name it was listed with). */
 export function noteMissing(site, { layer, id, name, query, tried = [], place = null }) {
-  if (!site?.config || !name) return { listed: false, pinned: null };
+  if (!site?.config || !name) return { listed: false, pinned: null, with: null };
   try {
     return withSiteLock(site, () => {
     const cfg = readJSON(site.cfgPath);
@@ -1164,22 +1216,31 @@ export function noteMissing(site, { layer, id, name, query, tried = [], place = 
     const key = missKey(name);
     const entry = { name, layer, ...(id ? { id } : {}), ...(query && query !== name ? { query } : {}),
       tried: [...new Set(tried)].length ? [...new Set(tried)] : [searchLabel()], at: new Date().toISOString().slice(0, 10), ...(place ? { place } : {}) };
+    const pins = sitePins(site, cfg, { layer, id });
     const k = list.findIndex((m) => m && ((id && m.id === id && m.layer === layer) || missKey(m.name) === key));
-    const pinned = missingPinned(k >= 0 ? { ...list[k], ...entry } : entry, sitePins(site, cfg, { layer, id }));
+    // the same place's entry under another id or wording: this lookup is kept on it ("also", once), never listed a
+    // second time
+    const same = k < 0 ? list.findIndex((m) => m && sameMissing(m, entry, pins.area)) : -1;
+    const lookup = { ...(id ? { id } : {}), name, ...(entry.query ? { query: entry.query } : {}), layer };
+    const known = same >= 0 && Array.isArray(list[same].also) ? list[same].also.filter((a) => a && !(String(a.id ?? '') === String(id ?? '') && missKey(a.name) === key)) : [];
+    const also = same >= 0 ? [...known, lookup] : null;
+    const merged = k >= 0 ? { ...list[k], ...entry } : same >= 0 ? { ...list[same], also } : entry;
+    const pinned = missingPinned(merged, pins, pins.area);
+    const at = k >= 0 ? k : same;
     if (pinned) {
       // on the map already: an older entry for it goes too
-      if (k < 0) return { listed: false, pinned };
-      list.splice(k, 1);
+      if (at < 0) return { listed: false, pinned, with: null };
+      list.splice(at, 1);
       if (list.length) cfg.missing = list; else delete cfg.missing;
     } else {
-      if (k >= 0) list[k] = { ...list[k], ...entry, tried: [...new Set([...(list[k].tried || []), ...entry.tried])] }; else list.push(entry);
+      if (at >= 0) list[at] = { ...merged, tried: [...new Set([...(list[at].tried || []), ...entry.tried])] }; else list.push(entry);
       cfg.missing = list;
     }
     writeJSON(site.cfgPath, cfg, { pretty: true });
     site.config = cfg;
-    return { listed: !pinned, pinned };
+    return { listed: !pinned, pinned, with: same >= 0 && !pinned ? list[same].name : null };
     });
-  } catch { /* the refusal itself matters more */ return { listed: false, pinned: null }; }
+  } catch { /* the refusal itself matters more */ return { listed: false, pinned: null, with: null }; }
 }
 /** Take a place off the "Not found yet" list (an alternative the plan does not need, e.g. a researched hotel at a
  *  stop that already has its base). */
@@ -1209,6 +1270,65 @@ function kindAsked(c, ...said) {
   const text = ` ${said.filter(Boolean).join(' ').toLowerCase().replace(/[_-]+/g, ' ')} `;
   const words = String(c.type || '').split('=')[1]?.split('_').filter(Boolean) || [];
   return words.length > 0 && words.every((w) => text.includes(w.replace(/s$/, '')));
+}
+// A business named after a place (a hotel, a restaurant or a café, a shop) is not that place: the bazaar "Castle Garden
+// Bazaar" found the "Hotel Castle Garden", the quay "Graslei" the restaurant "De Graslei" on it, a market hall a shop
+// that takes its name. Judged for a sight's lookup only (SIGHT_LAYER): there one is the place only when the lookup
+// asks for its kind (--kind or its query says so: a place to stay, food or drink, a shop), its own name adds no word
+// to the query's (nameWithinQuery), or a shop's adds only its branch (branchOfQuery).
+const BUSINESS = [
+  { kind: 'lodging', type: /^(tourism=(hotel|hostel|guest_house|motel|apartment|chalet)|building=hotel)$/ },
+  { kind: 'food', type: /^amenity=(restaurant|cafe|fast_food|bar|pub|biergarten|food_court|ice_cream)$/ },
+  { kind: 'shop', type: /^shop=/ },
+];
+// (words, not parts of words: "Café Sperl" names a café, "Barcelona" no bar)
+const FOOD_ASKED = /(?<![\p{L}\p{N}])(restaurants?|caf[eé]s?|coffee|bars?|pubs?|bistros?|brasseries?|trattorias?|osterias?|pizzerias?|taverns?|tavernas?|eater(y|ies)|diners?|food|bakery|bakeries|ice ?cream|gelaterias?|beer ?gardens?|biergartens?)(?![\p{L}\p{N}])|餐廳|咖啡|食堂|レストラン|カフェ/iu;
+const SHOP_ASKED = /(?<![\p{L}\p{N}])(shops?|stores?|boutiques?|outlets?)(?![\p{L}\p{N}])|商店/iu;
+// the layers places to see go on (reference/itinerary.md: sights, day trips): a lookup there is a sight's, and only
+// there is a business named after the place refused. Any other layer (a listing's venues on "events", a list of bars,
+// places to stay) takes the business its query names, as it always did
+const SIGHT_LAYER = /^(sights?|daytrips?|day-trips?|attractions?|landmarks?)$/i;
+const BUSINESS_WORD = { hotel: 'a hotel', hostel: 'a hostel', guest_house: 'a guest house', motel: 'a motel', apartment: 'a holiday flat', chalet: 'a chalet',
+  restaurant: 'a restaurant', cafe: 'a café', fast_food: 'a fast-food place', bar: 'a bar', pub: 'a pub', biergarten: 'a beer garden', food_court: 'a food court',
+  ice_cream: 'an ice-cream shop' };
+/** Is one of a candidate's own names made only of the query's words (accents, case and punctuation aside, and the
+ *  area's names it adds)? "<Name>" for "The <Name>, <City>" is; "De <Name>" for "<Name> <City>", or "Hotel Castle
+ *  Garden" for "Castle Garden Bazaar", adds a word: a business so named is named after the place. Pure. */
+function nameWithinQuery(query, names, area = []) {
+  const around = new Set(area.flatMap(bizWords));
+  const asked = new Set(bizWords(query));
+  return names.filter(Boolean).some((n) => { const own = bizWords(n).filter((w) => !around.has(w)); return own.length > 0 && own.every((w) => asked.has(w)); });
+}
+const bizWords = (x) => String(x || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+// words that say what kind of business a name is, beyond the place's own name ("\u2026 Gift Shop", "\u2026 Souvenirs")
+const GIFT_WORDS = /(?<![\p{L}\p{N}])(gifts?|souvenirs?|merch(andise)?)(?![\p{L}\p{N}])/iu;
+/** Is one of a shop's own names the query's name and then its branch: the query's own words (before a comma, the
+ *  area's names aside) in order, then words that name no kind of place to stay, eat or shop ("Hamleys Regent Street"
+ *  for "Hamleys, London"; a shop's branch "<Name> <street>")? A store asked for as a sight by its own name is that
+ *  store; "Serralves Gift Shop" is named after the museum, and a place to stay or eat is never the sight by its first
+ *  words ("Acropolis View" is a hotel). Pure. */
+function branchOfQuery(query, names, area = []) {
+  const around = new Set(area.flatMap(bizWords));
+  const asked = bizWords(queryLabel(query)).filter((w) => !around.has(w));
+  if (!asked.length) return false;
+  return names.filter(Boolean).some((n) => {
+    const own = bizWords(n).filter((w) => !around.has(w));
+    if (own.length <= asked.length || asked.some((w, i) => own[i] !== w)) return false;
+    const added = own.slice(asked.length).join(' ');
+    return !LODGING_RE.test(added) && !FOOD_ASKED.test(added) && !SHOP_ASKED.test(added) && !GIFT_WORDS.test(added);
+  });
+}
+/** The kind of business a candidate is (lodging, food, shop), or null. */
+const businessOf = (c) => BUSINESS.find((b) => b.type.test(String(c?.type || '')))?.kind || null;
+/** What a refusal calls it: "a hotel", "a restaurant", "a shop". */
+const businessWord = (c) => BUSINESS_WORD[String(c?.type || '').split('=')[1]] || (/^shop=/.test(String(c?.type || '')) ? 'a shop' : 'a business');
+/** Does a sight's lookup ask for a business of this kind (businessOf's): its --kind (or the props' kind) or its query
+ *  names it ("Hotel …", "Café …", --kind restaurant). */
+function businessAsked(kind, { query = '', kind: given = null } = {}) {
+  const k = String(given ?? '');
+  if (kind === 'lodging') return isLodging({ query, kind: given });
+  if (kind === 'food') return FOOD_ASKED.test(query) || FOOD_ASKED.test(k) || /^(restaurant|cafe|fast_food|bar|pub|biergarten|food)/i.test(k);
+  return SHOP_ASKED.test(query) || SHOP_ASKED.test(k) || /^(shop|store|boutique)/i.test(k);
 }
 const TRANSPORT_TYPE = /^(highway=bus_stop|amenity=(bus_station|taxi|ferry_terminal)|public_transport=|railway=(halt|stop|tram_stop))/;
 // Every transit object (stations included): named after the place it serves, never that place.

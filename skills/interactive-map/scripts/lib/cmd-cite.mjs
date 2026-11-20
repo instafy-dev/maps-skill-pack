@@ -361,6 +361,10 @@ export function sourceSetSince(props, turnStartedMs) {
  *  that asks for one: two turns met lines that named no way to a page (a 404, a robots.txt refusal, a plan refused for
  *  places with no page), guessed a city site's addresses, and one removed every place it had pinned. */
 export const OWN_PAGE_WAY = 'its own site from instafy web search "<its name>" --chain reference-search --json, else its Wikipedia article';
+/** A layer of a listing's items (what's on: events, concerts, exhibitions; SKILL.md rule 6): the listing they were
+ *  read from is each one's source, a page they all share. A page places share is refused or failed for places to see
+ *  (a city guide or a list of places is not theirs), never for these. */
+export const LISTING_LAYER = /^(events?|what-?s-?on|happenings?|gigs?|concerts?|festivals?|exhibitions?)$/i;
 /** The places of a trip's plan that are not checked on a page of their own, as uw validate judges them (`feats`: the
  *  plan's places, [{ lid, f }]): a page another place cites too (it is about a city or a list of places), a page uw
  *  cite (or uw handoff's source check) read that does not name the place or is not a page, and a page nobody read
@@ -373,10 +377,12 @@ export function notOwnPages(feats, { turnStartedMs = null } = {}) {
   const pageOf = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u) ? u.replace(/#.*$/, '') : null);
   const nameOf = (pr) => String(pr.name_en || pr.name || pr.id);
   const byPage = new Map();
-  feats.forEach(({ f }, i) => {
+  feats.forEach(({ lid, f }, i) => {
     const pr = f?.properties || {};
     const page = pageOf(pr.source_url);
-    if (!page) return;
+    // a listing's items share the listing they were read from, each one's source (LISTING_LAYER): only places to see
+    // count for a page places share
+    if (!page || LISTING_LAYER.test(String(lid || ''))) return;
     if (!byPage.has(page)) byPage.set(page, new Map());
     if (!byPage.get(page).has(place[i])) byPage.get(page).set(place[i], nameOf(pr));
   });

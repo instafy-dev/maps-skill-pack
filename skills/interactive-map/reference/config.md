@@ -425,14 +425,18 @@ pages: "Not checked · which trails are open · where to check ↗" (`check_url`
 person's message named, given when it is pinned or later with `uw set` (only that, never to get past a check; `uw
 plan` and `uw set` copy it to its items): it counts for its day as an item with a `url` does, `uw plan` never leaves
 it off the days while a day has a place of its kind nobody named, and `uw set` refuses to remove it unless the same
-command has `--unset asked`. A place with no page of its own (none, or one taken with too little time left that is
+command has `--unset asked`. Only a place whose own name the message says is one: never one chosen for an area it
+names (that area is a day's theme, its places unmarked). A place with no page of its own (none, or one taken with too little time left that is
 not its own) gets `"check": "on a page of its own"` in its days, which `uw set` takes off once it has its own page. A
 trip's plan is written by `uw plan` (dates, nights, legs, stays, sights; see itinerary.md); add one short `text` per
 day by hand.
 `"sights": ["sights", "food"]` (written by `uw plan --sights`, with `"planned_at"`, when it planned the days, and
 `"per_day"` when `--per-day` was given) says the trip is about what to see each day: `uw plan` refuses to write days with
 fewer than two items with a `url` or `"asked"` (one with `--per-day 1`) while the turn's clock shows more than about 3 minutes left,
-the place search answers and no uw command still runs on the site; `uw validate` fails while a full
+the place search answers and no uw command still runs on the site (a map with no days yet still gets them, as they
+are: `"draft"` keeps how they were asked for, the next `uw plan` replaces them without `--force`, and in that turn
+`uw add-point` and `uw validate` plan them again once their places change (so does `uw set` for a place it takes off),
+still a draft, a day's text written over the draft's kept on its day); `uw validate` fails while a full
 day has no such item; in the turn that planned the days, while its clock shows more than about 3 minutes left,
 also while one has only one (not with `"per_day": 1`: the person asked for one place a day); and while a place of those
 layers is in no day and not in `"unplaced"` (`uw plan` lists there the ones it put on no day: no room, or far from
@@ -462,7 +466,9 @@ is `for`) the `focus`, so one route layer can hold one route per hotel. A `#d=3`
   name or the query it was looked up by, or, when its lookup found a square, a park or a quarter under another name
   and the entry names that place, not one inside it (`"place"`: its OpenStreetMap object, names, point and outline),
   as that place; it lists none for a place a pin
-  already is. validate warns while any remain (ask the user for their addresses), and fails an entry beside its own
+  already is. A place has one entry: one looked up again under another id or wording ("<name> <city>") is kept on the
+  first (`"also"`), and on a trip of two stops or more a place named with one stop's name is never another stop's
+  place of that name (nor a stop's own place one of that name in a day trip's town, named after a comma). validate warns while any remain (ask the user for their addresses), and fails an entry beside its own
   pin. Optional `hint` replaces "Send its street address to add it."
 - `votes`: `{ "<featureId>": { "up": ["Kim"], "down": [] } }`: chips on cards and list rows (write them from chat).
   Each viewer's own 👍/👎 is kept in their browser and merged in.

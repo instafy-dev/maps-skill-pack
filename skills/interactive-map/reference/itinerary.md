@@ -4,15 +4,14 @@ On a turn that plans a research team (its skill is loaded and the trip meets its
 the plan; the builder lane follows this file later.
 
 Use this for an itinerary: two or more places with nights ("3 nights Taipei, then Hualien…", "10 days in Japan with
-hotels and trains", "a rail loop with places to stay"), or days in one place ("3 days in Lisbon": "One base", right
-after step 1). It replaces steps 4-8 of SKILL.md; the hard rules, the
-card (step 3), step 9 and the turn clock stay. It works anywhere: where an open-data adapter covers the area (`uw adapter list
---at <lng,lat>`, e.g. a national lodging register) its data comes first; elsewhere OpenStreetMap. Region extras: when
-`reference/regions/<country>.md` exists (e.g. `taiwan.md`), read it too.
+hotels and trains"), or days in one place ("3 days in Lisbon": "One base", right
+after step 1). It replaces steps 4-8 of SKILL.md; the hard rules, the card (step 3), step 9 and the turn clock stay.
+Where an open-data adapter covers the area (`uw adapter list --at <lng,lat>`: a lodging register) its data comes
+first, else OpenStreetMap; read `reference/regions/<country>.md` when there is one (`taiwan.md`).
 
-The traveller wants five things answered: where they sleep each night (and why there), how they get from one place to
-the next (and how long that takes, if anyone can say), what each day is for, what is unverified, and one map to check
-it all on. Build that, in this order.
+The traveller wants five answers: where they sleep each night and why, how they get from place to place and how
+long it takes (if anyone can say), what each day is for, what is unverified, and one map to check it on. Build
+that, in this order.
 
 ## Phase A: the trip on a map (≤ 4 min)
 
@@ -59,7 +58,10 @@ instead of steps 2-5:
    said: none found near it (exit 2), or places to stay not looked up yet (exit 4). `uw validate` fails while a stop's
    only stay is an area and `uw stay` has not looked there (widened to 3000 m when it found none), or while an area's
    note cites no page `uw cite` read.
-3. **The places the message names**, pinned first, each with `"asked":true` (Phase B step 1); only those.
+3. **The places the message names**, pinned first, each with `"asked":true` (Phase B step 1): only one whose own
+   name the message says, never one you chose for an area it names. Such an area ("a day around the old town") is a
+   day's theme: that day's places come from it (step 4), unmarked, and its text starts with the area's name (reword
+   it after `uw plan`).
 4. **Places by area**, before the plan: per day an area worth the day (a neighbourhood, a district a ride away, a day
    trip), 2-3 sourced places in it (Phase B step 1, with `"stop":"<slug>"`). Never put a place on a day because a list
    had room. Every full day gets its places before the plan: `uw plan` refuses one with fewer than two.
@@ -76,11 +78,10 @@ nearer another day's ("day places: …"). Move it to the day named, in the items
 
 ## Phase B: make it worth following (one step at a time, while the turn clock shows more than ~3 min left)
 
-A plan whose full days say only "Day in …" is not finished. When the ask is what to see or do each day (a trip of
-days: "3 days in Lisbon", "what to see each day"), build the plan with `--sights`: `uw plan` refuses fewer than two
+A plan whose full days say only "Day in …" is not finished. When the ask is what to see or do each day, build the
+plan with `--sights`: `uw plan` refuses fewer than two
 a day while there is time, and `uw validate` fails while a full day has fewer than two sourced places (one: in the turn
-that planned the days, while its clock shows more than ~3 min left; a later turn keeps the days the person changed),
-as it fails for a stop asked for that is not on the map.
+that planned the days, while its clock shows more than ~3 min left; a later turn keeps the days the person changed).
 One place a day only when the person asked for it: `uw plan … --per-day 1`. Without `--sights` it warns when most
 full days are empty, and the turn clock prints how many are empty or thin. While any is and time is left, add sights
 rather than reply. Sights come from `uw cite` in this turn, never from a browser card. Step 1 comes first.

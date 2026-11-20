@@ -3,7 +3,8 @@
 // already pinned; `uw validate` fails an entry that stands beside its own pin. A trip's map once read "Not found yet:
 // Main Market Square" over its own pin for the square: the lookup by that name was refused (its best match, "Rynek
 // Główny / Main Square", is named only with words that name no place on their own), and the turn then pinned that very
-// square by its local name, under another id. Pure: no network, no files.
+// square by its local name, under another id. A place has one entry: a trip's map listed one bridge twice, looked up
+// as "St Michael's Bridge, Ghent" and again as "St Michael's Bridge Ghent" under another id. Pure: no network, no files.
 import { haversine } from './util.mjs';
 import { queryLabel } from './registry-geo.mjs';
 import { SAME_PLACE_M } from './site.mjs';
@@ -12,6 +13,58 @@ import { SAME_PLACE_M } from './site.mjs';
 export const missKey = (s) => String(s || '').toLowerCase().replace(/[\s,，、]+/g, ' ').trim();
 const fold = (s) => String(s ?? '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 const wordsOf = (s) => fold(s).match(/[\p{L}\p{N}]+/gu) || [];
+
+/** The words of the names the map's area goes by, for placeIn: each of `names` (the trip's stops, the stops the map
+ *  expects) and what follows the first comma of each of `queries` ("St Michael's Bridge, Ghent": Ghent). `stops`: how
+ *  many stops the trip has (`.one`: at most one, so a name with no city in it is in the map's one city). → a Set. */
+export function areaWords(names = [], queries = [], { stops = 0 } = {}) {
+  const set = new Set();
+  for (const n of names) for (const w of wordsOf(n)) set.add(w);
+  for (const q of queries) for (const w of wordsOf(String(q || '').split(/[,，、]/).slice(1).join(' '))) set.add(w);
+  return Object.assign(set, { one: !(stops > 1) });
+}
+/** A name or a query as the place it names and the area it names it in: the part before a comma, folded, without the
+ *  area's names it ends on ("St Michael's Bridge Ghent" on a map of Ghent is "st michael s bridge", in ghent); never
+ *  down to nothing, and never a name the area's name starts ("Ghent Altarpiece" keeps its "ghent"). Its area: the
+ *  words set aside, and what follows the comma. `area`: areaWords'. → { label, where: Set } */
+export function placeIn(s, area = new Set()) {
+  const text = String(s || '');
+  const w = wordsOf(queryLabel(text));
+  const where = new Set(wordsOf(text.split(/[,，、]/).slice(1).join(' ')));
+  while (w.length > 1 && area.has(w[w.length - 1])) where.add(w.pop());
+  return { label: w.join(' '), where };
+}
+/** Are two places (placeIn's) named in one area: the words of one's area are all the other's ("Ghent" and "Ghent,
+ *  Belgium"). One that names none is in the other's only on a map of one stop (`area.one`: on a trip to Lisbon and
+ *  Porto, "Sé Cathedral" alone may be either city's), and only when the other's is that stop (`area.own`, the words of
+ *  the stops' names: on a trip to Porto, "Sé Cathedral" alone is not "Sé Cathedral, Braga", a day trip's). A map with
+ *  no stop has no area of its own to tell by: there a name with no area is the other's place. */
+const sameWhere = (a, b, area) => {
+  if (a.size && b.size) return [...a].every((x) => b.has(x)) || [...b].every((x) => a.has(x));
+  if (a.size === b.size) return true;
+  if (!area.one) return false;
+  const named = a.size ? a : b;
+  return !area.own?.size || [...named].some((x) => area.own.has(x));
+};
+/** The places a list of names and queries name (placeIn's), each with a label. */
+const placesOf = (texts, area) => texts.filter(Boolean).map((t) => placeIn(t, area)).filter((p) => p.label);
+/** Does one of these places name one of those: the same label, in one area (sameWhere). `area`: areaFor's. */
+const someSame = (ours, theirs, area) => ours.some((p) => theirs.some((q) => q.label === p.label && sameWhere(p.where, q.where, area)));
+/** The lookups an entry stands for: its own (name, id, query) and those that named the same place later ("also"). */
+const lookupsOf = (m) => [m, ...(Array.isArray(m?.also) ? m.also.filter((a) => a && typeof a === 'object') : [])];
+/** The area words for comparing an entry with another or with a pin: `area` and what follows a comma in their queries
+ *  (with `area`'s stop count, `.one`, and its own words, `.own`: the stops' names). */
+const areaFor = (area, ...items) => Object.assign(areaWords([...(area || [])], items.flatMap((x) => lookupsOf(x).map((a) => a?.query))),
+  { one: area?.one !== false, own: new Set(area || []) });
+/** Do two "not found" entries name one place: a name or query of one is a name or query of the other, once the area's
+ *  names either ends on are set aside, in one area (placeIn, sameWhere: "Sé Cathedral Porto" and "Sé Cathedral Lisbon"
+ *  are two). `area`: areaWords' (the trip's stops). */
+export function sameMissing(a, b, area = new Set()) {
+  if (!a || !b) return false;
+  const all = areaFor(area, a, b);
+  const places = (m) => placesOf(lookupsOf(m).flatMap((x) => [x.name, x.query]), all);
+  return someSame(places(b), places(a), all);
+}
 
 // The kinds of place a pin can stand inside: a square or a pedestrian street, a park or a garden, a quarter, a natural
 // area. Never a building (a hotel, a museum): the best match a lookup refused there is another place
@@ -55,14 +108,20 @@ export function pinOfFeature(layer, f, query = null) {
 }
 
 /** Is this pin (pinOfFeature) the place a "not found" entry names? Its id, in the entry's layer (unless the pin says
- *  `byId: false`); one of its names, or the query it was looked up by, is the entry's name or query; or it is the place
- *  the entry's lookup found under another name (the entry's `place`, missedPlace): that OpenStreetMap object, or a pin
- *  named as that place inside its outline or within 150 m of it (another object of the same square). */
-export function pinNamesMissing(m, pin) {
+ *  `byId: false`); one of its names, or the query it was looked up by, is the entry's name or query, also once the
+ *  area's names either ends on are set aside, in one area (placeIn, sameWhere; `area`: areaWords' of the trip's stops:
+ *  Lisbon's cathedral is not Porto's, nor a day trip's town's); the same for each later lookup of that place the entry
+ *  keeps ("also"); or it is the place the entry's lookup found under another name (the entry's `place`, missedPlace):
+ *  that OpenStreetMap object, or a pin named as that place inside its outline or within 150 m of it (another object of
+ *  the same square). */
+export function pinNamesMissing(m, pin, area = null) {
   if (!m || typeof m !== 'object' || !pin) return false;
-  if (pin.byId !== false && m.id && pin.id != null && String(m.id) === String(pin.id) && (m.layer || pin.layer) === pin.layer) return true;
+  const lookups = lookupsOf(m);
+  if (pin.byId !== false && pin.id != null && lookups.some((a) => a.id && String(a.id) === String(pin.id) && (a.layer || m.layer || pin.layer) === pin.layer)) return true;
   const keys = new Set([...(pin.names || []), pin.query ? queryLabel(pin.query) : null, pin.query].map(missKey).filter(Boolean));
-  if (keys.has(missKey(m.name)) || (m.query && keys.has(missKey(m.query)))) return true;
+  if (lookups.some((a) => keys.has(missKey(a.name)) || (a.query && keys.has(missKey(a.query))))) return true;
+  const all = areaFor(area, m, { query: pin.query });
+  if (someSame(placesOf([...(pin.names || []), pin.query], all), placesOf(lookups.flatMap((a) => [a.name, a.query]), all), all)) return true;
   const p = m.place;
   if (!p || typeof p !== 'object') return false;
   if (p.osm_id && pin.osm_id && p.osm_id === pin.osm_id) return true;
@@ -75,15 +134,15 @@ export function pinNamesMissing(m, pin) {
   return Array.isArray(p.at) && haversine(p.at, pin.coord) <= SAME_PLACE_M;
 }
 
-/** The first of these pins that is the place an entry names, or null. */
-export function missingPinned(m, pins) {
-  return pins.find((pin) => pinNamesMissing(m, pin)) || null;
+/** The first of these pins that is the place an entry names, or null. `area`: as pinNamesMissing's. */
+export function missingPinned(m, pins, area = null) {
+  return pins.find((pin) => pinNamesMissing(m, pin, area)) || null;
 }
 
 /** Take off map.config.json "missing" every entry this pin is (pinNamesMissing). → how many went. */
-export function clearMissing(cfg, pin) {
+export function clearMissing(cfg, pin, area = null) {
   if (!Array.isArray(cfg?.missing)) return 0;
   const before = cfg.missing.length;
-  cfg.missing = cfg.missing.filter((m) => !pinNamesMissing(m, pin));
+  cfg.missing = cfg.missing.filter((m) => !pinNamesMissing(m, pin, area));
   return before - cfg.missing.length;
 }
