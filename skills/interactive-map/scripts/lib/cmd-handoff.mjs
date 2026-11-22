@@ -158,7 +158,7 @@ export function railRetryCommands(site, legArgs) {
 /** The report's line above the commands of sights the place lookup could not place: each in a command of its own,
  *  then the plan once each has finished. Pasted into one command, one slow lookup held back the rest and the plan. */
 export function unplacedSightsAdvice(n) {
-  return `${n} sourced sight(s) are not on the map because the place lookup was unavailable. Wait a minute, then run each in a command of its own, and once each has finished (an exit code, not still running) uw plan … --force, before replying when the turn clock allows; a sight still not placed goes into its day's text with its source link, so no full day ships empty:`;
+  return `${n} sourced sight(s) are not on the map because the place lookup was unavailable. Wait a minute, then run each in a command of its own, and once each has finished (an exit code, not still running) uw plan … again, before replying when the turn clock allows; a sight still not placed goes into its day's text with its source link, so no full day ships empty:`;
 }
 
 /** A cited page as the source check last read it (shared cache, PAGE_CACHE_MS): a continuation turn or a second build
@@ -754,7 +754,7 @@ async function applyHandoff({ args, out, items, problems, sourcesCheck }) {
   const missingItems = missingStops.map((c) => ({ name: c.city, nights: c.nights }));
   const missingBlock = missingStops.length ? [
     `REQUESTED BUT NOT ON THE MAP: ${describeItems(missingItems)}. The plan covers ${coveredNights} of the ${askedNights} nights asked for; the map's "Not found yet" line names them.`,
-    'Place them before replying when the turn clock allows (then uw plan … --force with every stop), else say plainly in the reply which stops are missing and that the plan is short of those nights:',
+    'Place them before replying when the turn clock allows (then uw plan … again with every stop), else say plainly in the reply which stops are missing and that the plan is short of those nights:',
     ...missingStops.map((c) => `  uw ${[...stationArgs(c), '--timeout', '120'].map(shellQuote).join(' ')}`),
   ] : [];
   out.result({ ok: failed.length === 0 && !missingStops.length, ...(outOfBudget.length ? { status: 'partial', not_started: outOfBudget } : {}), ran, failed, problems, facts, ...plan, unverified,
@@ -773,7 +773,7 @@ async function applyHandoff({ args, out, items, problems, sourcesCheck }) {
     'Next: the plan\'s day texts name each full day\'s sourced places; reword them with these facts where they fit (≤ 140 characters, keep the items), fill days still "Day in …" with sourced places, then uw validate --signal and SKILL.md step 9 (refreshes the card):',
     ...plan.dayFacts.map((f) => `  ${f.item}: ${f.text} [${f.source_url}]`),
     'In the reply and your summary: no file or folder names (the handoff or site folders), commands or layer ids.',
-    retryRail ? 'Rail track not loaded, so the legs are straight arcs. Run these now if the turn clock allows, else as the next turn\'s first step (then uw plan … --force and re-add the day texts):' : null,
+    retryRail ? 'Rail track not loaded, so the legs are straight arcs. Run these now if the turn clock allows, else as the next turn\'s first step (then uw plan … again: each day keeps its own words):' : null,
     ...(retryRail || []).map((c) => `  ${c}`),
     retrySights.length ? unplacedSightsAdvice(retrySights.length) : null,
     ...retrySights.map((c) => `  ${c}`),

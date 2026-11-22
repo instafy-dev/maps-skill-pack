@@ -177,7 +177,7 @@ test('uw plan --json carries the stay or route for the reply with its dates and 
   const v = await uw(['validate', trip, '--json']);
   const stay = [...v.json.errors, ...v.json.warnings].find((m) => /^places to stay: Porto \(3 nights\) has none/.test(m.message));
   assert.ok(stay, JSON.stringify(v.json, null, 1));
-  assert.match(stay.fix, /^uw stay porto-lisbon --near stops:porto --kinds hotel \(hotels unless the person asked for hostels; reference\/several-stops\.md step 3\), then uw plan porto-lisbon … --stays stays --force/);
+  assert.match(stay.fix, /^uw stay porto-lisbon --near stops:porto --kinds hotel \(hotels unless the person asked for hostels; reference\/several-stops\.md step 3\), then uw plan porto-lisbon … --stays stays again: /);
 });
 
 test('a stay\'s reason leaves out the kind its card and the Places list already name ("· hotel"), and keeps what they do not', () => {

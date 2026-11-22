@@ -13,7 +13,7 @@ export const LANGS = ['en', 'sv'];
 
 export const help = `question <dir> --kind choose-one|find-area|plan-route|find-place|explore --options <layer>
          --criteria key:weight,key:weight,… [--lenses sleep,night,move,morning] [--lens sleep] [--ask "…"] [--ids a,b,c]
-         [--letters rank|given|false] [--top 5] [--lang en|sv] [--force] [--json]
+         [--letters rank|given|false] [--top 5] [--lang en|sv] [--json]
   Writes "question" into map.config.json (and "version": 2). Labels, units and phrases come from data/metrics.json
   (written by enrich, areas, doorstep, photos and adapters). Refuses criteria that no option has (run the command
   that makes them first). ≤ 6 criteria, ≤ 4 lenses. Weight 0 = shown and may lead a verdict, but does not rank.
@@ -26,7 +26,7 @@ export const help = `question <dir> --kind choose-one|find-area|plan-route|find-
   match), written as options.ids, and stay fixed when a viewer switches lenses (--letters given keeps your order).
   Fast first: give the criteria you WANT; the ones not measured yet are "pending" (listed, skipped), and lenses with
   nothing to rank yet are left out, so the same command works right after places + enrich (MRT walk, café counts) and
-  again, with --force, after each slower step (feel, areas…) refines it. Short keys resolve to what exists:
+  again after each slower step (feel, areas…) refines it (run again, it replaces the question of its kind). Short keys resolve to what exists:
   "mrt" → walk_min_mrt (else nearest_mrt_m), "cafes" → cafes_10min / cafes_800m, walk_min_mrt → nearest_mrt_m when
   the walk was not routed. At least one criterion must exist.
   Prints the verdict lines exactly as the map shows them. A criterion made from partial data (metrics.json "partial",
@@ -103,7 +103,9 @@ export async function run(argv) {
   const kind = args.kind || 'choose-one';
   if (!['choose-one', 'find-area', 'plan-route', 'find-place', 'explore'].includes(kind)) throw new UsageError('--kind must be choose-one, find-area, plan-route, find-place or explore');
   const cfg = readJSON(site.cfgPath);
-  if (cfg.question && !args.force) throw new UserError('map.config.json already has a "question"; pass --force to replace it');
+  // run again, it replaces the question it wrote (the same kind): each slower step refines it, and a trip plans its
+  // route again. A question of another kind is someone's choice: that one takes --force
+  if (cfg.question && !args.force && cfg.question.kind !== kind) throw new UserError(`map.config.json already has a "question" of another kind (${cfg.question.kind}); pass --force to replace it with a ${kind} one`);
   if (args.lang !== undefined && !LANGS.includes(args.lang)) throw new UsageError(`--lang must be ${LANGS.join(' or ')}`);
   if (args.lang) cfg.locale = args.lang;
   const lang = LANGS.includes(cfg.locale) ? cfg.locale : 'en';
@@ -303,7 +305,7 @@ export async function run(argv) {
   if (door.added) pendingLines.push(`Added ${door.key}:0 for the sleep lens: light sleepers are decided by the door; the walk area is context${door.dropped ? ` (dropped ${door.dropped} to stay at 6 criteria)` : ''}.`);
   if (ties.length) pendingLines.push(`Same for every option, so it does not change the ranking (kept on the cards; say so in the reply): ${ties.join(', ')}.`);
   for (const p of partial) pendingLines.push(`PARTIAL DATA: ${p.key} → "${p.caveat}" on the verdict (${p.reason}). Say it in your reply; never call an option shortest/longest on it. Phase B, first: ${p.refetch || 're-fetch that layer'}, then enrich and this command again.`);
-  if (pending.length || pendingLenses.length) pendingLines.push(`After those steps re-run this same command with --force: the verdict and letters update.`);
+  if (pending.length || pendingLenses.length) pendingLines.push(`After those steps re-run this same command: the verdict and letters update.`);
   out.result({ ok: true, question: q, ranking, verdict, partial, warnings, auto_criteria: autoCrit, door, pending, pending_lenses: pendingLenses, resolved, ties, tied_all: tiedAll }, [
     `Wrote "question" (${kind}) to map.config.json: ${crit.length} criteria (${crit.map((c) => `${c.key}×${c.weight}`).join(', ')})${lenses.length ? `, lenses ${lenses.map((l) => l.id).join(', ')}` : ''}; "version": 2.`,
     ...pendingLines,

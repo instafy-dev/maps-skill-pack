@@ -8,7 +8,9 @@ Two or more places with nights. These steps follow steps 0-1 of `reference/itine
 country: many city names exist in several countries; Photon, OpenStreetMap railway stations only, so a weather
 station or bus stop never wins). Read the pick and the alternatives; `--pick N` takes another. A `FAR FROM THE
 CENTRE` line (more than about 15 min walk): for a stop with full days, also find stays in town (the printed command)
-and tell the traveller where the station is.
+and tell the traveller where the station is. One stop per city: its station, or (none found, step 6) the city itself,
+never both. Read each command's answer before pinning a city by hand: `uw add-point` refuses a city whose station is
+there, naming that stop's id.
 High-speed rail only where it pays: a leg of roughly 100 km or more where a high-speed line serves both ends (the
 `rail` layer shows it; `uw handoff --apply` prints it per leg). Then an HSR station outside town gets its own
 pass-through stop: `uw station <site> --city "<City>" --country "<Country>" --kind hsr --id <city>-hsr --nights 0`
@@ -51,18 +53,24 @@ Operator pages: the operator's journey planner (DB, SNCF, Trenitalia, Renfe, NS,
 more).
 
 **5. Question + plan.**
-`uw question <site> --kind plan-route --options stations --force` (the heading "6 stops · 14 nights · 6 rides by
+`uw question <site> --kind plan-route --options stations` (the heading "6 stops · 14 nights · 6 rides by
 train & HSR"; the ask comes from `--ask`), then
 `uw plan <site> --stops stations --ids a,b,…,a --nights 3,2,…,2 --start 2026-10-20 --legs trip --stays stays`:
 one dated day per night plus the departure day, travel days with the leg and the new base, every day focused on that
 stop's best stay. A 0-night stop shares its travel day ("Tainan → Tainan HSR → Taipei"). The departure day is marked
 ("Departure" on the map, "Leave <stop>."): nothing is planned on it; never fill it with places to look complete.
+"N days, D in each" are D days with things to see in each city: D nights a stop (`--expect "A:D,B:D"`), and `uw plan`
+prints "Days to see at each stop". The day a stop is reached is one of its days after a ride of up to about 2 h (it
+takes places once the stop has two with their own page for each of its days); after a longer ride that day is the
+ride's, and the reply says the split as printed, never "D days in each".
+No `--sights` yet: the places to see come in Phase B, each cited (`uw cite`) before it is pinned, then `uw plan …
+--sights`; planned with `--sights` before any is pinned, every day is short and the plan is refused.
 
 **6. Reconcile, then preview.** `uw validate <site> --signal`. It checks the map against the route ("expect"):
 `asked for but not on the map: <Stop> (2 nights)` or `on the map but in no day of the plan` is an error. Place the
 stop (the retry command `uw handoff --apply` or the lookup printed, with `--timeout 120`; else `uw add-point <site>
 --layer stations --query "<City>" --country "<Country>" --kind city --allow-far --id <id> --props-file - <<'JSON'`, then
 `{"nights":N,"station_of":"<City>","no_station":true}` and `JSON` on their own lines), then
-`uw plan … --ids <every stop> --nights … --force`. Still not placed (exit 4 again): keep going, and the reply's route
+`uw plan … --ids <every stop> --nights …` again (it replaces the days it wrote). Still not placed (exit 4 again): keep going, and the reply's route
 line names it as missing with its nights ("<Stop> (2 nights) is not on the map yet: the place lookup was down"). Then SKILL.md step 9 (the card's picture is refreshed), before Phase B: the traveller has
 the map while the days fill in.

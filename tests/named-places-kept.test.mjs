@@ -199,7 +199,8 @@ test('the refusal names how to find each pinned place\'s page and keeps them; th
     + 'near Schloss Schönbrunn (--near 16.311568,48.184989; "stop":"vienna"), the same way. Then run this command again.');
   assert.deepEqual(refused.json.instead, [{ name: 'DO&CO Hotel', near: '16.371632,48.208374', stop: 'vienna', places: 2, days: ['Wed 18 Nov · Vienna'] },
     { name: 'Schloss Schönbrunn', near: '16.311568,48.184989', stop: 'vienna', places: 1, days: ['Fri 20 Nov · Vienna'] }]);
-  assert.equal(lines.length, 8);
+  assert.equal(lines.length, 9);
+  assert.equal(lines[8], 'A full day with nothing to see is refused again while the turn has time: each takes a place first. With too little time left the days are written as they are, and the reply names each.');
   assert.equal(text.json, null);
   assert.equal(refused.json.next, lines.slice(1).join('\n'));
 
@@ -288,7 +289,7 @@ test('a trip whose tourism listing refuses agents: the refusal says where each n
   const [first, next, ...rest] = refused.err.trim().split('\n');
   assert.match(first, /^REFUSED: 1 of 2 full days would have no place to see with its own page \(one a day: --per-day 1\): Wed 18 Nov · Ljubljana \(0\)\. The days are on the map as they are for now: a draft, which this command replaces\.$/);
   assert.match(next, /^Add 1 more place near the base, Old Quarter Residence \(--near 14\.506533,46\.049269\), each from its own page \(its own site from instafy web search "<its name>" --chain reference-search --json, else its Wikipedia article\): uw cite <that page> --grep "<its name>", then uw add-point ljubljana --layer sights /);
-  assert.deepEqual(rest, []);
+  assert.deepEqual(rest, ['A full day with nothing to see is refused again while the turn has time: each takes a place first. With too little time left the days are written as they are, and the reply names each.']);
   // as it says: a place from its Wikipedia article
   const bridge = `${WIKI}Dragon_Bridge_(Ljubljana)`;
   read(bridge, 'Dragon Bridge\nA road bridge over the Ljubljanica.');
@@ -385,7 +386,7 @@ test('a place the person named is never left off the days while a day has a plac
   const failing = await uw(['validate', ten, '--signal', '--json']);
   assert.equal(failing.code, 1, failing.out);
   assert.deepEqual(failing.json.errors.filter((e) => e.path === '$.plan.days').map((e) => [e.message, e.fix]), [[`a place the person named is on no day: ${name}`,
-    `uw plan ${ten} … --sights sights --per-day 4 --force (one far from every stop: uw set ${ten} <layer>:<id> --props '{"stop":"<its stop id>"}' first); with too little time left, the reply says plainly which is on no day`]]);
+    `uw plan ${ten} … --sights sights --per-day 4 (one far from every stop: uw set ${ten} <layer>:<id> --props '{"stop":"<its stop id>"}' first); with too little time left, the reply says plainly which is on no day`]]);
   // with too little time left it is a warning, which the reply says
   const late = await uw(['validate', ten, '--signal', '--json'], { clock: hostClock(450) });
   assert.deepEqual(late.json.warnings.filter((w) => /person named/.test(w.message)).map((w) => w.message), [`a place the person named is on no day: ${name}`]);
@@ -487,7 +488,8 @@ test('a short day whose places have no page to find: the refusal says to keep th
   assert.deepEqual(refused.json.add, []);
   assert.deepEqual(refused.json.instead, [{ name: 'DO&CO Hotel', near: '16.371632,48.208374', stop: 'vienna', places: 1, days: ['Wed 18 Nov · Vienna'] }]);
   const text = await planVienna([], {}, site);
-  assert.equal(text.err.trim().split('\n').pop(), 'Where no page of its own can be found for one of those places on Wed 18 Nov · Vienna, keep it and add another place '
+  assert.equal(text.err.trim().split('\n').pop(), 'Looked for more after this refusal and none could be added (no other place found there, or none with a page of its own)? Run this command again as it is: a day with one place to see is then kept, as a warning the reply names.');
+  assert.equal(text.err.trim().split('\n').slice(-2)[0], 'Where no page of its own can be found for one of those places on Wed 18 Nov · Vienna, keep it and add another place '
     + 'near the base, DO&CO Hotel (--near 16.371632,48.208374) instead, from its own page (its own site from instafy web search "<its name>" --chain reference-search --json, '
     + 'else its Wikipedia article): uw cite <that page> --grep "<its name>", then uw add-point vienna-unfound --layer sights --near 16.371632,48.208374 … '
     + 'with {"stop":"vienna","source_url":"<that page>","source":"<site>"}, one place per command (reference/itinerary.md Phase B step 1). Then run this command again.');

@@ -432,7 +432,7 @@ test('validate: a day with nothing to see says re-planning spreads the places al
   const v = await run(['validate', 'lx-old']);
   assert.notEqual(v.code, 0, v.out + v.err);
   assert.match(v.out + v.err, /1 of 3 full days have nothing to see \(no sourced place\): Fri 30 Oct · Lisbon/);
-  assert.match(v.out + v.err, /uw plan lx-old … --sights sights --force spreads the places already pinned over every day, the arrival day too: run it first/);
+  assert.match(v.out + v.err, /uw plan lx-old … --sights sights again spreads the places already pinned over every day, the arrival day too: run it first/);
   assert.equal((await run(plan)).code, 0);
   const again = await run(['validate', 'lx-old']);
   assert.equal(again.code, 0, again.out + again.err);

@@ -418,7 +418,7 @@ UI-only intents. `"bind": { "parentOrigins": ["https://instafy.dev"], "results":
 An item's `text` is its name; `note` (≤ 120 characters) is one line under it ("ask about trail status"), as on the
 timeline page. A day's own `note` (≤ 120 characters) is one line under the day's `text`, above its items, as the
 timeline page shows a day's note ("book the tower tickets ahead"): `uw set <site> plan:day1 --note "…"` writes it,
-and `uw plan … --force` keeps it on its day. An item's `time` sets the map's hour when the day opens; it is not shown as a clock column.
+and `uw plan`, run again, keeps it on its day. An item's `time` sets the map's hour when the day opens; it is not shown as a clock column.
 An item's `url` (https only) is the page its facts came from: shown as "Wikipedia ↗" (`source`, ≤ 40 characters, else
 the host name) under the item; `uw set` on a place's `source_url` or `source` gives its items that page too (no new plan). An item's `check` (≤ 80 characters) is what is not checked about it, said as on the
 pages: "Not checked · which trails are open · where to check ↗" (`check_url`, https). `"asked": true` is a place the
@@ -434,13 +434,23 @@ day by hand.
 `"per_day"` when `--per-day` was given) says the trip is about what to see each day: `uw plan` refuses to write days with
 fewer than two items with a `url` or `"asked"` (one with `--per-day 1`) while the turn's clock shows more than about 3 minutes left,
 the place search answers and no uw command still runs on the site (a map with no days yet still gets them, as they
-are: `"draft"` keeps how they were asked for, the next `uw plan` replaces them without `--force`, and in that turn
+are: `"draft"` keeps how they were asked for, the next `uw plan` replaces them, and in that turn
 `uw add-point` and `uw validate` plan them again once their places change (so does `uw set` for a place it takes off),
-still a draft, a day's text written over the draft's kept on its day); `uw validate` fails while a full
+still a draft, a day's text written over the draft's kept on its day; run again with the same places once another
+was looked for after the refusal, `uw plan` writes the days as they are and lists in `"kept"` each full day it kept
+with one such item, never one with none);
+`uw validate` fails while a full
 day has no such item; in the turn that planned the days, while its clock shows more than about 3 minutes left,
-also while one has only one (not with `"per_day": 1`: the person asked for one place a day); and while a place of those
+also while one has only one (not with `"per_day": 1`: the person asked for one place a day; a day in `"kept"` is a
+warning, for the reply to name); and while a place of those
 layers is in no day and not in `"unplaced"` (`uw plan` lists there the ones it put on no day: no room, or far from
-every stop); such a place was pinned after the days were planned, and `uw plan … --force` places it.
+every stop); such a place was pinned after the days were planned, and `uw plan`, run again, places it.
+`uw plan` replaces the days it wrote by itself: each day keeps its `note`, and a `text` written over the one it wrote
+(`"texts"` keeps a short hash of each it wrote; a plan without it: a text that is not one `uw plan` writes for that
+day) stays on its day, named so the turn checks it still fits.
+`"after_ride": [{"day": "<title>", "stop": "<name>"}]` (written by `uw plan --sights`) lists the days a later stop is
+reached after a short ride: one of that stop's days to see once it has a place; `uw validate` warns of one with none,
+for the reply to say the split.
 `"depart": true` marks the day after the last night of a trip of several stops (`uw plan` writes it; days in one
 place have none): nothing is planned on it, its row says "Departure", and the page's "N days" does not count it. A day's places should lie together: `uw validate` warns when
 one is far from the day's other places or nearer another day's (thresholds: `scripts/plan-checks.json`).

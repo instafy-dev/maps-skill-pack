@@ -161,7 +161,7 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
   if (running.length) {
     const many = running.length > 1;
     E('data/', '', `still running on this site: ${runningList(running)}; what ${many ? 'they find is' : 'it finds is'} not on the map yet`,
-      `wait until ${many ? 'each has' : 'it has'} finished (an exit code; never start ${many ? 'one' : 'it'} again), then ${cfg.plan ? 'uw plan … --force (its days take what was found) and ' : ''}validate again`);
+      `wait until ${many ? 'each has' : 'it has'} finished (an exit code; never start ${many ? 'one' : 'it'} again), then ${cfg.plan ? 'uw plan … again (its days take what was found) and ' : ''}validate again`);
   }
   // A trip's days that uw plan wrote as a draft (it refused days short of places, and wrote them as they were) are
   // planned again here, in the turn that wrote them, once the places they were made of changed (cmd-plan.mjs
@@ -403,7 +403,7 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       const planned = later.some((pr) => inDays.has(String(pr.id)));
       E(byId.get(lid)?.data || CFG, '$.features', `one place is pinned ${pins.length} times: ${pins[0].name_en || pins[0].name} (${pins.map((pr) => `${lid}:${pr.id}`).join(', ')})`,
         `one place, one pin: remove the later ${later.length === 1 ? 'pin' : 'pins'}: ${later.map((pr) => `uw set ${args._[0]} ${lid}:${pr.id} --remove`).join('; ')}`
-          + (planned ? `; then the days: uw plan ${args._[0]} … --force in the turn that planned them, else remove its item from its day and reword that day's text; a day it leaves short takes another place, from its own page` : ''));
+          + (planned ? `; then the days: uw plan ${args._[0]} … again in the turn that planned them, else remove its item from its day and reword that day's text; a day it leaves short takes another place, from its own page` : ''));
     }
   }
 
@@ -503,7 +503,7 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
   if (cfg.plan !== undefined) {
     const days = cfg.plan?.days;
     // a day names a place no longer on the map (uw stay's picks took the place of the area the days started at)
-    const replan = `the days name a place no longer on the map: plan them again, uw plan ${args._[0]} … --force`;
+    const replan = `the days name a place no longer on the map: plan them again, uw plan ${args._[0]} …`;
     if (!Array.isArray(days)) E(CFG, '$.plan.days', 'plan.days must be an array', '');
     else days.forEach((d, i) => {
       const p = `$.plan.days[${i}]`;
@@ -530,7 +530,7 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       if (typeof d?.text === 'string' && d.text.length > 140) W(CFG, `${p}.text`, `day text is ${d.text.length} characters (≤ 140 reads on a phone)`, 'shorten it; details belong on the items\' pages');
       // a day with sourced places that still reads "Day in Porto; night 2 of 3" tells the traveller nothing
       if (typeof d?.text === 'string' && /^Day in .+; night \d+ of \d+\.$/.test(d.text.trim()) && Array.isArray(d.items) && d.items.some((it) => it?.ref && typeof it?.url === 'string' && !/^Base: /.test(String(it.text || ''))))
-        W(CFG, `${p}.text`, 'day text is still "Day in …" although the day has sourced places', `say what the day is for from those places (uw plan ${args._[0]} … --sights sights,food --force writes it from them, or write it: ≤ 140 characters, nothing their pages do not say)`);
+        W(CFG, `${p}.text`, 'day text is still "Day in …" although the day has sourced places', `say what the day is for from those places (uw plan ${args._[0]} … --sights sights,food writes it from them, or write it: ≤ 140 characters, nothing their pages do not say)`);
       if (typeof d?.text === 'string' && d.text.trim() && !isPlanSkeletonText(d.text) && !(Array.isArray(d.items) && d.items.some((it) => typeof it?.url === 'string')))
         W(CFG, `${p}.text`, 'day text with no sourced item that day: a reader cannot check it', `pin the place its page names (uw add-point ${args._[0]} --layer sights|food|daytrips … --props-file - with {"stop":…,"source_url":…}) and add it as a ref item, or cut the claim; never copy the text into an item`);
     });
@@ -552,7 +552,7 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       const find = (r) => (featuresByLayer.get(r.layer) || []).find((f) => String(f?.properties?.id) === r.id) || null;
       for (const w of dayPlaceWarnings(cfg.plan, find)) {
         W(CFG, `$.plan.days[${w.day}].items[${w.item}]`, `day places: ${dayPlaceLine(w, days)}`,
-          `or rebuild the days: uw plan ${args._[0]} … --sights sights,food --force (groups each stop's places by area, each day a loop from the base)`);
+          `or rebuild the days: uw plan ${args._[0]} … --sights sights,food (groups each stop's places by area, each day a loop from the base)`);
       }
     }
     if (Array.isArray(days)) {
@@ -561,7 +561,7 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       // finished, just as an expected stop that is not on the map is not (a 28 Oct drive replied with its days empty)
       const sightLayers = cfg.plan?.sights;
       if (sightLayers !== undefined && !(Array.isArray(sightLayers) && sightLayers.every((x) => typeof x === 'string')))
-        E(CFG, '$.plan.sights', 'sights must be the layer ids uw plan --sights was given', 'rebuild: uw plan … --sights sights,food --force');
+        E(CFG, '$.plan.sights', 'sights must be the layer ids uw plan --sights was given', 'rebuild: uw plan … --sights sights,food');
       // the turn has time to add or cite places: more than about 3 minutes left on its clock (none: no limit)
       const timeToAdd = turnLeftS == null || turnLeftS > REPLY_WITHIN_S;
       const plannedAt = Date.parse(cfg.plan?.planned_at ?? '');
@@ -615,7 +615,7 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
         if (late.length) {
           const names = late.map((f) => String(f.properties.name_en || f.properties.name || f.properties.id));
           E(CFG, '$.plan.days', `on the map but in no day of the plan: ${names.slice(0, 4).join(', ')}${names.length > 4 ? ' …' : ''} (pinned after the days were planned)`,
-            `uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --force: the days take every place pinned (it names one that fits no day)`);
+            `uw plan ${args._[0]} … --sights ${sightLayers.join(',')} again: the days take every place pinned (it names one that fits no day)`);
         }
         // a place the person named ("asked") that the plan left out is never left out of the reply quietly: the plan
         // gives it a day while one has a place of its kind nobody named, so it is out only when the places the person
@@ -625,7 +625,7 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
         if (namedOff.length) {
           const perDay = Number.isInteger(cfg.plan.per_day) ? cfg.plan.per_day : 3;
           (timeToAdd ? E : W)(CFG, '$.plan.days', `${namedOff.length === 1 ? 'a place' : `${namedOff.length} places`} the person named ${namedOff.length === 1 ? 'is' : 'are'} on no day: ${namedOff.slice(0, 4).join(', ')}${namedOff.length > 4 ? ' …' : ''}`,
-            `uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --per-day ${perDay + 1} --force (one far from every stop: uw set ${args._[0]} <layer>:<id> --props '{"stop":"<its stop id>"}' first); with too little time left, the reply says plainly which is on no day`);
+            `uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --per-day ${perDay + 1} (one far from every stop: uw set ${args._[0]} <layer>:<id> --props '{"stop":"<its stop id>"}' first); with too little time left, the reply says plainly which is on no day`);
         }
       }
       const sightsAsked = Array.isArray(sightLayers) && sightLayers.length > 0;
@@ -654,7 +654,7 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       if (bareDays.length)
         E(CFG, '$.plan.days', unchecked ? `${bareDays.length} of ${gaps.full} full days have no place checked on a page of its own: ${bareList(bareDays)}`
           : `${bareDays.length} of ${gaps.full} full days have nothing to see (no sourced place): ${days4(bareDays)}`,
-          `uw plan ${args._[0]} … --sights ${sightLayers.join(',')} --force spreads the places already pinned over every day, the arrival day too: run it first when a stop has two places for each of its days. Else cite 2-3 places for each of those days in this turn, ${citeOwn}; then ${pinTo}${giveOwn} (reference/itinerary.md Phase B step 1), then run it; ${notPinned}`);
+          `uw plan ${args._[0]} … --sights ${sightLayers.join(',')} again spreads the places already pinned over every day, the arrival day too: run it first when a stop has two places for each of its days. Else cite 2-3 places for each of those days in this turn, ${citeOwn}; then ${pinTo}${giveOwn} (reference/itinerary.md Phase B step 1), then run it; ${notPinned}`);
       // A plan made for one place a day (uw plan --per-day 1, only for a person who asked for that) is warned in the
       // turn that planned it: a turn whose days had one place each planned it so, with nobody asking, from this check's
       // own fix, and passed with six minutes left. Unless the person asked for one a day, the fix fills each day with
@@ -666,17 +666,39 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       const [baseLayer, baseId] = bases.length === 1 && bases[0] ? bases[0].split('\u0000') : [];
       const basePt = baseLayer ? (featuresByLayer.get(baseLayer) || []).find((f) => String(f?.properties?.id) === baseId && f?.geometry?.type === 'Point')?.geometry.coordinates : null;
       const nearBase = Array.isArray(basePt) && basePt.length >= 2 && basePt.every(Number.isFinite) ? basePt.slice(0, 2).map((x) => +x.toFixed(6)).join(',') : "<that day's base lng,lat>";
-      const addNearBase = `add one or two places near the base to each of those days, rather than spreading the places you have one a day: ${citeOwn}; then uw add-point ${args._[0]} --layer ${sightsAsked ? sightLayers[0] : 'sights'} --near ${nearBase} … with {"stop":…,"source_url":…}, one place per command${giveOwn} (reference/itinerary.md Phase B step 1), then uw plan ${args._[0]} … --sights ${sightsAsked ? sightLayers.join(',') : 'sights'} --force${oneADay ? ' (without --per-day 1)' : ''}; ${notPinned}`;
-      if (oneDays.length && plannedThisTurn && timeToAdd)
-        (oneADay ? W : E)(CFG, '$.plan.days', `${oneDays.length} of ${gaps.full} full days have one place to see (a full day takes 2-3 sourced places): ${days4(oneDays)}`,
+      const addNearBase = `add one or two places near the base to each of those days, rather than spreading the places you have one a day: ${citeOwn}; then uw add-point ${args._[0]} --layer ${sightsAsked ? sightLayers[0] : 'sights'} --near ${nearBase} … with {"stop":…,"source_url":…}, one place per command${giveOwn} (reference/itinerary.md Phase B step 1), then uw plan ${args._[0]} … --sights ${sightsAsked ? sightLayers.join(',') : 'sights'} again${oneADay ? ' (without --per-day 1)' : ''}; ${notPinned}`;
+      // The plan and this check say the same of a day with one place. uw plan refuses it once, naming where to add
+      // places; run again with the same places (the turn found none to add), it keeps the day and lists it ("kept"),
+      // a warning the reply names. So it is a warning here too: a turn was refused three times for one such day, replied
+      // naming it, and this check still failed. A day with one place the plan did not keep (a place removed since) fails
+      // as before: its fix plans again, and uw plan says there how a day is kept
+      const keptDays = new Set(Array.isArray(cfg.plan?.kept) ? cfg.plan.kept.map(String) : []);
+      const keptOnes = oneADay ? [] : oneDays.filter((t) => keptDays.has(t));
+      const newOnes = oneDays.filter((t) => !keptOnes.includes(t));
+      if (keptOnes.length)
+        W(CFG, '$.plan.days', `${keptOnes.length} of ${gaps.full} full days ${keptOnes.length === 1 ? 'has' : 'have'} one place to see: ${days4(keptOnes)}`,
+          'uw plan kept these days as they are (planned again with none to add); the reply names each ("<day> has one place to see") and offers to add a place there');
+      if (newOnes.length && plannedThisTurn && timeToAdd)
+        (oneADay ? W : E)(CFG, '$.plan.days', `${newOnes.length} of ${gaps.full} full days have one place to see (a full day takes 2-3 sourced places): ${days4(newOnes)}`,
           `${oneADay ? 'unless the person asked for one place a day, ' : ''}${addNearBase}`);
-      else if (oneDays.length && !bareDays.length && !oneADay)
-        W(CFG, '$.plan.days', `${oneDays.length} of ${gaps.full} full days have one place to see: ${days4(oneDays)}`,
+      else if (newOnes.length && !bareDays.length && !oneADay)
+        W(CFG, '$.plan.days', `${newOnes.length} of ${gaps.full} full days have one place to see: ${days4(newOnes)}`,
           `${plannedThisTurn ? 'too little time is left to add places in this turn' : 'the days were planned in an earlier turn: keep what the person changed'}; the reply names these days and offers to add places to them`);
       else if (!sightsAsked && gaps.full >= 2 && gaps.empty * 2 > gaps.full)
-        W(CFG, '$.plan.days', `${gaps.empty} of ${gaps.full} full days are still empty ("Day in …", or only the arrival): a traveller gets nothing to do on them`, 'add 2-3 sourced sights a full day (reference/itinerary.md Phase B step 1), then uw plan … --sights sights --force and one short sourced text per day');
+        W(CFG, '$.plan.days', `${gaps.empty} of ${gaps.full} full days are still empty ("Day in …", or only the arrival): a traveller gets nothing to do on them`, 'add 2-3 sourced sights a full day (reference/itinerary.md Phase B step 1), then uw plan … --sights sights again and one short sourced text per day');
       else if (!sightsAsked && gaps.full >= 2 && gaps.thin * 2 > gaps.full)
-        W(CFG, '$.plan.days', `${gaps.thin} of ${gaps.full} full days have fewer than 2 sourced items: one sight a day is not a day worth following`, 'add sights until each full day has 2-3 with a source page (reference/itinerary.md Phase B step 1), then uw plan … --sights sights --force');
+        W(CFG, '$.plan.days', `${gaps.thin} of ${gaps.full} full days have fewer than 2 sourced items: one sight a day is not a day worth following`, 'add sights until each full day has 2-3 with a source page (reference/itinerary.md Phase B step 1), then uw plan … --sights sights again');
+      // the day a later stop is reached after a short ride is one of its days to see once it has a place (uw plan
+      // prints "Days to see at each stop" and lists such days in "after_ride"): one with nothing on it is named, as the
+      // plan names it, so the reply says the split ("4 days, two in each" gave the second city one day to see, and
+      // the reply said two in each)
+      if (sightsAsked) for (const a of Array.isArray(cfg.plan?.after_ride) ? cfg.plan.after_ride : []) {
+        const d = typeof a?.day === 'string' ? days.find((x) => x?.title === a.day) : null;
+        if (!d || (Array.isArray(d.items) ? d.items : []).some((it) => (it?.asked === true || /^https?:\/\//.test(String(it?.url ?? ''))) && !/^Base: /.test(String(it?.text || '')))) continue;
+        const when = a.day.split(' · ')[0], stop = typeof a.stop === 'string' && a.stop.trim() ? a.stop : 'its stop';
+        W(CFG, '$.plan.days', `${when}, the day ${stop} is reached after a short ride, has nothing to see yet: ${stop} has one day to see fewer than its nights`,
+          `the reply says that split, as uw plan prints it ("${stop}: … to see, ${when} is the ride there"); while the turn has time, add places to see in ${stop} instead, two for each of its days, each from its own page, then uw plan ${args._[0]} … again`);
+      }
     }
   }
   // --- a trip: its stops with nights. A stop with nights on the map is a trip's, with "expect" or without it (a turn
@@ -706,8 +728,8 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
     const gaps = uncovered(cfg, featuresByLayer, expected);
     const off = gaps.filter((g) => !g.on_map), unplanned = gaps.filter((g) => g.on_map && g.in_plan === false);
     if (off.length) E(CFG, '$.expect', `asked for but not on the map: ${describeItems(off)} (${expected.length - off.length} of ${expected.length} stops on the map)`,
-      `place each one (uw station … --city "<name>" --country "<country>" --nights N; days in one place: reference/itinerary.md "One base"; a lookup that timed out: run its retry command), then uw plan … --force; if none can be placed this turn, the reply says plainly which are missing and why`);
-    if (unplanned.length) E(CFG, '$.plan.days', `on the map but in no day of the plan: ${describeItems(unplanned)}`, 'rebuild the plan with every stop: uw plan … --ids <all stop ids in travel order> --nights … --force');
+      `place each one (uw station … --city "<name>" --country "<country>" --nights N; days in one place: reference/itinerary.md "One base"; a lookup that timed out: run its retry command), then uw plan … again; if none can be placed this turn, the reply says plainly which are missing and why`);
+    if (unplanned.length) E(CFG, '$.plan.days', `on the map but in no day of the plan: ${describeItems(unplanned)}`, 'rebuild the plan with every stop: uw plan … --ids <all stop ids in travel order> --nights …');
     // nights asked for are a trip: its days are the plan (the map's Plan tab), never a day's text inside a place's note
     if (!(Array.isArray(cfg.plan?.days) && cfg.plan.days.length))
       E(CFG, '$.plan', `a trip (${describeItems(expected)}) with no plan: its days go in the plan, which the map shows as its own tab, not in place notes`,
@@ -749,7 +771,7 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       // none at all is warned (a person may have a place of their own); an area pinned instead of looking fails
       (areas.length ? level : W)(byId.get(s.lid)?.data || CFG, `$.features[?(@.properties.id=="${id}")]`,
         `places to stay: ${s.name} (${s.nights} night${s.nights === 1 ? '' : 's'}) has ${areas.length ? `only the area${areas.length > 1 ? 's' : ''} ${areas.map((a) => a.name).join(', ')} to stay in` : 'none'}, and uw stay ${wider ? `found none within ${looked[id].radius} m of it` : 'has not looked for any there'}`,
-        `${look}${wider ? '' : ` (hotels unless the person asked for hostels; ${oneBase ? 'reference/itinerary.md "One base" step 2' : 'reference/several-stops.md step 3'})`}, then uw plan ${site} … --stays ${areas[0]?.sl || 'stays'} --force: each day starts at the first stay. ${noneFound}`);
+        `${look}${wider ? '' : ` (hotels unless the person asked for hostels; ${oneBase ? 'reference/itinerary.md "One base" step 2' : 'reference/several-stops.md step 3'})`}, then uw plan ${site} … --stays ${areas[0]?.sl || 'stays'} again: each day starts at the first stay. ${noneFound}`);
     }
     // an area pinned as the place to stay says why only from a page uw cite read that names it
     for (const sl of stayLayers) for (const f of featuresByLayer.get(sl) || []) {

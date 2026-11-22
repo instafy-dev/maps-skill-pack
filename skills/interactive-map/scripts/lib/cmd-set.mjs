@@ -23,7 +23,7 @@ set <dir> plan:day<N> --note "…" | --unset note [--json]
   plan:day1 is the plan's first day: --note gives that day its own line (a note for day 1: "book the tickets ahead"),
   shown under the day's text in the Plan tab, above its places (a map made before day notes keeps it but does not
   show it: said); --note "" or --unset note takes it off. A place's or a stop's note shows on its own card, never in a
-  day. uw plan --force keeps each day's note.
+  day. uw plan, run again, keeps each day's note.
   Geometry and "id" cannot be changed here (re-run add-point for a different place).
   A new source_url that \`uw cite\` did not read in the last hours is read first, as uw cite reads a page (robots.txt,
   link-only sites, bot checks; kept for uw validate). One that cannot be read (HTTP 404, refused, no answer in time) is

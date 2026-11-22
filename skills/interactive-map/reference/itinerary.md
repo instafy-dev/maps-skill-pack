@@ -74,7 +74,7 @@ instead of steps 2-5:
 
 **Days that hang together.** `uw plan` and `uw validate` warn when a day has a place far from its other places, or
 nearer another day's ("day places: …"). Move it to the day named, in the items and both days' texts, or rebuild with
-`uw plan … --force` (it groups by area). A day trip far out of town is judged on its own.
+`uw plan …` again (it groups by area). A day trip far out of town is judged on its own.
 
 ## Phase B: make it worth following (one step at a time, while the turn clock shows more than ~3 min left)
 
@@ -111,13 +111,20 @@ rather than reply. Sights come from `uw cite` in this turn, never from a browser
    pinned" = it is on the map: never pin it again, the day takes another place; food spots go on `--layer food`, day
    trips on `--layer daytrips --max-km 80`).
    Once each has finished (an exit code, not still running: wait on one that is, never start it again; `uw plan`
-   and `uw validate` name any still running), `uw plan … --sights sights,food,daytrips --force` with the sights that
+   and `uw validate` name any still running), `uw plan … --sights sights,food,daytrips` with the sights that
    landed (the layers that exist; one not found stays out, in the reply's unverified line): places land on the
    stop's full days with their source links, and each such day's text says what it is for ("Livraria Lello (the
    1906 bookshop) · Eat: Mercado do Bolhão"). Reword a text in the traveller's words if you like (≤ 140 characters,
    nothing its pages do not say; no opening hours or prices from memory); a day still "Day in …" needs places.
+   Refused for a day with one place: run the same command again once you looked for more and none could be added;
+   it keeps that day, a warning there and in `uw validate`, which the reply names.
+   Cite, then pin, then plan: a place pinned with no page counts on no day, and `uw plan --sights` before the places
+   are pinned is refused. A place named by its kind ("the cathedral", "the central market") is the city's place of
+   that kind: look it up as that ("<City> Cathedral", the name its page gives it; never another church or hall you
+   know better), unmarked, and the reply says which place was taken. A sight is never a board or a sign that only
+   carries its name: `uw add-point` refuses one (look the place up by its official name).
 2. **Train times**, if a timetable page answers it this turn: re-run `uw legs` with `--durations`/`--source`/
-   `--source-url`, then `uw plan … --force` (re-add the day texts). Copy the page's own number; a page that gives a
+   `--source-url`, then `uw plan …` again (each day keeps its own words). Copy the page's own number; a page that gives a
    range ("2 to 3 h") stays a range (`--durations "2h–3h"`), never a midpoint. The operator's timetable or journey
    planner first; a travel guide (Wikivoyage) only when none answers, with `--source "about, per <guide>"`. `legs`
    reads each page again and drops a time it does not state (it prints what the page says): copy that, or leave it.
@@ -153,9 +160,9 @@ nights>` and the commands that place them; run them before anything else (`refer
 never reply with the shorter route as if it were the trip. The researched sights and food (with the researcher's `why`) are
 on the map and in the plan, so the full days already say what they are for. Sights it lists as not on the map
 because the place lookup was unavailable come with their exact commands: run them, one per command (then, once each
-has finished, `uw plan … --force`), before the reply when the turn clock allows; a sight still not placed goes into
+has finished, `uw plan …` again), before the reply when the turn clock allows; a sight still not placed goes into
 its day's text with its source link. A full day never ships empty. Then act on the facts: a stop with full
-days and no researched sights gets 2-3 sourced ones a full day (Phase B step 1, then `uw plan … --force`); a far station: say
+days and no researched sights gets 2-3 sourced ones a full day (Phase B step 1, then `uw plan …` again); a far station: say
 where it is; a leg of about 100 km or more with a high-speed line at both ends: consider its HSR stations (`several-stops.md`
 step 2), with "no": conventional train, never mention HSR. Reword day texts with the printed facts where they add
 something, `uw validate --signal`, the preview (`several-stops.md` step 6), the reply. Without
@@ -179,17 +186,18 @@ open site in place; then `uw validate`, SKILL.md step 9, the reply.
   --strict-name --near <base lng,lat> --props-file - <<'JSON'`, then `{"stop":"<station id>","source_url":"https://…","source":"<site>"}`
   and `JSON` on their own lines (a day trip adds `--max-km 80`; put the page's reason in `"why"`), then into the day as `{"text": "…", "ref":
   {"layer": "food", "id": "…"}, "url": "…"}` and rewrite that day's text to include it. Many days at once:
-  `uw plan … --sights sights,food,daytrips --force` places them and rewrites the texts (hand edits are replaced).
+  `uw plan … --sights sights,food,daytrips` again places them and writes the texts (a day's own words stay: reword
+  each to name its new places).
   Prose items are only for how to get there.
 - A note for a day ("add a note to day 1: book the tickets ahead"): `uw set <site> plan:day1 --note "<the note>"`,
-  the day's own line under its text in the Plan tab (`--note ""` takes it off; `uw plan --force` keeps it). Never
+  the day's own line under its text in the Plan tab (`--note ""` takes it off; `uw plan`, run again, keeps it). Never
   on a place or the stop: their notes show on their cards, not in the day. No such day yet (no plan): say which day
   is short as `uw plan` names it, and offer to add a place there; never ask the person to add one.
 - When the ask is per base, per city or per day, check every one against it before replying, and say which got
   nothing and why.
 - The departure day keeps its plan text unless you have something sourced for it.
-- Moving a place to another day: move its item and reword both days' texts in the same edit (never `uw plan
-  --force` for it: it groups the days by area again, which undoes the move); `uw validate` says when a day's places
+- Moving a place to another day: move its item and reword both days' texts in the same edit (never `uw plan`
+  again for it: it groups the days by area again, which undoes the move); `uw validate` says when a day's places
   are far apart or one is nearer another day's.
 - Dropping a place, only when the person asks: `uw set <site> <layer>:<id> --remove` (one they named: `--unset asked
   --remove`), then remove its item and reword its day's text. Never remove a place the person named, or one pinned to
@@ -212,9 +220,13 @@ Write for the traveller, 5-8 short lines:
 1. The route with nights and dates, as `uw plan` prints it ("Route for the reply"; one stop: "Stay for the reply"):
    `<Stop> <nights> → <Stop> <nights> → … (<n> nights, <first date> – <last date>)`. The night split is part of the
    answer: always state it.
+   Several stops: each stop's days to see, as `uw plan` prints them ("Days to see at each stop"): "N days, D in each"
+   are D days with things to see in each city, so say the split, and why a stop has fewer ("<Stop>: one day to see,
+   <day> is the ride there").
    Check it against the stops asked for (step 0): one that is not on the map is named right after the route, with its
    nights and why ("<Stop> (2 nights) is not on the map yet: the place lookup was down; ask me to add it").
-2. The `Assumed:` line from step 0: only what you filled in, the dates too when the person gave none.
+2. The `Assumed:` line from step 0: only what you filled in, the dates too when the person gave none. A reply that
+   names a short day keeps it.
 3. Where to sleep: one stay per stop with its reason (name, walk to the station, and what a page said about it),
    e.g. `Porto: Hotel X (4 min walk from São Bento, quiet side street)`; where the base is not a walk from the
    station, say how far and how ("Taitung: Hotel Y, 6 km from the station: taxi or local bus"), as the plan does.
@@ -226,6 +238,9 @@ Write for the traveller, 5-8 short lines:
    as the last `uw plan` and `uw validate` name it ("<day> has nothing to see yet", "<day> has one place to see", "no
    days yet: <day> needs one more place", "<place> is not checked yet", "<place> you named is on no day"), never with
    a cause they do not give. Never ask the person to add a place: say which day is short and offer to add one.
+   Each short day is named in plain words, by its date and what it has ("Sun 22 Nov has one place to see: <place>"),
+   one `uw plan` kept too; never "the sights need pages of their own". A place the message named by its kind: say
+   which place was taken ("the cathedral: <its name>").
 6. `Sources:` in one line, as `uw validate` lists them ("Sources for the reply"): who publishes what the map cites
    (e.g. "OpenStreetMap, Wikipedia, the national park's site", a lodging register, a timetable), no other.
 7. `Unverified:` prices and availability (never checked), train times not sourced, anything `uw validate` lists as
