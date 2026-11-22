@@ -153,7 +153,7 @@ test('validate: a trip made without --expect fails while its only stay is an are
   assert.ok(stays, JSON.stringify(v.json.errors, null, 1));
   assert.equal(stays.message, 'places to stay: Seville (3 nights) has only the area Santa Cruz to stay in, and uw stay has not looked for any there');
   assert.equal(stays.file, 'data/stops.geojson');
-  assert.match(stays.fix, /^uw stay sv --near stays:santa-cruz-area --stop seville --kinds hotel \(hotels unless the person asked for hostels; reference\/itinerary\.md "One base" step 2\), then uw plan sv … --stays stays --force/);
+  assert.match(stays.fix, /^uw stay sv --near stays:santa-cruz-area --stop seville --kinds hotel \(hotels unless the person asked for hostels; reference\/itinerary\.md "One base" step 2\), then uw plan sv … --stays stays again: /);
   assert.match(stays.fix, /None found within 3000 m \(exit 2\): the area is the recommendation, its note from a page you read, and the reply says no place to stay was found near it\. Exit 4 \(the search was busy\): the reply says places to stay were not looked up yet$/);
   // the area's note says why to stay there, and no page said it
   const note = v.json.errors.find((e) => /^the area Santa Cruz/.test(e.message));
@@ -371,12 +371,12 @@ test('uw stay that takes the place of the area the days start at says to plan th
   const e = staysError(await uw(['validate', 'replan', '--json']));
   const r = await uw(stayCmd(e.fix));
   ok(r, 'the printed uw stay');
-  assert.match(r.out, /^These take the place of the area Santa Cruz \(stays:santa-cruz-area\), where the days started: plan them again, uw plan replan … --stays stays --force \(each day starts at the first stay\)\.$/m);
+  assert.match(r.out, /^These take the place of the area Santa Cruz \(stays:santa-cruz-area\), where the days started: plan them again, uw plan replan … --stays stays \(each day starts at the first stay\)\.$/m);
   // before that, validate names the same fix for the days' places that are gone, never "ids look like"
   const v = await uw(['validate', 'replan', '--json']);
   const gone = v.json.errors.filter((x) => /no feature "santa-cruz-area"/.test(x.message));
   assert.ok(gone.length >= 2, JSON.stringify(v.json.errors, null, 1));
-  for (const g of gone) assert.equal(g.fix, 'the days name a place no longer on the map: plan them again, uw plan replan … --force', JSON.stringify(g));
+  for (const g of gone) assert.equal(g.fix, 'the days name a place no longer on the map: plan them again, uw plan replan …', JSON.stringify(g));
 });
 
 test('validate: uw stay that found none counts once widened to its widest; the reply\'s words come from what it found', async () => {

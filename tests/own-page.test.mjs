@@ -402,7 +402,7 @@ test('validate: a day with nothing to see names the reader, uw cite on each plac
   const e = v.json.errors.find((x) => x.path === '$.plan.days');
   // the days show their places, marked not checked: not "nothing to see"
   assert.equal(e.message, '3 of 3 full days have no place checked on a page of its own: Mon 2 Nov · Seville (2 places not checked), Tue 3 Nov · Seville (1 place not checked), Wed 4 Nov · Seville (2 places not checked)');
-  assert.equal(e.fix, 'uw plan bare … --sights sights --force spreads the places already pinned over every day, the arrival day too: run it first when a stop has two places for each of its days. '
+  assert.equal(e.fix, 'uw plan bare … --sights sights again spreads the places already pinned over every day, the arrival day too: run it first when a stop has two places for each of its days. '
     + 'Else cite 2-3 places for each of those days in this turn, each from its own page (its own site from instafy web search "<its name>" --chain reference-search --json, else its Wikipedia article): uw cite <page> --grep "<its name>", never a browser card; '
     + 'then uw add-point bare --layer sights … with {"stop":…,"source_url":…}; the 5 places pinned with no page: uw set bare <layer>:<id> --props-file - with {"source_url":…,"source":…} '
     + '(reference/itinerary.md Phase B step 1), then run it; a place the lookup cannot pin goes on its day as {"text": "<name>", "url": "<its page>", "source": "<site>"}');

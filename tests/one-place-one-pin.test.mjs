@@ -352,7 +352,7 @@ test('validate: one place pinned twice is its own error, whose fix removes the l
   assert.equal(v.code, 1, v.out);
   const twice = v.json.errors.filter((e) => /pinned/.test(e.message));
   assert.deepEqual(twice.map((e) => [e.file, e.message]), [['data/sights.geojson', 'one place is pinned 2 times: Plaza de España (sights:plaza-espana, sights:espanola)']]);
-  assert.equal(twice[0].fix, 'one place, one pin: remove the later pin: uw set dupe sights:espanola --remove; then the days: uw plan dupe … --force in the turn that planned them, else remove its item from its day and reword that day\'s text; a day it leaves short takes another place, from its own page');
+  assert.equal(twice[0].fix, 'one place, one pin: remove the later pin: uw set dupe sights:espanola --remove; then the days: uw plan dupe … again in the turn that planned them, else remove its item from its day and reword that day\'s text; a day it leaves short takes another place, from its own page');
   assert.deepEqual(v.json.errors.filter((e) => /cite one page/.test(e.message)), [], 'one place is not "places that cite one page"');
   // as the fix says
   assert.equal((await uw(['set', site, 'sights:espanola', '--remove'])).code, 0);

@@ -534,7 +534,7 @@ test('buildPlan: dates, nights and travel days add up for the Taiwan loop; a 0-n
   assert.throws(() => buildPlan({ stops, nights: [3, 2], start: '2026-10-20' }), /--nights has 2 values for 7 stops/);
 });
 
-test('plan (CLI): writes a plan validate accepts, sums nights per stop, refuses to overwrite without --force; validate checks item links', async () => {
+test('plan (CLI): writes a plan validate accepts, sums nights per stop, replaces the days it wrote when run again; validate checks item links', async () => {
   // B is 10 km from A: passed through (0 nights), as two stays that close would be one city (refused below)
   const r = await uw(['plan', 'lg', '--stops', 'stops', '--ids', 'a,b,c,a', '--nights', '2,0,2,1', '--start', '2026-10-20', '--legs', 'trip', '--json']);
   assert.equal(r.code, 0, r.err);
@@ -544,9 +544,13 @@ test('plan (CLI): writes a plan validate accepts, sums nights per stop, refuses 
   assert.equal(byId(readFC('lg', 'stops')).a.properties.nights, 3, 'A: 2 + 1 nights over two visits');
   const v = await uw(['validate', 'lg']);
   assert.equal(v.code, 0, v.out + v.err);
-  const kept = await uw(['plan', 'lg', '--stops', 'stops', '--ids', 'a,c', '--nights', '1,1', '--start', '2026-10-20']);
-  assert.equal(kept.code, 1, 'existing plan kept');
-  assert.match(kept.err, /already has a "plan"/);
+  // run again, the command replaces the days it wrote by itself (no flag: its hints once named one, and a turn forced
+  // a plan it had been refused), and names none
+  const again = await uw(['plan', 'lg', '--stops', 'stops', '--ids', 'a,b,c,a', '--nights', '2,0,2,1', '--start', '2026-10-21', '--legs', 'trip']);
+  assert.equal(again.code, 0, again.out + again.err);
+  assert.doesNotMatch(again.out + again.err, /--force|already has a "plan"/);
+  assert.equal(cfgOf('lg').plan.days[0].title, 'Wed 21 Oct · A');
+  assert.equal((await uw(['plan', 'lg', '--stops', 'stops', '--ids', 'a,b,c,a', '--nights', '2,0,2,1', '--start', '2026-10-20', '--legs', 'trip'])).code, 0);
   const near = await uw(['plan', 'lg', '--stops', 'stops', '--ids', 'a,b', '--nights', '1,1', '--start', '2026-10-20', '--force']);
   assert.equal(near.code, 1, 'two stays 10 km apart are one city');
   assert.match(near.err, /These are places in one city \(A and B are 10 km apart\)/);

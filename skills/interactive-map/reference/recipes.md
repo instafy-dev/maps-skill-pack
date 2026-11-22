@@ -20,7 +20,7 @@ uw places S --layer cafes --kinds cafe --around hotels --radius 800
 #   Overpass busy: both come from the places chain's fallback ("From OpenStreetMap search (Photon) …", exit 0); other kinds exit 4 (go on)
 uw enrich S --layer hotels --route-to mrt --nearest mrt --count cafes          # walk_min_mrt, nearest_mrt_m, cafes_800m
 uw question S --kind choose-one --options hotels --criteria quiet_night_blocks:3,walk_min_mrt:2,noise_night_db:1,lively_night_blocks:0 \
-   --lenses sleep,night,move --lens sleep --ask "Which hotel for 3 quiet nights near the MRT?" --force
+   --lenses sleep,night,move --lens sleep --ask "Which hotel for 3 quiet nights near the MRT?"
 #   → walk_min_mrt now; quiet_night_blocks, noise_night_db, lively_night_blocks and the sleep/night lenses "pending".
 #   "NOTHING MEASURED YET SEPARATES THE OPTIONS" (e.g. only a café count, all 20+): too close to call; measure more
 uw fit S && uw validate S --signal && uw serve S --host 0.0.0.0 &                # preview link now

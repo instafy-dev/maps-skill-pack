@@ -201,10 +201,10 @@ test('the run\'s own sights, one lookup per command and one slow: plan and valid
   assert.equal(plan.code, 0, plan.out + plan.err);
   assert.equal(plan.json.still_running.length, 1, JSON.stringify(plan.json.still_running));
   assert.match(plan.json.still_running[0], /^uw add-point --layer sights --query "Casa de Pilatos" --country Spain --strict-name /);
-  assert.match(plan.json.next, /^Still running on this site: uw add-point --layer sights --query "Casa de Pilatos" .* \(\d+ s so far\)\. What it finds is not in this plan yet: wait until it has finished \(an exit code; never start it again\), then run this command again with --force\.$/);
+  assert.match(plan.json.next, /^Still running on this site: uw add-point --layer sights --query "Casa de Pilatos" .* \(\d+ s so far\)\. What it finds is not in this plan yet: wait until it has finished \(an exit code; never start it again\), then run this command again\.$/);
   const text = await uw(['validate', 'sv', '--signal']);
   assert.equal(text.code, 1, text.out);
-  assert.match(text.out, /^ERROR data\/: still running on this site: uw add-point --layer sights --query "Casa de Pilatos" .* \(\d+ s so far\); what it finds is not on the map yet\n {6}fix: wait until it has finished \(an exit code; never start it again\), then uw plan … --force \(its days take what was found\) and validate again$/m);
+  assert.match(text.out, /^ERROR data\/: still running on this site: uw add-point --layer sights --query "Casa de Pilatos" .* \(\d+ s so far\); what it finds is not on the map yet\n {6}fix: wait until it has finished \(an exit code; never start it again\), then uw plan … again \(its days take what was found\) and validate again$/m);
   const v1 = await uw(['validate', 'sv', '--json']);
   assert.ok(v1.json.errors.some((e) => /^still running on this site: uw add-point .*"Casa de Pilatos"/.test(e.message)), JSON.stringify(v1.json.errors, null, 1));
   // a lookup still running is not "Not found yet"
@@ -219,7 +219,7 @@ test('the run\'s own sights, one lookup per command and one slow: plan and valid
   const stale = await uw(['validate', 'sv', '--signal', '--json']);
   assert.equal(stale.code, 1, stale.out);
   assert.deepEqual(stale.json.errors.map((e) => e.message), ['on the map but in no day of the plan: Casa de Pilatos (pinned after the days were planned)']);
-  assert.match(stale.json.errors[0].fix, /^uw plan sv … --sights sights --force: /);
+  assert.match(stale.json.errors[0].fix, /^uw plan sv … --sights sights again: /);
   // planned again: nothing is named any more, and the days take it
   const again = await uw(['plan', 'sv', ...PLAN, '--force', '--json']);
   assert.equal(again.code, 0, again.out + again.err);
@@ -275,7 +275,7 @@ test('a plan made while a lookup still runs names it and writes the days as they
   assert.equal(p.code, 0, p.out + p.err);
   assert.equal(p.json.refused, undefined);
   assert.equal(p.json.still_running.length, 1, JSON.stringify(p.json.still_running));
-  assert.match(p.json.next, /^Still running on this site: uw add-point --layer sights --query "Museo del Baile Flamenco" .* \(\d+ s so far\)\. What it finds is not in this plan yet: wait until it has finished \(an exit code; never start it again\), then run this command again with --force\.$/);
+  assert.match(p.json.next, /^Still running on this site: uw add-point --layer sights --query "Museo del Baile Flamenco" .* \(\d+ s so far\)\. What it finds is not in this plan yet: wait until it has finished \(an exit code; never start it again\), then run this command again\.$/);
   assert.deepEqual(cfgOf(site).plan.days.map((d) => d.items.filter((it) => it.ref?.layer === 'sights').length), [1, 1, 1]);
   release(heldToo);
   const done = await slow;

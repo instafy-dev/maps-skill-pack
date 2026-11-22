@@ -3,6 +3,82 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.40 (2026-11-22)
+
+- **`uw plan` replaces the days it wrote by itself; nothing names `--force`.** A trip's turn ran the plan a third time
+  with `--force`, as the refused plan's own words, the check's fix line and the trip guide all said, and was refused
+  all the same. Run again, `uw plan` now replaces the days it wrote, draft or plan, with places to see or without:
+  each day keeps its note, and a day's own words (a text written over the one the command wrote: the plan keeps a
+  short hash of each, `"texts"`) stay on their day, named so the turn checks they still fit. The command's help, its
+  hints and refusal, `uw validate`'s fix lines (they name the move: "uw plan … again"), `uw stay`'s and `uw handoff`'s
+  hints, `SKILL.md`, the trip guides and the config reference no longer name the flag. `--force` is still taken by
+  `uw plan` (`uw handoff --apply` plans with it): it replaces a day's own words too, as it always did. `uw question`,
+  run again, replaces the question of its kind the same way (a question of another kind still takes `--force`).
+- **No day takes a third place while another has one.** A plan put three places on the arrival afternoon and one on
+  the last day, and the check failed that day. A stop's day with one place (or none that counts) now takes the nearest
+  place of a day with three or more: the places with their own page first, as the check counts them, then the others.
+  A move is made only when the day-places check would flag no place it did not flag before, on either day (more than
+  `near_km` from the day's other places while another day's are `closer_ratio` times nearer, or more than `far_km`
+  away), so the check never sends a moved place back: three places a few steps apart stay one day, an area a ride away
+  stays its own day, and the plan names the short one.
+- **The plan and its check say the same of a day with one place.** `uw plan` refused such a day every time while the
+  turn had time, and `uw validate` failed it, also once the turn had looked for more places, found none it could add,
+  and named the day in its reply. A refusal now says what the same command does next: once the turn has looked for
+  another place after it (`uw add-point` ran on one of the plan's layers: none found, or none with a page of its own),
+  run again with the same places it writes the days as they are and keeps the day, listed in the plan's `"kept"` (JSON
+  `kept_short`), a warning the reply names ("<day> has one place to see"); `uw validate` then warns of that day too,
+  by its name, and fails nothing for it. Run again with nothing looked for, it is refused as before (three places for
+  three days never pass by asking twice), and a full day with nothing to see is never kept while the turn has time.
+  The refusal's places are kept in the site's state folder, so a refused plan over days already on the map still
+  writes nothing to it.
+- **A trip of several stops says each stop's days to see, and the day a stop is reached is one after a short ride.**
+  "4 days in two cities, two in each" gave the second city one day: its first went to a train ride of under an hour,
+  and neither the plan nor the reply said so. `uw plan` now prints each stop's days to see against the nights the map
+  expects ("Days to see at each stop, against the nights the map expects: A 2 of 2 (…) · B 2 of 2 (…)"; JSON
+  `stop_days`). The day a later stop is reached is one of its days after a ride of at most `arrival_ride_max_min`
+  (plan-checks.json: 120 minutes, by the leg's own time, else the estimate from its length): it takes places once the
+  stop has two with their own page for each of its days, that day counted, and its text adds them ("Travel day; night
+  1 of 2 in B. Then: …"); until then the plan says how many the stop needs. After a longer ride the plan says the stop
+  has fewer days than expected, why, and what the reply says of it. Such a day is not one the check asks two places
+  of: nothing is refused or failed for it.
+- **One stop per city.** A two-city map held one city twice in its stops layer, as its station and, pinned by hand
+  after it, as the city itself, each with the stop's nights. `uw add-point` now refuses the city pinned beside its own
+  station, or again under another id (exit 2, `"already_a_stop"`, naming the stop that is there; `--replace` replaces
+  that stop and keeps its id), and `uw station` writes a station found for a city pinned as itself in that pin's
+  place: under its id, with its nights, and where it stood in the layer (the stops' order is the trip's). A
+  high-speed station passed through is still a stop of its own. lib/stops.mjs holds the rule.
+- **An id that is pinned has no "not found yet" entry.** A map listed a cathedral "Not found yet" beside its own pin:
+  a lookup under the pin's id hung, the place was pinned meanwhile under that id by another name, and the first
+  lookup, answered with nothing, listed it. A lookup that finds nothing under a pinned id now lists nothing and says
+  the id is on the map ("… is on the map under this id. Another place than "…"? Look it up under an id of its own."),
+  as `uw validate` has always judged it. Only a run with `--replace` on a pin that was there when it began (a wrong
+  match it was to replace) still lists the place.
+- **A sight is never a board or a sign that carries its name.** A parliament was pinned on the information board that
+  stands by it. On a sight's layer `uw add-point` now refuses a board or a sign (an information board, a guidepost, a
+  map board, an advertising board, a traffic sign) as it refuses a business named after the place, saying what it
+  found ("found an information board named "…" [information=board], not the sight "…""; JSON `refused: "named_after"`,
+  `found.kind: "sign"`), also when what else the search lists has the name only among other words (an office named
+  after it): the place is listed once as not found yet. `--pick N`, `--allow-mismatch` and a lookup that asks for a
+  board still take one, and so does any other layer. A visitor centre is a place people go to, as before.
+- **The trip guides say what a turn decides.** `reference/several-stops.md`: "N days, D in each" are D days with
+  things to see in each city, written as D nights a stop, and the reply says the split the plan prints; the places to
+  see are cited, then pinned, then planned (a plan with `--sights` before any place is pinned is refused); one stop
+  per city. `reference/itinerary.md` Phase B step 1: a place named by its kind ("the cathedral") is looked up as that
+  kind and the reply says which place was taken; a sight is never a board or a sign; a day refused with one place is
+  kept once more was looked for. Its "Reply" names each short day in plain words, by its date and what it has, keeps
+  the assumed dates beside it, and says each stop's days.
+- Tests: tests/plan-and-check-agree.test.mjs (a lookup that hung under a pin's id lists nothing, and the other order;
+  a board, a guidepost and a board beside an office named after the place refused for a sight, taken by a pick, by a
+  lookup that asks for a board and on another layer; a city refused beside its station and a station taking a city
+  pin's place; two days in each of two cities after a short ride, and what the plan says of a stop short of places and
+  after a long ride; the grouping's third place; a day refused, refused again with nothing looked for, kept once a
+  lookup found nothing, warned of by the check and filled later; a day with nothing never kept; a plan replaced with
+  no flag, a day's note and own words kept (days without places to see too), `--force` replacing them; no `--force` in
+  anything those commands print, in the help or in the guides; the guides' words). card-first, full-days, itinerary,
+  lookups-still-running, named-places-kept, one-base-first, one-base-trip, one-place-one-pin, own-page and
+  stays-and-day-notes follow the new words.
+- package.json, the manifest and the CHANGELOG are at 0.1.40.
+
 ## 0.1.39 (2026-11-20)
 
 - **Only a place the message names is marked as named; an area it names is a day's theme.** A trip's map ("3 days,

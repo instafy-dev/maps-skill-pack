@@ -13,6 +13,7 @@ import { walkTable } from './route-lookups.mjs';
 import { adapterFor } from '../adapters/lib/areas.mjs';
 import { expectOf } from './expect.mjs';
 import { isAreaPin, noteStaysLookedUp, STAY_RADIUS_MAX } from './stays.mjs';
+import { cityStopTwin } from './stops.mjs';
 
 export const helps = {
   station: `station <dir> --city "<city>" [--country <name|code>] [--near lng,lat] [--layer stations] [--id <slug>] [--kind rail|hsr]
@@ -27,7 +28,9 @@ export const helps = {
   nothing carries the city's name, the centre's local-language name is tried too.
   --nights N sets "nights" on the point (plan-route counts the nights per stop).
   Prints the pick and the alternatives; --pick N takes alternative N. Upserts by id (default: the city slug) into
-  data/<layer>.geojson (a layer written by station or add-point).`,
+  data/<layer>.geojson (a layer written by station or add-point).
+  One stop per city: where the city itself is pinned in that layer (uw add-point --kind city, when no station was
+  found), the station takes that pin's place under its id, with its nights; a high-speed station is a stop of its own.`,
   stay: `stay <dir> --near <layer:id | lng,lat> [--near-label "the centre of <City>"] [--stop <id>] [--layer stays] [--radius 800]
      [--max 3] [--kinds hotel,hostel,bnb] [--prefer hotel|any|bnb] [--min-rooms 10] [--source auto|tw|osm] [--json]
   Lodging near a station (or any place) ranked by walking time, with a one-line reason each, into data/<layer>.geojson.
@@ -94,8 +97,10 @@ export function rankStations(cands, { city, kind = 'rail', near = null, maxKm = 
   return kept;
 }
 
-// `ownersIf`: a layer another command wrote that this one may join when its features pass the test
-function upsertPoints(site, layer, feats, { cmd, owners, ownersIf = {}, replaceWhere }) {
+// `ownersIf`: a layer another command wrote that this one may join when its features pass the test. `replaceWhere`:
+// the features the new ones replace; `inPlace`: the first new one takes the first of those's place in the layer (a
+// stop's order is the trip's), else they go at the end
+function upsertPoints(site, layer, feats, { cmd, owners, ownersIf = {}, replaceWhere, inPlace = false }) {
   // read, merge and write under the site's write lock: another stop's command may write this layer at the same time
   return withSiteLock(site, () => {
     const p = layerPath(site, layer);
@@ -106,10 +111,13 @@ function upsertPoints(site, layer, feats, { cmd, owners, ownersIf = {}, replaceW
       if (owner && !owners.includes(owner) && !ownersIf[owner]?.(fc)) throw new UserError(`${layerRelPath(site, layer)} was written by "${owner}"; use another --layer (e.g. --layer ${cmd === 'stay' ? (layer === 'stays' ? 'hotels' : 'stays') : 'stations'}).`);
       if (!Array.isArray(fc.features)) fc.features = [];
     }
+    // (no feature before the first one replaced is removed, so its index is still where it stood)
+    let at = replaceWhere && inPlace ? fc.features.findIndex((f) => replaceWhere(f)) : -1;
     if (replaceWhere) fc.features = fc.features.filter((f) => !replaceWhere(f));
     for (const f of feats) {
       const i = fc.features.findIndex((x) => String(x?.properties?.id) === String(f.properties.id));
-      if (i >= 0) fc.features[i] = { ...f, properties: { ...fc.features[i].properties, ...f.properties } }; else fc.features.push(f);
+      if (i >= 0) fc.features[i] = { ...f, properties: { ...fc.features[i].properties, ...f.properties } };
+      else if (at >= 0) { fc.features.splice(at, 0, f); at = -1; } else fc.features.push(f);
     }
     fc.uw = { ...(fc.uw || {}), cmd: fc.uw?.cmd || cmd, updated_at: new Date().toISOString() };
     writeGeoJSON(p, fc);
@@ -282,18 +290,28 @@ export async function station(argv) {
   for (const k of Object.keys(props)) if (props[k] === undefined) delete props[k];
   const farLine = centreKm != null ? farFromCentreAdvice(city, centreKm, args.nights, centre.map(round6), args._[0], centreExtentKm) : null;
   const feat = { type: 'Feature', geometry: { type: 'Point', coordinates: c.coord.map(round6) }, properties: props };
-  const w = upsertPoints(site, layer, [feat], { cmd: 'station', owners: ['station', 'add-point'] });
+  // one stop per city (lib/stops.mjs): the city pinned as itself, where no station was found at first, gives way to its
+  // station, which takes that pin's id and its nights, so the days and the stays that name the stop still do (a map of
+  // two cities held one as its station and as the city, each with the stop's nights)
+  let twin = null;
+  try { twin = cityStopTwin(loadLayer(site, layer, { required: false })?.features || [], feat); } catch { /* a layer that cannot be read is named below */ }
+  if (twin) {
+    props.id = String(twin.properties.id);
+    if (args.nights == null && Number.isInteger(twin.properties.nights)) props.nights = twin.properties.nights;
+  }
+  const w = upsertPoints(site, layer, [feat], { cmd: 'station', owners: ['station', 'add-point'], ...(twin ? { replaceWhere: (f) => String(f?.properties?.id) === String(twin.properties.id), inPlace: true } : {}) });
+  const twinLine = twin ? `${layer}:${props.id} was ${city} pinned as the city itself: its station takes that pin's place, under its id (one stop per city).` : null;
   // an earlier lookup that failed listed the stop as "Not found yet" (handoff --apply's first pass): it is on the map now
-  forgetMissing(site, { layer, id, name: city, query: city });
+  forgetMissing(site, { layer, id: props.id, name: city, query: city });
   const reg = registerPoints(site, layer, { tier: 'support', style: { emoji: '🚉', color: '#475569' }, list: true });
   addAttribution(site, '© OpenStreetMap contributors (ODbL)');
   const fmt = (x, i) => `${i === idx ? '*' : ' '} ${i + 1}. ${x.name}${x.name_en && x.name_en !== x.name ? ` (${x.name_en})` : ''}${x.hsr ? ' [high-speed]' : ''} @ ${x.coord.join(',')}` +
     `${near ? ` (${(haversine(near, x.coord) / 1000).toFixed(1)} km from --near)` : ''} score ${x.score}`;
-  const partialNote = c.data_status === 'partial' ? partialLine(`${layer}:${id} ${c.name}`, c.data_reason || 'found by a fallback source', 'check the station on the map; re-run this station later for the full answer') : null;
+  const partialNote = c.data_status === 'partial' ? partialLine(`${layer}:${props.id} ${c.name}`, c.data_reason || 'found by a fallback source', 'check the station on the map; re-run this station later for the full answer') : null;
   if (partialNote) console.error(partialNote);
   out.result({ ok: true, ...(partialNote ? { status: 'partial', partial: partialNote } : { status: 'ok' }), layer, file: w.rel, feature: props, coord: feat.geometry.coordinates, candidates: ranked.slice(0, 5).map((x) => ({ name: x.name, name_en: x.name_en, coord: x.coord, score: x.score, hsr: x.hsr })), registered: reg },
-    [`Added ${layer}:${id} — ${props.emoji} ${c.name}${props.name_en ? ` (${props.name_en})` : ''} @ ${feat.geometry.coordinates.join(',')}${args.nights != null ? ` · ${args.nights} night(s)` : ''}`,
-      farLine,
+    [`Added ${layer}:${props.id} — ${props.emoji} ${c.name}${props.name_en ? ` (${props.name_en})` : ''} @ ${feat.geometry.coordinates.join(',')}${args.nights != null ? ` · ${args.nights} night(s)` : ''}`,
+      twinLine, farLine,
       ranked.length > 1 ? 'Alternatives (--pick N):' : null, ...(ranked.length > 1 ? ranked.slice(0, 5).map(fmt) : []), reg]);
   return 0;
 }
@@ -617,7 +635,7 @@ export async function stay(argv) {
   // is gone)
   const gave = gives != null ? { ref: `${layer}:${gives}`, name: anchor.feature.properties.name_en || anchor.feature.properties.name || gives } : null;
   const replan = gave ? planNames(site, layer, gives) : false;
-  const gaveLine = gave ? `These take the place of the area ${gave.name} (${gave.ref})${replan ? `, where the days started: plan them again, uw plan ${args._[0]} … --stays ${layer} --force (each day starts at the first stay)` : ''}.` : null;
+  const gaveLine = gave ? `These take the place of the area ${gave.name} (${gave.ref})${replan ? `, where the days started: plan them again, uw plan ${args._[0]} … --stays ${layer} (each day starts at the first stay)` : ''}.` : null;
   const reg = registerPoints(site, layer, { style: { emoji: '🏨' }, list: true });
   addAttribution(site, attribution);
   if (routed) addAttribution(site, 'Walking times: OSRM (FOSSGIS) on OpenStreetMap');

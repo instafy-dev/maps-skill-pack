@@ -64,7 +64,7 @@ Long commands: `--detach`, then `uw wait` (exit 75: again).
    Licences asked: where a lodging register covers the area (`uw adapter list --at <lng,lat>`), run it with
    `--layer hotels --records`.
 7. `uw question <site> --kind choose-one --options hotels --criteria calm_night:3,walk_min_mrt:2,cafes:1,calm_night_area:0
-   --lenses sleep,night,move --lens sleep --force`. Sleep = the door (`calm_night`, or `noise_night_db` when
+   --lenses sleep,night,move --lens sleep`. Sleep = the door (`calm_night`, or `noise_night_db` when
    measured; added if left out); the walk area (`calm_night_area`) is context. List everything you want: unmeasured
    criteria/lenses are "pending" and join on re-run. Letters follow the rank (A = best); the verdict is generated.
    "NOTHING MEASURED YET SEPARATES": say "too close to call so far"; run the step it names.

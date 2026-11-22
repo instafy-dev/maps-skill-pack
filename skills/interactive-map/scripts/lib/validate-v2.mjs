@@ -276,7 +276,7 @@ export function checkV2(ctx) {
       // letters follow the answer: under the starting lens, A should rank first (uw question writes options.ids in rank order)
       if (q.kind === 'choose-one' && (q.options?.letters ?? 'given') === 'given' && Array.isArray(q.options?.ids) && rankFirst) {
         const first = rankFirst(q);
-        if (first && first !== String(q.options.ids[0])) W(CFG, `${P}.options.ids`, `"${first}" ranks first${q.lens ? ` under "${q.lens}"` : ''} but is lettered ${'ABCDE'[q.options.ids.map(String).indexOf(first)] || '?'}: people read A as the pick`, 're-run uw question … --force (letters by rank), or set options.letters "given" on purpose');
+        if (first && first !== String(q.options.ids[0])) W(CFG, `${P}.options.ids`, `"${first}" ranks first${q.lens ? ` under "${q.lens}"` : ''} but is lettered ${'ABCDE'[q.options.ids.map(String).indexOf(first)] || '?'}: people read A as the pick`, 're-run uw question … (letters by rank), or set options.letters "given" on purpose');
       }
       if (q.budget !== undefined) checkBudget(q.budget, `${P}.budget`);
       const personas = lenses.filter((l) => l.persona).length;

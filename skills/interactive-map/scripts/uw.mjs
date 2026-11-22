@@ -145,7 +145,7 @@ Typical flow, fast first (coordinates only ever come from geocode output, never 
   uw.mjs places trip --layer mrt --kinds mrt_station --around hotels --radius 800
   uw.mjs places trip --layer cafes --kinds cafe --around hotels --radius 800
   uw.mjs enrich trip --layer hotels --route-to mrt --nearest mrt --count cafes
-  uw.mjs question trip --kind choose-one --options hotels --criteria quiet_night_blocks:3,walk_min_mrt:2,cafes:1 --force
+  uw.mjs question trip --kind choose-one --options hotels --criteria quiet_night_blocks:3,walk_min_mrt:2,cafes:1
   uw.mjs fit trip && uw.mjs validate trip --signal && uw.mjs serve trip     (background; post the link)
   Phase B (optional, one at a time; re-run the same question command after each; exit 4 = skipped, move on):
   uw.mjs snapshot trip --signal
