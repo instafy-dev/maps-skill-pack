@@ -688,6 +688,17 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
         W(CFG, '$.plan.days', `${gaps.empty} of ${gaps.full} full days are still empty ("Day in …", or only the arrival): a traveller gets nothing to do on them`, 'add 2-3 sourced sights a full day (reference/itinerary.md Phase B step 1), then uw plan … --sights sights again and one short sourced text per day');
       else if (!sightsAsked && gaps.full >= 2 && gaps.thin * 2 > gaps.full)
         W(CFG, '$.plan.days', `${gaps.thin} of ${gaps.full} full days have fewer than 2 sourced items: one sight a day is not a day worth following`, 'add sights until each full day has 2-3 with a source page (reference/itinerary.md Phase B step 1), then uw plan … --sights sights again');
+      // the day a later stop is reached after a short ride is one of its days to see once it has a place (uw plan
+      // prints "Days to see at each stop" and lists such days in "after_ride"): one with nothing on it is named, as the
+      // plan names it, so the reply says the split ("4 days, two in each" gave the second city one day to see, and
+      // the reply said two in each)
+      if (sightsAsked) for (const a of Array.isArray(cfg.plan?.after_ride) ? cfg.plan.after_ride : []) {
+        const d = typeof a?.day === 'string' ? days.find((x) => x?.title === a.day) : null;
+        if (!d || (Array.isArray(d.items) ? d.items : []).some((it) => (it?.asked === true || /^https?:\/\//.test(String(it?.url ?? ''))) && !/^Base: /.test(String(it?.text || '')))) continue;
+        const when = a.day.split(' · ')[0], stop = typeof a.stop === 'string' && a.stop.trim() ? a.stop : 'its stop';
+        W(CFG, '$.plan.days', `${when}, the day ${stop} is reached after a short ride, has nothing to see yet: ${stop} has one day to see fewer than its nights`,
+          `the reply says that split, as uw plan prints it ("${stop}: … to see, ${when} is the ride there"); while the turn has time, add places to see in ${stop} instead, two for each of its days, each from its own page, then uw plan ${args._[0]} … again`);
+      }
     }
   }
   // --- a trip: its stops with nights. A stop with nights on the map is a trip's, with "expect" or without it (a turn

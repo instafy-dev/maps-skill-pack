@@ -38,7 +38,7 @@ const SKILL = path.join(HERE, '..', 'skills', 'interactive-map');
 const UW = path.join(SKILL, 'scripts', 'uw.mjs');
 const lib = (name) => import(pathToFileURL(path.join(SKILL, 'scripts', 'lib', name)).href);
 const { haversine } = await lib('util.mjs');
-const { groupByArea, buildPlan } = await lib('cmd-plan.mjs');
+const { groupByArea, buildPlan, dayPlaceWarnings, stopDaysReport } = await lib('cmd-plan.mjs');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'uw-plan-check-'));
 
 // ---------------------------------------------------------------------------
@@ -47,6 +47,8 @@ const VERONA = [10.9916, 45.4384], VERONA_STATION = [10.9826, 45.429];
 const PADUA = [11.8768, 45.4064], PADUA_STATION = [11.8806, 45.4177];
 const NAPLES = [14.2681, 40.8518];
 const off = (c, dx, dy) => [Math.round((c[0] + dx / 78000) * 1e6) / 1e6, Math.round((c[1] + dy / 111000) * 1e6) / 1e6];
+// two villages a short walk apart (1.1 km), each a stop of its own, the second with a station
+const VALLENA = off(VERONA, 6000, 3000), SORIVO = off(VALLENA, 1000, 450);
 const hit = (c, osm, name, more = {}) => {
   const [osm_type, osm_id, osm_key, osm_value] = osm;
   return { type: 'Feature', geometry: { type: 'Point', coordinates: c }, properties: { osm_type, osm_id, osm_key, osm_value, name, city: 'Verona', county: 'Verona', state: 'Veneto', country: 'Italia', countrycode: 'IT', ...more } };
@@ -58,9 +60,11 @@ function answer(q, en, tags) {
   const country = en ? { country: 'Italy' } : {};
   const verona = hit(VERONA, ['R', 9001, 'place', 'city'], 'Verona', country);
   const padua = hit(PADUA, ['R', 9002, 'place', 'city'], en ? 'Padua' : 'Padova', { ...inPadua, ...country });
-  if (places) return q === 'Verona, Italy' ? [verona] : q === 'Padua, Italy' ? [padua] : [];
+  const village = (c, id, name) => hit(c, ['N', id, 'place', 'village'], name, { city: undefined, ...country });
+  if (places) return { 'Verona, Italy': [verona], 'Padua, Italy': [padua], 'Vallena, Italy': [village(VALLENA, 9003, 'Vallena')], 'Sorivo, Italy': [village(SORIVO, 9004, 'Sorivo')] }[q] || [];
   // the station of a city known by another name in English is found by its local name only
-  if (stations) return q === 'Verona' ? [hit(VERONA_STATION, ['N', 9101, 'railway', 'station'], 'Verona', country)] : q === 'Padova' ? [hit(PADUA_STATION, ['N', 9102, 'railway', 'station'], 'Padova', { ...inPadua, ...country })] : [];
+  if (stations) return q === 'Verona' ? [hit(VERONA_STATION, ['N', 9101, 'railway', 'station'], 'Verona', country)] : q === 'Padova' ? [hit(PADUA_STATION, ['N', 9102, 'railway', 'station'], 'Padova', { ...inPadua, ...country })]
+    : q === 'Sorivo' ? [hit(off(SORIVO, -150, -60), ['N', 9103, 'railway', 'station'], 'Sorivo', { city: undefined, ...country })] : [];
   if (tags.length) return [];
   return {
     Verona: [verona],
@@ -73,6 +77,20 @@ function answer(q, en, tags) {
       hit(off(VERONA, -150, 150), ['N', 9300, 'highway', 'bus_stop'], 'Parliament House'),
       hit(off(VERONA, -200, 150), ['N', 9301, 'information', 'board'], 'The Parliament House'),
       hit(off(VERONA, -260, 90), ['N', 9302, 'office', 'yes'], 'Parliament House Youth Forum'),
+    ],
+    // a sight's name on a bus stop and on a board only (the board was not the sight, and the stop was pinned instead)
+    'Parliament Hall, Verona': [
+      hit(off(VERONA, -150, -350), ['N', 9325, 'highway', 'bus_stop'], 'Parliament Hall'),
+      hit(off(VERONA, -200, -350), ['N', 9326, 'information', 'board'], 'The Parliament Hall'),
+    ],
+    // a sight listed beside its board: under its name without "The", and under a longer name that carries the query's
+    'The Old Senate, Verona': [
+      hit(off(VERONA, -200, 450), ['N', 9321, 'information', 'board'], 'The Old Senate'),
+      hit(off(VERONA, -230, 470), ['W', 9322, 'historic', 'building'], 'Old Senate'),
+    ],
+    'Archivio, Verona': [
+      hit(off(VERONA, 300, 600), ['N', 9323, 'information', 'board'], 'Archivio'),
+      hit(off(VERONA, 320, 620), ['W', 9324, 'tourism', 'museum'], "Museo dell'Archivio"),
     ],
     // a gate found on its board only, and a trail found on its guidepost
     'Roman Gate, Verona': [hit(off(VERONA, 400, -100), ['N', 9311, 'information', 'board'], 'Roman Gate')],
@@ -247,6 +265,35 @@ test('one stop per city: the city pinned beside its station is refused, naming t
   assert.deepEqual(layerOf(order, 'stations').map((f) => [f.properties.id, f.properties.kind]), [['padova', 'train_station'], ['verona', 'train_station']]);
 });
 
+test('two towns a short walk apart are two stops, whichever is pinned first; a city pinned at the point its station is looked up around is that stop', async () => {
+  // the first village pinned as itself (no station found for it), then the second by its station, 1.1 km away: two
+  // stops, each with its nights (one stop per city took the second village's station for the first's)
+  const site = 'villages';
+  await newMap(site, ['--expect', 'Vallena:2,Sorivo:2']);
+  const pinVillage = (s) => uw(['add-point', s, '--layer', 'stations', '--at', VALLENA.join(','), '--name', 'Vallena', '--kind', 'village', '--id', 'vallena', '--allow-far',
+    '--props', '{"nights":2,"station_of":"Vallena","no_station":true}']);
+  ok(await pinVillage(site));
+  const station = ok(await uw(['station', site, '--city', 'Sorivo', '--country', 'Italy', '--nights', '2']));
+  assert.match(station.out, /^Added stations:sorivo — 🚉 Sorivo /m);
+  assert.doesNotMatch(station.out + station.err, /pinned as the city itself/);
+  assert.deepEqual(layerOf(site, 'stations').map((f) => [f.properties.id, f.properties.kind, f.properties.nights]), [['vallena', 'village', 2], ['sorivo', 'train_station', 2]]);
+  // the other order: the station first, then the other village pinned as itself
+  const other = 'villages-b';
+  await newMap(other, ['--expect', 'Sorivo:2,Vallena:2']);
+  ok(await uw(['station', other, '--city', 'Sorivo', '--country', 'Italy', '--nights', '2']));
+  const village = ok(await pinVillage(other));
+  assert.doesNotMatch(village.err, /stop already/);
+  assert.deepEqual(layerOf(other, 'stations').map((f) => [f.properties.id, f.properties.kind]), [['sorivo', 'train_station'], ['vallena', 'village']]);
+  // a city pinned by hand at the very point its station is then looked up around, under a name the station's does not
+  // carry: one place, one stop
+  const same = 'same-point';
+  await newMap(same, ['--expect', 'Padua:2']);
+  ok(await uw(['add-point', same, '--layer', 'stations', '--at', PADUA.join(','), '--name', 'Patavium', '--kind', 'city', '--id', 'pd', '--allow-far', '--props', '{"nights":2,"no_station":true}']));
+  const late = ok(await uw(['station', same, '--city', 'Padua', '--country', 'Italy']));
+  assert.match(late.out + late.err, /stations:pd was Padua pinned as the city itself: its station takes that pin's place, under its id/);
+  assert.deepEqual(layerOf(same, 'stations').map((f) => [f.properties.id, f.properties.kind, f.properties.nights]), [['pd', 'train_station', 2]]);
+});
+
 // four places with their own page in each city, a short walk apart
 const CITY_SIGHTS = (c, stop, tag) => [[0, 0], [150, 80], [300, -60], [420, 140]].map(([dx, dy], i) => ({ id: `${tag}${i}`, name: `${tag.toUpperCase()} place ${i}`, at: off(c, dx, dy), stop }));
 const planTrip = (site, ids, more = []) => uw(['plan', site, '--stops', 'stations', '--ids', ids, '--nights', '2,2', '--start', '2026-12-04', '--sights', 'sights', ...more]);
@@ -254,18 +301,26 @@ const planTrip = (site, ids, more = []) => uw(['plan', site, '--stops', 'station
 test('a two-city trip has two days to see in each after a short ride, and the plan says so against the nights the map expects', async () => {
   const site = 'two-cities';
   for (const s of [...CITY_SIGHTS(VERONA, 'verona', 'v'), ...CITY_SIGHTS(PADUA, 'padova', 'p').slice(0, 2)]) ok(await pin(site, s));
-  // two places in the second city: its full day has both, and the day it is reached says what it would take
+  // two places in the second city: its full day has both, and the day it is reached, with nothing on it yet, is not
+  // one of its days to see (it was counted as one, and the reply said two in each): the plan says what that day would
+  // take and the split meanwhile, and the check names it too
   const two = ok(await planTrip(site, 'verona,padova', ['--json']));
   assert.deepEqual(cfgOf(site).plan.days.map((d) => d.title), ['Fri 4 Dec · Verona', 'Sat 5 Dec · Verona', 'Sun 6 Dec · Verona → Padua', 'Mon 7 Dec · Padua', 'Tue 8 Dec · Padua: depart']);
   assert.deepEqual(sightsOn(site), [2, 2, 0, 2, 0]);
-  assert.deepEqual(two.json.stop_days.map((s) => [s.stop, s.days, s.expected]), [['verona', 2, 2], ['padova', 2, 2]]);
+  assert.deepEqual(two.json.stop_days.map((s) => [s.stop, s.days, s.expected]), [['verona', 2, 2], ['padova', 1, 2]]);
+  assert.deepEqual(two.json.stop_days[1].nothing_yet, [{ title: 'Sun 6 Dec · Verona → Padua', has: 2, needs: 4 }]);
   const text = ok(await planTrip(site, 'verona,padova'));
-  assert.match(text.out, /^Days to see at each stop, against the nights the map expects: Verona 2 of 2 \(Fri 4 Dec, Sat 5 Dec\) · Padua 2 of 2 \(Sun 6 Dec, Mon 7 Dec\)\.$/m);
-  assert.match(text.out, /^Sun 6 Dec, the day Padua is reached \(a ride of about 1 h\), has no place to see yet: it takes places once Padua has 4 with a page of their own, two for each of its 2 days\.$/m);
+  assert.match(text.out, /^Days to see at each stop, against the nights the map expects: Verona 2 of 2 \(Fri 4 Dec, Sat 5 Dec\) · Padua 1 of 2 \(Mon 7 Dec\)\.$/m);
+  assert.ok(text.out.split('\n').includes('Sun 6 Dec, the day Padua is reached (a ride of about 1 h), has nothing to see yet, so Padua has 1 day to see of 2: it takes places once Padua has 4 with a page of their own, '
+    + 'two for each of its 2 days (it has 2). While the turn has time, add 2 more in Padua, each from its own page, then run this command again; else say that split in the reply ("Padua: 1 day to see, Sun 6 Dec is the ride there").'), text.out);
+  assert.deepEqual(cfgOf(site).plan.after_ride, [{ day: 'Sun 6 Dec · Verona → Padua', stop: 'Padua' }]);
+  const rideOf = (v) => v.json.warnings.filter((w) => / is reached after a short ride/.test(w.message)).map((w) => w.message);
+  assert.deepEqual(rideOf(await uw(['validate', site, '--signal', '--json'])), ['Sun 6 Dec, the day Padua is reached after a short ride, has nothing to see yet: Padua has one day to see fewer than its nights']);
   // four: two days in each, the day it is reached after the ride too
   for (const s of CITY_SIGHTS(PADUA, 'padova', 'p').slice(2)) ok(await pin(site, s));
   const four = ok(await planTrip(site, 'verona,padova', ['--json']));
   assert.deepEqual(sightsOn(site), [2, 2, 2, 2, 0]);
+  assert.deepEqual(rideOf(await uw(['validate', site, '--signal', '--json'])), []);
   assert.deepEqual(four.json.stop_days[1], { stop: 'padova', name: 'Padua', days: 2, expected: 2, on: ['Sun 6 Dec · Verona → Padua', 'Mon 7 Dec · Padua'], after_ride: ['Sun 6 Dec · Verona → Padua'] });
   const ride = cfgOf(site).plan.days[2];
   assert.match(ride.items[0].text, /^🚆 Verona → Padua · about 1 h by train \(estimate from \d+ km; check the timetable\)$/);
@@ -433,6 +488,100 @@ test('uw plan replaces the days it wrote by itself, keeping a day\'s note and it
   ok(await uw(['question', 'two-cities', '--kind', 'plan-route', '--options', 'stations']));
   const other = await uw(['question', 'two-cities', '--kind', 'explore']);
   assert.equal(other.code, 1, 'a question of another kind is not replaced unasked');
+});
+
+test('the day a stop is reached takes places only as days of two near each other that the check passes; else the plan names what that day still needs', () => {
+  const feat = (id, at, stop) => Object.assign({ type: 'Feature', geometry: { type: 'Point', coordinates: at }, properties: { id, name: id, stop, source_url: `https://www.${id}.example/` } }, { _layer: 'sights' });
+  const stops = [{ id: 'verona', layer: 'stations', coord: VERONA, props: { id: 'verona', name: 'Verona', kind: 'city' } }, { id: 'padova', layer: 'stations', coord: PADUA, props: { id: 'padova', name: 'Padua', kind: 'city' } }];
+  const first = [[0, 0], [100, 0], [0, 900], [100, 900]].map(([dx, dy], i) => feat(`a${i}`, off(VERONA, dx, dy), 'verona'));
+  const plan = (sights) => buildPlan({ stops, nights: [2, 2], start: '2026-12-04', sights });
+  const resolve = (sights) => (r) => sights.find((s) => s._layer === r.layer && s.properties.id === r.id)
+    || (() => { const s = stops.find((x) => x.layer === r.layer && x.id === r.id); return s ? { type: 'Feature', geometry: { type: 'Point', coordinates: s.coord }, properties: s.props } : null; })();
+  const report = (p) => stopDaysReport(p, { expected: [{ name: 'Verona', nights: 2 }, { name: 'Padua', nights: 2 }], propsOf: (id) => stops.find((s) => s.id === id)?.props, sightLayers: ['sights'] });
+  const counts = (p) => p.days.map((d) => d.items.filter((it) => it.ref?.layer === 'sights').length);
+  // six places in the second city: four a few steps apart, and two 4 km from them, a step from each other. Split over
+  // the day it is reached and the next, the two were on different days, and the check flagged each, sending them
+  // opposite ways: that day now keeps nothing, the check flags nothing, and the plan names the two
+  const pair = [...first, ...[[0, 0], [80, 40], [-60, 70], [40, -90]].map(([dx, dy], i) => feat(`x${i}`, off(PADUA, dx, dy), 'padova')),
+    feat('y0', off(PADUA, 4000, 0), 'padova'), feat('y1', off(PADUA, 4100, 60), 'padova')];
+  const split = plan(pair);
+  assert.deepEqual(dayPlaceWarnings(split, resolve(pair)), []);
+  assert.equal(counts(split)[2], 0);
+  const said = report(split);
+  assert.equal(said.lines[0], 'Days to see at each stop, against the nights the map expects: Verona 2 of 2 (Fri 4 Dec, Sat 5 Dec) · Padua 1 of 2 (Mon 7 Dec).');
+  assert.match(said.lines[1], /^Sun 6 Dec, the day Padua is reached \(a ride of about 1 h\), has nothing to see yet, so Padua has 1 day to see of 2: Padua's 6 places with a page of their own do not make 2 days of two near each other \(y0 and y1 lie apart from the others\)\. While the turn has time, add a place near y0 and y1, from its own page, then run this command again; else say that split in the reply \("Padua: 1 day to see, Sun 6 Dec is the ride there"\)\.$/);
+  // four, three a few steps apart and one a ride from them: the line names that one, never a count the stop has
+  const ride = [...first, ...[[0, 0], [120, 50], [60, -80]].map(([dx, dy], i) => feat(`b${i}`, off(PADUA, dx, dy), 'padova')), feat('b3', off(PADUA, 6000, 0), 'padova')];
+  const lone = report(plan(ride));
+  assert.match(lone.lines[1], /: Padua's 4 places with a page of their own do not make 2 days of two near each other \(b3 lies apart from the others\)\. While the turn has time, add a place near b3, from its own page, /);
+  assert.doesNotMatch(lone.lines.join('\n'), /once Padua has 4/);
+  // four a few steps apart: two days of two, the day it is reached one of them
+  const near = [...first, ...[[0, 0], [120, 50], [60, -80], [300, 100]].map(([dx, dy], i) => feat(`c${i}`, off(PADUA, dx, dy), 'padova'))];
+  const both = plan(near);
+  assert.deepEqual(counts(both), [2, 2, 2, 2, 0]);
+  assert.deepEqual(dayPlaceWarnings(both, resolve(near)), []);
+  assert.deepEqual(report(both).lines, ['Days to see at each stop, against the nights the map expects: Verona 2 of 2 (Fri 4 Dec, Sat 5 Dec) · Padua 2 of 2 (Sun 6 Dec, Mon 7 Dec).']);
+});
+
+test('a board never hides the sight beside it: a building of its name without "The", or a museum whose longer name carries it, is the sight', async () => {
+  const site = 'board-beside';
+  await newMap(site);
+  const senate = ok(await lookUp(site, 'sights', 'The Old Senate, Verona', 'senate', ['--strict-name']));
+  assert.deepEqual([senate.json.chosen.name, senate.json.chosen.type], ['Old Senate', 'historic=building']);
+  const archive = ok(await lookUp(site, 'sights', 'Archivio, Verona', 'archivio', ['--strict-name']));
+  assert.deepEqual([archive.json.chosen.name, archive.json.chosen.type], ["Museo dell'Archivio", 'tourism=museum']);
+  assert.equal(cfgOf(site).missing, undefined, 'nothing listed as not found');
+  assert.deepEqual(layerOf(site, 'sights').map((f) => [f.properties.id, f.properties.name]), [['senate', 'Old Senate'], ['archivio', "Museo dell'Archivio"]]);
+  // a stop of the sight's very name only serves it: beside its board, the board is what was found, and the lookup is
+  // refused, saying so
+  const hall = await lookUp(site, 'sights', 'Parliament Hall, Verona', 'hall', ['--strict-name']);
+  assert.equal(hall.code, 2, hall.out + hall.err);
+  assert.deepEqual(hall.json.found, { name: 'The Parliament Hall', type: 'information=board', kind: 'sign' });
+  assert.deepEqual(layerOf(site, 'sights').map((f) => f.properties.id), ['senate', 'archivio'], 'no bus stop pinned as the sight');
+  assert.deepEqual(cfgOf(site).missing.map((m) => [m.name, m.id]), [['Parliament Hall', 'hall']]);
+});
+
+test('a lookup that was to replace a pin and finds nothing lists the place by its name, the pin stays as it was, and the check passes', async () => {
+  const site = 'replace-none';
+  await newMap(site);
+  ok(await lookUp(site, 'sights', 'Duomo di Verona, Verona', 'duomo'));
+  const none = await lookUp(site, 'sights', 'Lost Tower, Verona', 'duomo', ['--replace', '--strict-name']);
+  assert.equal(none.code, 2, none.out + none.err);
+  assert.deepEqual(cfgOf(site).missing.map((m) => [m.name, m.id ?? null]), [['Lost Tower', null]]);
+  assert.match(none.err, /^Listed on the map as "not found yet" \(map\.config\.json "missing"\)\. By its name: sights:duomo \("Duomo di Verona"\) stays on the map under that id as it was, until a lookup under that id with --replace finds the place\. /m);
+  assert.deepEqual(layerOf(site, 'sights').map((f) => [f.properties.id, f.properties.name]), [['duomo', 'Duomo di Verona']]);
+  const v = await uw(['validate', site, '--json']);
+  assert.equal(v.code, 0, JSON.stringify(v.json?.errors ?? v.out, null, 1));
+  // pinned later under that id, by the name it was looked up by, the place takes its entry off
+  ok(await uw(['add-point', site, '--layer', 'sights', '--at', off(VERONA, 500, 500).join(','), '--name', 'Lost Tower', '--id', 'duomo']));
+  assert.equal(cfgOf(site).missing, undefined);
+});
+
+test('a plan that keeps no day texts (written before they were kept, or by hand) keeps a day\'s own words when planned again, and only those', async () => {
+  const site = 'old-plan';
+  await newBase(site);
+  for (const s of WALK.filter((x) => x.id !== 'b2')) ok(await pin(site, s));
+  ok(await planBase(site));
+  const older = (edit) => { const cfg = cfgOf(site); delete cfg.plan.texts; edit(cfg); fs.writeFileSync(path.join(tmp, site, 'map.config.json'), JSON.stringify(cfg, null, 2)); };
+  older((cfg) => { cfg.plan.days[1].text = 'Around the river: the old bridges.'; });
+  assert.match(cfgOf(site).plan.days[0].text, /^Arrive in Verona; night 1 of 3\. Then: /, 'the first day has places, after its arrival');
+  // another place: the days the command wrote take their new places, and day 2 keeps its own words, named
+  ok(await pin(site, WALK.find((x) => x.id === 'b2')));
+  const again = ok(await planBase(site, ['--json']));
+  assert.deepEqual(again.json.kept_texts, [2]);
+  assert.equal(cfgOf(site).plan.days[1].text, 'Around the river: the old bridges.');
+  assert.equal(cfgOf(site).plan.texts.length, 3, 'it keeps them now');
+  // other dates: no day is there any more; only the own words are named, none of the texts the command wrote
+  older(() => {});
+  const moved = ok(await uw(['plan', site, '--stops', 'stops', '--ids', 'verona', '--nights', '3', '--start', '2026-12-11', '--sights', 'sights']));
+  const lost = moved.out.split('\n').filter((l) => l.startsWith('Day texts of days this plan no longer has'));
+  assert.deepEqual(lost, ['Day texts of days this plan no longer has: day 2 "Around the river: the old bridges.". Put each on its day, or say it in the reply.']);
+  // a day added by hand to a plan that keeps texts has none kept for it: its words are named too, never dropped unseen
+  const cfg = cfgOf(site);
+  cfg.plan.days.push({ title: 'Mon 14 Dec · Verona', text: 'A last walk on the walls.', items: [] });
+  fs.writeFileSync(path.join(tmp, site, 'map.config.json'), JSON.stringify(cfg, null, 2));
+  const added = ok(await uw(['plan', site, '--stops', 'stops', '--ids', 'verona', '--nights', '3', '--start', '2026-12-11', '--sights', 'sights']));
+  assert.ok(added.out.split('\n').includes('Day texts of days this plan no longer has: day 4 "A last walk on the walls.". Put each on its day, or say it in the reply.'), added.out);
 });
 
 test('no hint, refusal, check or guide names --force for the plan', async () => {

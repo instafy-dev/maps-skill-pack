@@ -446,7 +446,11 @@ warning, for the reply to name); and while a place of those
 layers is in no day and not in `"unplaced"` (`uw plan` lists there the ones it put on no day: no room, or far from
 every stop); such a place was pinned after the days were planned, and `uw plan`, run again, places it.
 `uw plan` replaces the days it wrote by itself: each day keeps its `note`, and a `text` written over the one it wrote
-(`"texts"` keeps a short hash of each it wrote) stays on its day, named so the turn checks it still fits.
+(`"texts"` keeps a short hash of each it wrote; a plan without it: a text that is not one `uw plan` writes for that
+day) stays on its day, named so the turn checks it still fits.
+`"after_ride": [{"day": "<title>", "stop": "<name>"}]` (written by `uw plan --sights`) lists the days a later stop is
+reached after a short ride: one of that stop's days to see once it has a place; `uw validate` warns of one with none,
+for the reply to say the split.
 `"depart": true` marks the day after the last night of a trip of several stops (`uw plan` writes it; days in one
 place have none): nothing is planned on it, its row says "Departure", and the page's "N days" does not count it. A day's places should lie together: `uw validate` warns when
 one is far from the day's other places or nearer another day's (thresholds: `scripts/plan-checks.json`).

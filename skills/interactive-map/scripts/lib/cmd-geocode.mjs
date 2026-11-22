@@ -62,12 +62,15 @@ add-point <dir> --layer <id> --at lng,lat --name "Label" [...]     (only for coo
   candidate is taken, else it is refused, saying what it found (exit 2, "named_after": "found a hotel named …, not the
   sight …"). Nor is a board or a sign that only carries the place's name (an information board by it, a guidepost
   to it, an advertising board): refused the same way ("found an information board named …, not the sight …"), also
-  when what else the search lists has the name only among other words, unless the query or --kind asks for a board.
+  when what else the search lists is itself named after the place (a business, an office or a stop with the name
+  among other words) or only serves it (a stop of that very name), unless the query or --kind asks for a board; a
+  sight listed beside it is taken (a building of its name, a museum whose longer name carries it).
   Other layers (a listing's venues, a list of bars) take the business the query names.
   A place has one "not found yet" entry: one looked up again under another id or wording (with its city after its
   name: "<name> <city>") is kept on its first entry ("also"), and a pin of it under either takes it off. An id that
   is pinned has none: a lookup that finds nothing under a pinned id lists nothing (it says the id is on the map),
-  unless it ran with --replace on a pin that was there before it (a wrong match it was to replace).
+  unless it ran with --replace on a pin that was there before it (a wrong match it was to replace): the place is then
+  listed by its name, and that pin stays as it was (named).
   One stop per city: on a trip's stops layer the city pinned beside its own station (uw station), or pinned again
   under another id, is refused, naming the stop that is there (exit 2, "already_a_stop"; --replace replaces that stop
   and keeps its id). On a trip of
@@ -560,11 +563,12 @@ export async function addPoint(argv, turn = {}) {
     // out of time or unavailable (the search / Overpass busy or down): the place is still listed as "Not found yet", so the reply can say so
     if (isSkip(e) && ctx.site && ctx.args?.query) {
       const who = ctx.args.name || queryLabel(ctx.args.query);
-      const { listed, pinned, with: same } = noteMissing(ctx.site, { layer: ctx.layer, id: ctx.args.id, name: who, query: ctx.args.query,
+      const { listed, pinned, with: same, stays } = noteMissing(ctx.site, { layer: ctx.layer, id: ctx.args.id, name: who, query: ctx.args.query,
         tried: [...(ctx.tried || []), `${e.service || 'search'} (busy: skipped)`], replacing: ctx.replacing });
       // a place a pin already is is not listed (noteMissing): said as it is, never as listed
       if (pinned) e.kept = `nothing new: "${who}" is on the map already as ${pinned.layer}:${pinned.id}${pinned.names[0] && pinned.names[0] !== who ? ` ("${pinned.names[0]}")` : ''}`;
-      else if (listed) e.kept = same ? `"${who}" kept as "Not found yet" on the map, once, with "${same}" (the same place)` : `"${who}" listed as "Not found yet" on the map`;
+      else if (listed) e.kept = (same ? `"${who}" kept as "Not found yet" on the map, once, with "${same}" (the same place)` : `"${who}" listed as "Not found yet" on the map`)
+        + (stays ? `, by its name: ${stays.layer}:${stays.id} stays as it was` : '');
     }
     throw e;
   }
@@ -618,7 +622,7 @@ async function addPointRun(argv, ctx) {
   // a place that could not be added is listed on the map as "not found yet" (map.config.json "missing") until it is
   const refuse = (code, lines, json, place = null) => {
     const missName = args.name || queryLabel(args.query || '');
-    const { pinned, with: same } = noteMissing(site, { layer, id: args.id, name: missName, query: args.query, tried, place, replacing: ctx.replacing });
+    const { pinned, with: same, stays } = noteMissing(site, { layer, id: args.id, name: missName, query: args.query, tried, place, replacing: ctx.replacing });
     // a researched sight (--strict-name) ends on the trip guide's own rule, not only on another try: one sight tried
     // four times left the trip's other days without a sight. A place to stay is not a sight (`uw handoff` lists its
     // researched hotels itself)
@@ -634,7 +638,10 @@ async function addPointRun(argv, ctx) {
     const ownId = !!pinned && !!args.id && pinned.layer === layer && String(pinned.id) === String(args.id);
     const listLine = ownId ? `Not listed as "not found yet": ${pinned.layer}:${pinned.id}${pinned.names[0] ? ` ("${pinned.names[0]}")` : ''} is on the map under this id. Another place than "${missName}"? Look it up under an id of its own.`
       : pinned ? `Not listed as "not found yet": ${pinned.layer}:${pinned.id}${pinned.names[0] ? ` ("${pinned.names[0]}")` : ''} is that place, on the map already.`
-      : `${same ? `Listed on the map as "not found yet" once (map.config.json "missing"), with "${same}": the same place, looked up before.` : 'Listed on the map as "not found yet" (map.config.json "missing").'} In OpenStreetMap under another name (${elsewhere})? Pin that object under the ${args.id ? 'id and name' : 'name'} it was looked up by, which takes it off the list: ${pinAs(args, layer)}, with the same props.`;
+      : `${same ? `Listed on the map as "not found yet" once (map.config.json "missing"), with "${same}": the same place, looked up before.` : 'Listed on the map as "not found yet" (map.config.json "missing").'}`
+        // (the pin this run was to replace stays: the place is listed by its name, never beside that pin under its id)
+        + `${stays ? ` By its name: ${stays.layer}:${stays.id}${stays.names[0] ? ` ("${stays.names[0]}")` : ''} stays on the map under that id as it was, until a lookup under that id with --replace finds the place.` : ''}`
+        + ` In OpenStreetMap under another name (${elsewhere})? Pin that object under the ${args.id ? 'id and name' : 'name'} it was looked up by, which takes it off the list: ${pinAs(args, layer)}, with the same props.`;
     console.error([...lines, listLine, ...(next ? [next] : [])].join('\n'));
     return code;
   };
@@ -888,13 +895,18 @@ async function addPointRun(argv, ctx) {
         }
       }
     }
-    // A board or a sign carries the query's name, and what was chosen instead has it only among other words (an office
-    // "<Name> Youth …" beside the board "The <Name>"): the place itself is not among the candidates, and a longer name
-    // is another place. The board is what was found, and the lookup is refused below, saying so; --pick N takes a
-    // candidate that is the place
+    // A board or a sign carries the query's name, and what was chosen instead is itself named after the place: a
+    // business, an office or a stop whose name has the query's only among other words (an office "<Name> Youth …"
+    // beside the board "The <Name>"), or a stop, a platform or an entrance that only serves the place, whatever its
+    // name (the bus stop "<Name>" beside the board: a stop is chosen only for want of the place itself). The place
+    // itself is not among the candidates: the board is what was found, and the lookup is refused below, saying so;
+    // --pick N takes a candidate that is the place. A place of any other kind stays chosen (a building "<Name>" for
+    // "The <Name>", a museum "Galleria of <Name>" for "<Name>"): it is the sight, and the board beside it hides nothing
     if (chosen && !regUsed && args.pick === undefined && !chosen.named_after) {
       const sign = cands.filter((c) => c.named_after === 'sign' && reachable(c)).sort((a, b) => closeness(b) - closeness(a))[0];
-      if (sign && closeness(sign) >= 2 && closeness(chosen) < closeness(sign)) chosen = sign;
+      const serves = PART_TYPE.test(chosen.type || '') && !kindAsked(chosen, args.query, args.kind, extra.kind);
+      const namedAfter = namedAfterKind(chosen) && !nameWithinQuery(args.query, [chosen.name, chosen.name_en], area) && closeness(chosen) < closeness(sign || {});
+      if (sign && closeness(sign) >= 2 && (serves || namedAfter)) chosen = sign;
     }
     // the search's match missing, far, or unsure (no name match, wrong type, found only by a type search) → the registers
     const searchWeak = !chosen || tooFar(chosen) || chosen.name_match === false || chosen.type_ok === false || chosen.via === 'type search';
@@ -1267,7 +1279,10 @@ const siteArea = (site, cfg) => sitePins(site, cfg).area;
  *  under its id is never "that place". A place has one entry: one looked up again under another id or wording ("St
  *  Michael's Bridge Ghent" after "St Michael's Bridge, Ghent": the same name once the city it ends on is set aside,
  *  missing.mjs sameMissing) is kept on the first one's entry ("also"), whose pin takes it off.
- *  → { listed, pinned, with } (`pinned`: that pin, { layer, id, names }; `with`: the entry's name it was listed with). */
+ *  A run that was to replace the pin under its id (`replacing`) and found nothing lists the place by its name only:
+ *  that pin stays (`stays`), and an entry under its id would be on the map, as uw validate judges it.
+ *  → { listed, pinned, with, stays } (`pinned`: that pin, { layer, id, names }; `with`: the entry's name it was listed
+ *  with; `stays`: the pin under the run's id that stays as it was, { layer, id, names }). */
 export function noteMissing(site, { layer, id, name, query, tried = [], place = null, replacing = false }) {
   if (!site?.config || !name) return { listed: false, pinned: null, with: null };
   try {
@@ -1275,9 +1290,14 @@ export function noteMissing(site, { layer, id, name, query, tried = [], place = 
     const cfg = readJSON(site.cfgPath);
     const list = Array.isArray(cfg.missing) ? cfg.missing : [];
     const key = missKey(name);
+    const pins = sitePins(site, cfg, replacing ? { layer, id } : null);
+    // a run that was to replace the pin under its id found nothing to put there: that pin stays as it was, so the place
+    // is listed by its name, never under that id (an entry under a pinned id is on the map, as uw validate judges it:
+    // the entry stood beside the pin, and the check failed it, telling the turn to take the entry off)
+    const stays = replacing && id ? pins.find((p) => p.layer === layer && String(p.id) === String(id)) || null : null;
+    if (stays) id = null;
     const entry = { name, layer, ...(id ? { id } : {}), ...(query && query !== name ? { query } : {}),
       tried: [...new Set(tried)].length ? [...new Set(tried)] : [searchLabel()], at: new Date().toISOString().slice(0, 10), ...(place ? { place } : {}) };
-    const pins = sitePins(site, cfg, replacing ? { layer, id } : null);
     const k = list.findIndex((m) => m && ((id && m.id === id && m.layer === layer) || missKey(m.name) === key));
     // the same place's entry under another id or wording: this lookup is kept on it ("also", once), never listed a
     // second time
@@ -1299,7 +1319,7 @@ export function noteMissing(site, { layer, id, name, query, tried = [], place = 
     }
     writeJSON(site.cfgPath, cfg, { pretty: true });
     site.config = cfg;
-    return { listed: !pinned, pinned, with: same >= 0 && !pinned ? list[same].name : null };
+    return { listed: !pinned, pinned, with: same >= 0 && !pinned ? list[same].name : null, stays: !pinned ? stays : null };
     });
   } catch { /* the refusal itself matters more */ return { listed: false, pinned: null, with: null }; }
 }
@@ -1389,6 +1409,9 @@ const SIGN_WORD = { board: 'an information board', guidepost: 'a guidepost', map
 const signWord = (c) => (/^advertising=/.test(String(c?.type || '')) ? 'an advertising board' : /^information=/.test(String(c?.type || '')) ? SIGN_WORD[String(c.type).split('=')[1]] || 'a sign' : 'a sign');
 /** The kind of business a candidate is (lodging, food, shop), or null. */
 const businessOf = (c) => BUSINESS.find((b) => b.type.test(String(c?.type || '')))?.kind || null;
+/** Is a candidate of a kind that takes a place's name rather than being that place: a business, an office or another
+ *  organisation (an office, a club, a craft, a practice), a stop or a station, or a spot that stands in a place? */
+const namedAfterKind = (c) => { const t = String(c?.type || ''); return !!businessOf(c) || /^(office|club|craft|healthcare)=/.test(t) || TRANSIT_TYPE.test(t) || STANDS_IN.test(t); };
 /** What a refusal calls it: "a hotel", "a restaurant", "a shop". */
 const businessWord = (c) => BUSINESS_WORD[String(c?.type || '').split('=')[1]] || (/^shop=/.test(String(c?.type || '')) ? 'a shop' : 'a business');
 /** Does a sight's lookup ask for a business of this kind (businessOf's): its --kind (or the props' kind) or its query

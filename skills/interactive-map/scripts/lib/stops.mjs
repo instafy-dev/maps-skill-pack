@@ -17,14 +17,18 @@ const isCityStation = (p) => !isCityStop(p) && typeof p?.station_of === 'string'
 const cityNames = (p) => (isCityStop(p) ? [p.name, p.name_en, p.osm_name_en, p.station_of, p.looked_up_as] : [p.station_of]).map(fold).filter(Boolean);
 /** The city's own point as a stop knows it: a city's pin; a station's "centre_lnglat" (the centre `uw station` found). */
 const centreOf = (f) => (isCityStop(f?.properties) ? pointOf(f) : Array.isArray(f?.properties?.centre_lnglat) ? f.properties.centre_lnglat : null);
-/** Within this distance two centres are one city's (the same place search answer, or its point a few streets off). */
-const SAME_CENTRE_M = 2000;
+/** Within this distance two centres are one place's point: the same place search's answer (the centre `uw station`
+ *  looked the station up around, and the city pinned from that answer). Two towns or villages are never this close,
+ *  and two a short walk apart (villages 1 km apart on one coast) are two stops, each with its own nights: by their
+ *  names alone they are one city's only when a name of one is the other's. */
+const SAME_POINT_M = 150;
 /** A station is never this far from its city's pin, nor one city pinned twice (uw station looks within 20 km). */
 const FAR_APART_M = 40000;
 
 /** Are these two stops (features of one layer) one city's: the city itself and its station, or the city pinned twice?
  *  By name (a station's "station_of" is one of the city's names, its English one too: "Padua" for "Padova"), or by
- *  the city's own point (the centre `uw station` looked the station up around is the city's pin). Two stations are two
+ *  the city's own point (the centre `uw station` looked the station up around is the city's pin, the same point:
+ *  SAME_POINT_M; another town's centre a short walk away is another stop). Two stations are two
  *  stops, whatever their city (a station and a high-speed station out of town; a night by the airport). Only stops:
  *  one of them is a station of `uw station`, or both carry nights. */
 export function sameCityStop(a, b) {
@@ -40,7 +44,7 @@ export function sameCityStop(a, b) {
   const na = cityNames(pa), nb = cityNames(pb);
   if (na.some((n) => nb.includes(n))) return true;
   const ca = centreOf(a), cb = centreOf(b);
-  return !!ca && !!cb && haversine(ca, cb) <= SAME_CENTRE_M;
+  return !!ca && !!cb && haversine(ca, cb) <= SAME_POINT_M;
 }
 
 /** The stop in `features` that is the city of `feature` under another id (sameCityStop), or null. */
