@@ -277,7 +277,7 @@ test('a refused plan leaves the days as they are on a map with none, so a reply 
   assert.deepEqual(refused.json.short_days.map((d) => d.title), ['Fri 4 Dec · Porto', 'Sat 5 Dec · Porto', 'Sun 6 Dec · Porto']);
   // each day named, the short one as it is ("nothing to see yet"), for a reply that cannot wait
   assert.equal(refused.json.days_for_the_reply, 'Fri 4 Dec · Porto: nothing to see yet | Sat 5 Dec · Porto: Porto Cathedral | Sun 6 Dec · Porto: Clérigos Tower');
-  assert.match(refused.err, /^REFUSED: 3 of 3 full days would have fewer than 2 places to see with their own page \(a full day takes 2-3\): .*\. The days are on the map as they are for now: a draft, which this command replaces\.$/m);
+  assert.match(refused.err, /^REFUSED: 3 of 3 full days would have fewer than 2 places to see \(a full day takes 2-3\): .*\. The days are on the map as they are for now: a draft, which this command replaces\.$/m);
   // the last step before a reply: the Plan tab is there, each day on it
   const drafted = cfgOf(site).plan;
   assert.deepEqual(drafted.days.map((d) => d.title), ['Fri 4 Dec · Porto', 'Sat 5 Dec · Porto', 'Sun 6 Dec · Porto']);

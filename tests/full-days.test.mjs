@@ -185,7 +185,7 @@ test('a 3-day trip: uw plan refuses one sight a day while the turn has time, nam
   // place a day)
   const text = await plan(site, ['--sights', 'sights'], { json: false });
   assert.equal(text.code, 2);
-  assert.deepEqual(text.err.trim().split('\n'), ['REFUSED: 3 of 3 full days would have fewer than 2 places to see with their own page (a full day takes 2-3): Mon 2 Nov · Seville (1), Tue 3 Nov · Seville (1), Wed 4 Nov · Seville (1). The days are on the map as they are for now: a draft, which this command replaces.', ...next.split('\n')]);
+  assert.deepEqual(text.err.trim().split('\n'), ['REFUSED: 3 of 3 full days would have fewer than 2 places to see (a full day takes 2-3): Mon 2 Nov · Seville (1), Tue 3 Nov · Seville (1), Wed 4 Nov · Seville (1). The days are on the map as they are for now: a draft, which this command replaces.', ...next.split('\n')]);
   assert.doesNotMatch(text.err, /--per-day/);
 
   // as it says: three more places near the base, each with its own page; each full day has 2, and validate passes
@@ -257,7 +257,7 @@ test('with under ~3 minutes left the days are written as they are, and a day wit
   const text = await uw(['validate', site, '--signal'], { clock: hostClock(150) });
   assert.equal(text.code, 1);
   assert.match(text.out, /^ERROR map\.config\.json \$\.plan\.days: 3 of 3 full days have one place to see/m);
-  assert.match(text.err, /time: 2m3\ds used, about 5m[23]\ds left for tool work this turn\. 3 of 3 full days have fewer than 2 sourced sights\./);
+  assert.match(text.err, /time: 2m3\ds used, about 5m[23]\ds left for tool work this turn\. 3 of 3 full days have fewer than 2 places to see\./);
   // the turn budget off (UW_TURN_BUDGET=0, as a background job runs) is time to add places, not none
   const off = await uw(['validate', site, '--signal', '--json'], { env: { UW_TURN_BUDGET: '0' } });
   assert.equal(off.code, 1, off.out);
@@ -368,10 +368,10 @@ test('a plan made for one place a day still warns on each day with one place: ad
   const text = await uw(['validate', site, '--signal'], { clock: turn });
   assert.equal(text.code, 0, text.out + text.err);
   assert.match(text.out, /^warn  map\.config\.json \$\.plan\.days: 3 of 3 full days have one place to see/m);
-  assert.doesNotMatch(text.err, /fewer than 2 sourced sights/);
+  assert.doesNotMatch(text.err, /fewer than 2 places to see/);
   const gaps = emptyPlanDays(cfgOf(site).plan);
   assert.equal(gaps.thin, 0);
-  assert.doesNotMatch(clockAdvice(480, gaps, 480, { continuation: true }), /INSTAFY_TURN_CONTINUE_FILE|sourced sights/);
+  assert.doesNotMatch(clockAdvice(480, gaps, 480, { continuation: true }), /INSTAFY_TURN_CONTINUE_FILE|places to see/);
   // out of time in that turn, or in a later turn, nothing is said of those days: no reply offers to add places
   for (const clock of [hostClock(450), hostClock(0)]) {
     const quiet = await uw(['validate', site, '--signal', '--json'], { clock });
@@ -396,7 +396,7 @@ test('a plan made for one place a day still warns on each day with one place: ad
   const short = await plan(site, ['--stays', 'stays', '--sights', 'sights', '--per-day', '1'], { clock: turn });
   assert.equal(short.code, 2, short.out + short.err);
   assert.deepEqual([short.json.places_a_day, short.json.short_days.map((d) => d.places), short.json.add.map((a) => a.places)], [1, [0], [1]]);
-  assert.match(short.err, /^REFUSED: 1 of 3 full days would have no place to see with its own page \(one a day: --per-day 1\): /m);
+  assert.match(short.err, /^REFUSED: 1 of 3 full days would have no place to see \(one a day: --per-day 1\): /m);
 });
 
 test('while the place search is down, the plan writes the days as they are, and a day with one place takes a place the lookup cannot pin as a link on its day', async () => {

@@ -71,7 +71,7 @@ export function textNames(text, name) {
   if (/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(n)) return t.includes(n);
   return t.includes(` ${n} `);
 }
-const PROPS = ['name', 'name_en', 'osm_name_en', 'station_of', 'stop', 'id', 'title'];
+const PROPS = ['name', 'name_en', 'osm_name_en', 'station_of', 'station_of_local', 'station_of_en', 'stop', 'id', 'title'];
 /** Does a feature stand for the item: its id or stop is the item's slug (or starts with it: "hualien-hsr"), or one
  *  of its names names it. */
 export function featureNames(props, name) {
@@ -86,20 +86,40 @@ export function featureNames(props, name) {
   return PROPS.some((k) => typeof props[k] === 'string' && textNames(props[k], name));
 }
 
+/** Is a feature one of a trip's stops: a place with nights, a station of a city, or a city, town or village itself? */
+const isStopFeature = (p) => !!p && (Number.isInteger(p.nights) || typeof p.station_of === 'string' || /^(city|town|village|train_station|station)$/.test(String(p.kind ?? '')));
+/** An expected stop as the place it resolves to: the stops on the map that stand for it (featureNames), with every
+ *  name each goes by (its name and English name, the city a station is of and that city's local and English names,
+ *  the name it was looked up by) and their ids. "Sevilla:2" expected, and its stop the station "Sevilla - Santa Justa" of "Seville":
+ *  the days that name Seville are its days (a map failed its own check for "Sevilla" against its stop "Seville"). */
+export function resolveExpected(all, e) {
+  const stops = all.filter((f) => isStopFeature(f?.properties) && featureNames(f.properties, e.name));
+  const names = [e.name, ...stops.flatMap((f) => ['name', 'name_en', 'osm_name_en', 'station_of', 'station_of_local', 'station_of_en', 'looked_up_as'].map((k) => f.properties[k]))]
+    .filter((n) => typeof n === 'string' && n.trim());
+  return { stops, names: [...new Set(names)], ids: new Set(stops.map((f) => String(f.properties.id))) };
+}
+
 /** Which expected items the site leaves out. `featuresByLayer`: Map layer id → features. A plan (when there is one)
- *  must name the item too: a stop on the map that no day mentions is still missing from the itinerary.
- *  Resolves [{ name, nights?, on_map, in_plan }] for the items not covered. Pure; exported for the tests. */
+ *  must name the item too: a stop on the map that no day mentions is still missing from the itinerary. An item is
+ *  matched by the place it resolves to (resolveExpected): a day focused on that stop, or on a stay of it, or a day
+ *  whose words name it by any of its names. Resolves [{ name, nights?, on_map, in_plan }] for the items not covered.
+ *  Pure; exported for the tests. */
 export function uncovered(cfg, featuresByLayer, expect = expectOf(cfg)) {
   const all = [...featuresByLayer.values()].flat();
   const days = Array.isArray(cfg?.plan?.days) ? cfg.plan.days : null;
   const missingNames = new Set((Array.isArray(cfg?.missing) ? cfg.missing : []).map((m) => slugOf(m?.name)));
+  // which stop a feature a day is focused on belongs to (a stay's "stop")
+  const stopOf = new Map();
+  for (const [lid, feats] of featuresByLayer) for (const f of feats || []) if (f?.properties?.id != null) stopOf.set(`${lid}:${f.properties.id}`, f.properties.stop != null ? String(f.properties.stop) : null);
   const out = [];
   for (const e of expect) {
     const onMap = all.some((f) => featureNames(f?.properties, e.name));
+    const place = resolveExpected(all, e);
     const inPlan = !days || !days.length ? null : days.some((d) => {
-      const focus = d?.focus?.id != null && featureNames({ id: d.focus.id }, e.name);
+      const fid = d?.focus?.id != null ? String(d.focus.id) : null;
+      const focus = fid != null && (featureNames({ id: fid }, e.name) || place.ids.has(fid) || place.ids.has(String(stopOf.get(`${d.focus.layer}:${fid}`) ?? '')));
       const words = [d?.title, d?.text, ...(Array.isArray(d?.items) ? d.items.map((it) => it?.text) : [])].filter((x) => typeof x === 'string').join(' \n ');
-      return focus || textNames(words, e.name);
+      return focus || place.names.some((n) => textNames(words, n));
     });
     if (!onMap || inPlan === false) out.push({ ...e, on_map: onMap, in_plan: inPlan, not_found_yet: missingNames.has(slugOf(e.name)) });
   }

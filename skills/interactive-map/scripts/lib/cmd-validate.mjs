@@ -1,5 +1,5 @@
 // `validate`: check a site thoroughly; every message names file + JSON path + a fix.
-import { emptyPlanDays, isPlanSkeletonText, dayPlaceWarnings, dayPlaceLine, isDraft, planDraftAgain, draftAgainLine } from './cmd-plan.mjs';
+import { emptyPlanDays, isPlanSkeletonText, dayPlaceWarnings, dayPlaceLine, isDraft, planDraftAgain, draftAgainLine, seeLayersOf, NOT_CHECKED, counts } from './cmd-plan.mjs';
 import { pathToFileURL } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -16,6 +16,7 @@ import { cacheOff } from './net.mjs';
 import { isAreaPin, isPlaceToStay, stopIsAStay, staysLookedUp, lookedAsFarAsItGoes, STAY_RADIUS_MAX } from './stays.mjs';
 import { isLodging } from './registry-geo.mjs';
 import { missingPinned, pinOfFeature, areaWords } from './missing.mjs';
+import { askedLeftOut, askedArea, askedNameFix } from './asked.mjs';
 
 export const help = `validate <dir> [--signal] [--strict] [--expect "<stop>:<nights>,…"] [--json]
   Checks map.config.json (schema, enums, refs), every layer file (exists, valid GeoJSON, geometry fits the layer type,
@@ -28,7 +29,8 @@ export const help = `validate <dir> [--signal] [--strict] [--expect "<stop>:<nig
   --signal  the static clutter rules fail instead of warn: S5 (every visible layer says what it is), S6 (a criterion
             that ties on every option), S7 (labels without English; fails only with --strict), photo credits.
   A trip's stops: every stop with nights in map.config.json "expect" (uw handoff --apply writes the route there; uw new
-  --expect) and in --expect must be on the map and, when there is a plan, named by a day. One the request named and
+  --expect) and in --expect must be on the map and, when there is a plan, named by a day: by the place it resolves to
+  (a stop on the map that stands for it, by any name it goes by: "Sevilla" is the station of Seville). One the request named and
   the map leaves out is an error, whatever the reason (a lookup that timed out included): place it, or say plainly in
   the reply that it is missing. A stop with nights on the map is a trip's too, without "expect": it needs a plan, and
   places to stay from uw stay. An area (or any pin that is not lodging) as its only place to stay is an error until uw
@@ -42,9 +44,16 @@ export const help = `validate <dir> [--signal] [--strict] [--expect "<stop>:<nig
   that wrote them, once the places they were made of changed (one pinned since): the days it can, still a draft, each
   short day named, a day's own text kept ("Days planned again …"; JSON planned_again: days_for_the_reply, short,
   kept_texts).
+  The places the person named (map.config.json "asked", uw new --asked): each must be on the map (a pin of any layer
+  by one of its names) or listed as not found yet; one that is neither is an error naming the add-point to run.
+  A trip's plan: a full day with nothing to see fails; a place on a day that is not checked on a page of its own is a
+  warning (in the turn that planned the days) the reply names; a plan that names no layers of places to see fails
+  while every full day is empty and a place to see is pinned.
   Prints the sources the map cites, for the reply's Sources line ("Sources for the reply"; JSON
   sources_for_the_reply): who publishes each place's, leg's and day's page or data, and what the map shows with them
-  (a register's data or records, air quality, street photos), most cited first; no other.
+  (a register's data or records, air quality, street photos), most cited first; no other: the reply names only these.
+  Ends with "✓ <site> is valid" or, while errors stand, "not done: <its errors>": the reply's first line follows it,
+  never saying the map is set (JSON "status": "valid" or "not done").
   Exit 1 on errors, 0 when only warnings remain (--strict: warnings also fail).`;
 
 const LAYER_TYPES = ['points', 'lines', 'areas', 'grid', 'route', 'legs', 'heat'];
@@ -53,7 +62,7 @@ const GEOM_OK = {
   lines: ['LineString', 'MultiLineString'], route: ['LineString', 'MultiLineString'], legs: ['LineString'],
   areas: ['Polygon', 'MultiPolygon'], grid: ['Polygon', 'MultiPolygon'],
 };
-const TOP_KEYS = ['expect', 'version', 'locale', 'title', 'subtitle', 'view', 'basemap', 'time', 'vibe', 'air', 'layers', 'compare', 'plan', 'notes', 'votes', 'attribution', 'custom', 'css', 'theme', '$schema', 'description', ...V2_TOP_KEYS];
+const TOP_KEYS = ['expect', 'asked', 'version', 'locale', 'title', 'subtitle', 'view', 'basemap', 'time', 'vibe', 'air', 'layers', 'compare', 'plan', 'notes', 'votes', 'attribution', 'custom', 'css', 'theme', '$schema', 'description', ...V2_TOP_KEYS];
 // exactly the keys the engine reads (engine/layers.js); anything else is ignored with a console warning
 const LAYER_KEYS = ['id', 'title', 'type', 'data', 'style', 'label', 'group', 'visible', 'list', 'selectable', 'compare', 'card', 'cluster', 'linkedTo',
   'animate', 'weight', 'time', 'attribution', 'minzoom', 'maxzoom', 'legend', 'note', 'linkedIdle', ...V2_LAYER_KEYS];
@@ -642,19 +651,21 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       // turn asked for the browser instead (3 turns for one map), or cited a page a browser card had listed
       const citeOwn = `each from its own page (${OWN_PAGE_WAY}): uw cite <page> --grep "<its name>", never a browser card`;
       const pinTo = `uw add-point ${args._[0]} --layer ${sightsAsked ? sightLayers[0] : 'sights'} … with {"stop":…,"source_url":…}`;
-      // places pinned with no page count on no day: each gets its own page where it is
-      const unsourced = sightsAsked ? sightLayers.flatMap((id) => (featuresByLayer.get(id) || []).filter((f) => !/^https?:\/\//i.test(String(f?.properties?.source_url ?? '')))).length : 0;
-      const giveOwn = unsourced ? `; ${unsourced === 1 ? 'the place' : `the ${unsourced} places`} pinned with no page: uw set ${args._[0]} <layer>:<id> --props-file - with {"source_url":…,"source":…}` : '';
-      // a day whose places have no page of their own is not a day with nothing to see: the map shows them, marked not
-      // checked, so this says so and the reply says the same (a reply once told the person a day had nothing to see
-      // while the map showed three places on it)
-      const placesOn = (title) => { const d = days.find((x) => String(x?.title || '') === title); return (Array.isArray(d?.items) ? d.items : []).filter((it) => it?.ref && sightLayers.includes(it.ref.layer)).length; };
-      const unchecked = bareDays.some((t) => placesOn(t) > 0);
-      const bareList = (list) => `${list.slice(0, 4).map((t) => { const n = placesOn(t); return `${t} (${n ? `${n} ${n === 1 ? 'place' : 'places'} not checked` : 'nothing to see'})`; }).join(', ')}${list.length > 4 ? ' …' : ''}`;
+      // a place pinned with no page of its own is on its day, counted, marked not checked, as a place the person named
+      // is: a warning the reply names, never a day with nothing to see (a plan refused its days for two such places, the
+      // turn planned them again without them, and every day was empty). In the turn that planned the days; while it has
+      // time, each gets its own page. A later turn keeps the days as they are
+      const unchecked = sightsAsked && plannedThisTurn ? days.flatMap((d) => (Array.isArray(d?.items) ? d.items : [])
+        .filter((it) => it?.ref && sightLayers.includes(it.ref.layer) && it.check === NOT_CHECKED && !/^Base: /.test(String(it.text || '')))
+        .map((it) => ({ day: String(d?.title || '').split(' · ')[0], name: String(it.text || it.ref.id), ref: `${it.ref.layer}:${it.ref.id}` }))) : [];
+      if (unchecked.length) {
+        const list = [...new Map(unchecked.map((x) => [x.ref, x])).values()];
+        W(CFG, '$.plan.days', `${list.length === 1 ? '1 place' : `${list.length} places`} on the days ${list.length === 1 ? 'is' : 'are'} not checked on a page of ${list.length === 1 ? 'its' : 'their'} own: ${list.slice(0, 4).map((x) => `${x.name} (${x.day})`).join(', ')}${list.length > 4 ? ' …' : ''}`,
+          `the reply names ${list.length === 1 ? 'it' : 'each'} as not checked ("<place> is not checked yet"); while the turn has time, ${citeOwn}, then uw set ${args._[0]} ${list.length === 1 ? list[0].ref : '<layer>:<id>'} --props-file - with {"source_url":"<that page>","source":"<site>"} (its items in the days take that page; the days stay as they are)`);
+      }
       if (bareDays.length)
-        E(CFG, '$.plan.days', unchecked ? `${bareDays.length} of ${gaps.full} full days have no place checked on a page of its own: ${bareList(bareDays)}`
-          : `${bareDays.length} of ${gaps.full} full days have nothing to see (no sourced place): ${days4(bareDays)}`,
-          `uw plan ${args._[0]} … --sights ${sightLayers.join(',')} again spreads the places already pinned over every day, the arrival day too: run it first when a stop has two places for each of its days. Else cite 2-3 places for each of those days in this turn, ${citeOwn}; then ${pinTo}${giveOwn} (reference/itinerary.md Phase B step 1), then run it; ${notPinned}`);
+        E(CFG, '$.plan.days', `${bareDays.length} of ${gaps.full} full days have nothing to see (no sourced place): ${days4(bareDays)}`,
+          `uw plan ${args._[0]} … --sights ${sightLayers.join(',')} again spreads the places already pinned over every day, the arrival day too: run it first when a stop has two places for each of its days. Else cite 2-3 places for each of those days in this turn, ${citeOwn}; then ${pinTo} (reference/itinerary.md Phase B step 1), then run it; ${notPinned}`);
       // A plan made for one place a day (uw plan --per-day 1, only for a person who asked for that) is warned in the
       // turn that planned it: a turn whose days had one place each planned it so, with nobody asking, from this check's
       // own fix, and passed with six minutes left. Unless the person asked for one a day, the fix fills each day with
@@ -666,7 +677,7 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       const [baseLayer, baseId] = bases.length === 1 && bases[0] ? bases[0].split('\u0000') : [];
       const basePt = baseLayer ? (featuresByLayer.get(baseLayer) || []).find((f) => String(f?.properties?.id) === baseId && f?.geometry?.type === 'Point')?.geometry.coordinates : null;
       const nearBase = Array.isArray(basePt) && basePt.length >= 2 && basePt.every(Number.isFinite) ? basePt.slice(0, 2).map((x) => +x.toFixed(6)).join(',') : "<that day's base lng,lat>";
-      const addNearBase = `add one or two places near the base to each of those days, rather than spreading the places you have one a day: ${citeOwn}; then uw add-point ${args._[0]} --layer ${sightsAsked ? sightLayers[0] : 'sights'} --near ${nearBase} … with {"stop":…,"source_url":…}, one place per command${giveOwn} (reference/itinerary.md Phase B step 1), then uw plan ${args._[0]} … --sights ${sightsAsked ? sightLayers.join(',') : 'sights'} again${oneADay ? ' (without --per-day 1)' : ''}; ${notPinned}`;
+      const addNearBase = `add one or two places near the base to each of those days, rather than spreading the places you have one a day: ${citeOwn}; then uw add-point ${args._[0]} --layer ${sightsAsked ? sightLayers[0] : 'sights'} --near ${nearBase} … with {"stop":…,"source_url":…}, one place per command (reference/itinerary.md Phase B step 1), then uw plan ${args._[0]} … --sights ${sightsAsked ? sightLayers.join(',') : 'sights'} again${oneADay ? ' (without --per-day 1)' : ''}; ${notPinned}`;
       // The plan and this check say the same of a day with one place. uw plan refuses it once, naming where to add
       // places; run again with the same places (the turn found none to add), it keeps the day and lists it ("kept"),
       // a warning the reply names. So it is a warning here too: a turn was refused three times for one such day, replied
@@ -684,6 +695,14 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       else if (newOnes.length && !bareDays.length && !oneADay)
         W(CFG, '$.plan.days', `${newOnes.length} of ${gaps.full} full days have one place to see: ${days4(newOnes)}`,
           `${plannedThisTurn ? 'too little time is left to add places in this turn' : 'the days were planned in an earlier turn: keep what the person changed'}; the reply names these days and offers to add places to them`);
+      // a plan that names no layers of places to see (one made without --sights, by hand, or by an older pack) whose full
+      // days are all empty while the map has places pinned to see: they were left off the days (a turn planned its days
+      // again without --sights to get past a refusal, and the check passed its three empty days)
+      const seeing = !sightsAsked ? seeLayersOf({ config: cfg }, { featuresOf: (id) => featuresByLayer.get(id) || [] }) : [];
+      const toSee = seeing.flatMap((id) => (featuresByLayer.get(id) || []).filter((f) => f?.properties?.id != null).map((f) => String(f.properties.name_en || f.properties.name || f.properties.id)));
+      if (toSee.length && gaps.full >= 1 && gaps.bare.length === gaps.full)
+        E(CFG, '$.plan.days', `every full day of the plan is empty while ${toSee.length === 1 ? 'a place' : `${toSee.length} places`} to see ${toSee.length === 1 ? 'is' : 'are'} pinned: ${toSee.slice(0, 4).join(', ')}${toSee.length > 4 ? ' …' : ''}`,
+          `uw plan ${args._[0]} … again puts them on their days (a trip's plan takes the map's ${seeing.join(', ')} layer${seeing.length === 1 ? '' : 's'}: --sights ${seeing.join(',')}); never leave them off the days`);
       else if (!sightsAsked && gaps.full >= 2 && gaps.empty * 2 > gaps.full)
         W(CFG, '$.plan.days', `${gaps.empty} of ${gaps.full} full days are still empty ("Day in …", or only the arrival): a traveller gets nothing to do on them`, 'add 2-3 sourced sights a full day (reference/itinerary.md Phase B step 1), then uw plan … --sights sights again and one short sourced text per day');
       else if (!sightsAsked && gaps.full >= 2 && gaps.thin * 2 > gaps.full)
@@ -694,7 +713,8 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       // the reply said two in each)
       if (sightsAsked) for (const a of Array.isArray(cfg.plan?.after_ride) ? cfg.plan.after_ride : []) {
         const d = typeof a?.day === 'string' ? days.find((x) => x?.title === a.day) : null;
-        if (!d || (Array.isArray(d.items) ? d.items : []).some((it) => (it?.asked === true || /^https?:\/\//.test(String(it?.url ?? ''))) && !/^Base: /.test(String(it?.text || '')))) continue;
+        // (a place on it counts as uw plan counts it: with its page, named by the person, or pinned with no page, not checked)
+        if (!d || (Array.isArray(d.items) ? d.items : []).some(counts)) continue;
         const when = a.day.split(' · ')[0], stop = typeof a.stop === 'string' && a.stop.trim() ? a.stop : 'its stop';
         W(CFG, '$.plan.days', `${when}, the day ${stop} is reached after a short ride, has nothing to see yet: ${stop} has one day to see fewer than its nights`,
           `the reply says that split, as uw plan prints it ("${stop}: … to see, ${when} is the ride there"); while the turn has time, add places to see in ${stop} instead, two for each of its days, each from its own page, then uw plan ${args._[0]} … again`);
@@ -811,6 +831,19 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       .some((f) => (m.id && String(f?.properties?.id) === String(m.id)) || featureNames(f?.properties, m.name)) || !!missingPinned(m, pins, area)));
     if (stale.length) E(CFG, '$.missing', `listed as not found yet but on the map: ${stale.map((m) => m.name).join(', ')}`,
       `remove ${stale.length > 1 ? 'these entries' : 'the entry'} from "missing" in ${CFG} (the page shows that list as "Not found yet")`);
+  }
+
+  // --- the places the person named (uw new --asked): each is on the map or listed as not found yet. A trip's map lost
+  // the castle its message named: its pin was joined to a refused page with && and never ran, and nothing said so
+  if (cfg.asked !== undefined && !Array.isArray(cfg.asked)) E(CFG, '$.asked', 'asked must be an array of { "name", "at" } (uw new --asked writes it)', 'uw new … --asked "<place>, …"');
+  const leftOut = askedLeftOut(cfg, featuresByLayer, askedArea(cfg, nightStops.flatMap((s) => [s.pr.name, s.pr.name_en, s.pr.station_of, s.pr.station_of_local, s.pr.station_of_en])));
+  if (leftOut.length) {
+    const city = expectOf(cfg).length === 1 ? expectOf(cfg)[0].name : '<city>';
+    const q = (n) => `uw add-point ${args._[0]} --layer sights --query "${n.replace(/(["\\$`])/g, '\\$1')}, ${city}" --strict-name --near <lng,lat> --props-file - with {"asked":true${nightStops.length ? ',"stop":"<stop id>"' : ''}}`;
+    E(CFG, '$.asked', `${leftOut.length === 1 ? 'a place' : `${leftOut.length} places`} the person named ${leftOut.length === 1 ? 'is' : 'are'} neither on the map nor listed as not found yet: ${leftOut.map((a) => a.name).join(', ')}`,
+      `pin ${leftOut.length === 1 ? 'it' : 'each'} first, in a command of ${leftOut.length === 1 ? 'its' : 'their'} own (never after && behind uw cite: a refused page skips the pin): ${leftOut.slice(0, 3).map((a) => q(a.name)).join('; ')}`
+        + ` (its layer: sights for a place to see, food, stays…; a page that cannot be read leaves it pinned with no page, not checked). One the lookup cannot find is listed as not found yet, which passes.`
+        + ` On the map already under another name (its local name)? Name that pin so: ${askedNameFix(args._[0], '<its layer>:<its id>', leftOut.length === 1 ? leftOut[0].name : undefined)}`);
   }
 
   if (cfg.notes !== undefined) {
@@ -1064,11 +1097,17 @@ function shownWith(dir, cfg, featuresByLayer) {
   return { metrics: read('data/metrics.json')?.metrics ?? null, records, air: typeof air === 'string' ? air : null, photos: typeof photos === 'string' ? photos : null };
 }
 
+/** What is not done, in a line: each error's message, the first four, clipped (a later one counted). */
+function notDone(list) {
+  const clip = (m) => { const t = String(m?.message || '').replace(/\s+/g, ' ').trim(); return t.length > 160 ? `${t.slice(0, 157).replace(/\s+\S*$/, '')} …` : t; };
+  return `${list.slice(0, 4).map(clip).join('; ')}${list.length > 4 ? `; and ${list.length - 4} more` : ''}`;
+}
+
 function report(out, args, dir, errors, warnings, sources = null, replanned = null) {
   const fail = errors.length > 0 || (args.strict && warnings.length > 0);
   const named = sources?.length ? sources.join(', ') : null;
   if (out.json) {
-    process.stdout.write(JSON.stringify({ ok: !fail, errors, warnings, ...(replanned ? { planned_again: replanned } : {}), ...(named ? { sources_for_the_reply: named } : {}) }, null, 2) + '\n');
+    process.stdout.write(JSON.stringify({ ok: !fail, status: fail ? 'not done' : 'valid', errors, warnings, ...(replanned ? { planned_again: replanned } : {}), ...(named ? { sources_for_the_reply: named } : {}) }, null, 2) + '\n');
   } else {
     const line = (m) => `${m.level === 'error' ? 'ERROR' : 'warn '} ${m.file}${m.path ? ' ' + m.path : ''}: ${m.message}${m.fix ? `\n      fix: ${m.fix}` : ''}`;
     // the draft's days, planned again with the places pinned since: what the map's Plan tab has now
@@ -1081,6 +1120,9 @@ function report(out, args, dir, errors, warnings, sources = null, replanned = nu
     // not have, seconds after this line)
     console.log(fail ? `✗ ${errors.length} error(s), ${warnings.length} warning(s). Fix the errors and run validate again. A reply sent while they stand says plainly what they leave undone, never that the map is done.`
       : `✓ ${path.basename(dir)} is valid${warnings.length ? ` (${warnings.length} warning(s))` : ''}.`);
+    // the last line is what the map is: "valid" above, or what is not done, which the reply's first line follows (a
+    // reply opened "the plan and map are set" over two errors)
+    if (fail) console.log(`not done: ${notDone(errors.length ? errors : warnings)}. The reply's first line says what is not done, never that the map is set or done.`);
   }
   return fail ? 1 : 0;
 }

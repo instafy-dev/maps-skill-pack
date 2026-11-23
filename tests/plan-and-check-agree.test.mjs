@@ -614,8 +614,8 @@ test('the trip guides say what a turn decides: the split of days, cite then pin 
   assert.match(stops, /then `uw plan … --ids <every stop> --nights …` again \(it replaces the days it wrote\)\./);
   const step1 = itinerary.slice(itinerary.indexOf('1. **Sights with sources'), itinerary.indexOf('2. **Train times**'));
   assert.match(step1, /Refused for a day with one place: run the same command again once you looked for more and none could be added; it keeps that day, a warning there and in `uw validate`, which the reply names\./);
-  assert.match(step1, /Cite, then pin, then plan: a place pinned with no page counts on no day, and `uw plan --sights` before the places are pinned is refused\./);
-  assert.match(step1, /A place named by its kind \("the cathedral", "the central market"\) is the city's place of that kind: look it up as that \("<City> Cathedral", the name its page gives it; never another church or hall you know better\), unmarked, and the reply says which place was taken\./);
+  assert.match(step1, /Cite, then pin, then plan: a place pinned with no page is on its day as it is, marked not checked \(the reply says so\), and `uw plan --sights` before the places are pinned is refused\./);
+  assert.match(step1, /A place named by its kind \("the cathedral", "the central market"\) is the city's place of that kind: look it up as that \("<City> Cathedral", the name its page gives it; never another church or hall you know better\), unmarked, and the reply names the place taken and what it is \("the main market: the Alcaicería, a bazaar street"\)\./);
   assert.match(step1, /A sight is never a board or a sign that only carries its name: `uw add-point` refuses one \(look the place up by its official name\)\./);
   const reply = itinerary.slice(itinerary.indexOf('## Reply'));
   assert.match(reply, /Several stops: each stop's days to see, as `uw plan` prints them \("Days to see at each stop"\): "N days, D in each" are D days with things to see in each city, so say the split, and why a stop has fewer \("<Stop>: one day to see, <day> is the ride there"\)\./);

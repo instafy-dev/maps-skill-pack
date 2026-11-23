@@ -17,7 +17,7 @@ export function clockAdvice(t, gaps, budgetS = 480, { continuation = false } = {
   const parts = [`time: ${mmss(t)} used, about ${mmss(left)} left for tool work this turn.`];
   if (gaps && gaps.full >= 1) {
     if (gaps.empty) parts.push(`${gaps.empty} of ${gaps.full} full days are still empty.`);
-    else if (gaps.thin) parts.push(`${gaps.thin} of ${gaps.full} full days have fewer than 2 sourced sights.`);
+    else if (gaps.thin) parts.push(`${gaps.thin} of ${gaps.full} full days have fewer than 2 places to see.`);
   }
   if (!left) {
     parts.push(continuation && gaps && (gaps.empty || gaps.thin)

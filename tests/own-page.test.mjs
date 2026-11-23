@@ -389,22 +389,24 @@ test('an area to stay in that says why is refused a page that does not name it, 
   assert.deepEqual(pageMsgs(await uw(['validate', site, '--json'])), [`the area Santa Cruz (stays:santa-cruz) says why to stay there ("Area to stay in: quiet lanes near the sights.") but cites a page that does not name it (${advice})`]);
 });
 
-test('validate: a day with nothing to see names the reader, uw cite on each place\'s own page in this turn, never a browser card', async () => {
+test('validate: a day with nothing to see names the reader, uw cite on each place\'s own page in this turn, never a browser card; a place with no page counts on its day', async () => {
   const site = 'bare';
   await newTrip(site);
-  // pinned with no page, as the first turn did; the plan written with too little time left to add places (with more,
-  // it refuses days with fewer than two places that have their own page)
-  for (const s of SIGHTS.slice(0, 5)) assert.equal((await pin(site, { ...s, page: null })).code, 0);
+  // two places pinned with no page, as the first turn did; the plan written with too little time left to add places
+  // (with more, it refuses days with fewer than two places)
+  for (const s of SIGHTS.slice(0, 2)) assert.equal((await pin(site, { ...s, page: null })).code, 0);
   assert.equal((await plan(site)).code, 2);
   assert.equal((await plan(site, { clock: hostClock(450) })).code, 0);
   const v = await uw(['validate', site, '--json']);
   assert.equal(v.code, 1, v.out);
-  const e = v.json.errors.find((x) => x.path === '$.plan.days');
-  // the days show their places, marked not checked: not "nothing to see"
-  assert.equal(e.message, '3 of 3 full days have no place checked on a page of its own: Mon 2 Nov · Seville (2 places not checked), Tue 3 Nov · Seville (1 place not checked), Wed 4 Nov · Seville (2 places not checked)');
+  const e = v.json.errors.find((x) => x.path === '$.plan.days' && /nothing to see/.test(x.message));
+  // the days with the two places show them, marked not checked: only the day with none has nothing to see
+  assert.match(e.message, /^1 of 3 full days have nothing to see \(no sourced place\): \w{3} \d+ Nov · Seville$/);
   assert.equal(e.fix, 'uw plan bare … --sights sights again spreads the places already pinned over every day, the arrival day too: run it first when a stop has two places for each of its days. '
     + 'Else cite 2-3 places for each of those days in this turn, each from its own page (its own site from instafy web search "<its name>" --chain reference-search --json, else its Wikipedia article): uw cite <page> --grep "<its name>", never a browser card; '
-    + 'then uw add-point bare --layer sights … with {"stop":…,"source_url":…}; the 5 places pinned with no page: uw set bare <layer>:<id> --props-file - with {"source_url":…,"source":…} '
+    + 'then uw add-point bare --layer sights … with {"stop":…,"source_url":…} '
     + '(reference/itinerary.md Phase B step 1), then run it; a place the lookup cannot pin goes on its day as {"text": "<name>", "url": "<its page>", "source": "<site>"}');
   assert.doesNotMatch(JSON.stringify(v.json.errors), /a page you read names/);
+  const unchecked = v.json.warnings.find((x) => x.path === '$.plan.days' && /not checked on a page of their own/.test(x.message));
+  assert.match(unchecked.message, /^2 places on the days are not checked on a page of their own: Cathedral of Seville \(\w{3} \d+ Nov\), Alcázar of Seville \(\w{3} \d+ Nov\)$/);
 });

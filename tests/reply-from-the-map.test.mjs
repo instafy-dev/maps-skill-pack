@@ -11,7 +11,8 @@
 //    command (one they cannot read is refused with why);
 //  - pinning a place that a "not found" entry names takes the entry off: by the same query, or as the square the
 //    refused lookup found under another name (its OpenStreetMap object, or a pin of its name inside it); a place a pin
-//    already is is never listed, and `uw validate` fails an entry beside its own pin;
+//    already is is never listed, and `uw validate` fails an entry beside its own pin; the square looked up by the name
+//    the turn had for it ("Main Market Square") is pinned from that first lookup (names.mjs holdsName);
 //  - `uw validate` lists the sources the map cites, for the reply's Sources line, and the trip guide's reply takes its
 //    days, gaps and sources from `uw plan` and `uw validate`: never another cause, never a site no place cites, and
 //    never asking the person to add a place (it says which day is short and offers to add one).
@@ -162,26 +163,24 @@ const trip = async (site) => {
 const plan = (site, more = []) => uw(['plan', site, '--stops', 'stops', '--ids', 'krakow', '--nights', '3', '--start', '2026-11-20', '--stays', 'stays', '--sights', 'sights', ...more, '--force']);
 
 // ---------------------------------------------------------------------------
-test('the trip as the guide now has it: the named places first and marked, the square\'s "not found" entry gone with its pin, a page no uw cite read read by the command that pins its place; the days pass, the named places on theirs, and validate lists the sources', async () => {
+test('the trip as the guide now has it: the named places first and marked, the square pinned from its first lookup by the name the turn had for it, a page no uw cite read read by the command that pins its place; the days pass, the named places on theirs, and validate lists the sources', async () => {
   const site = 'krakow';
   await trip(site);
   // the pages uw cite read for the places on the days (a place the person named may have none yet)
   for (const s of [...NAMED, SQUARE_PAGE, ...CHOSEN]) if (s.text) read(s.page, s.text);
   // the places the message names, first, each marked
   for (const s of NAMED) assert.equal((await pinAt(site, s, { asked: true })).code, 0);
-  // the square by the name the turn had for it: refused (no candidate is named like it), and listed as not found, with
-  // the place its lookup found under another name
+  // the square by the name the turn had for it: pinned at once (its English name, "Main Square", is made of the words of
+  // that name: the square), never listed as not found; by its local name again, under another id: that place, pinned
   const square = { name: 'Main Square', page: SQUARE_PAGE.page };
-  const refused = await pinBy(site, 'Main Market Square, Kraków', 'main-square', square, ['--json']);
-  assert.equal(refused.code, 2, refused.out + refused.err);
-  assert.equal(refused.json.refused, 'name_mismatch');
-  const [entry] = cfgOf(site).missing;
-  assert.deepEqual(entry.place, { osm_id: 'osm-w201133718', names: ['Rynek Główny', 'Main Square'], at: SQUARE.at, bbox: [19.9355, 50.0603, 19.9389, 50.0627] });
-  // then by its local name, under another id: pinned, and the entry is gone
-  const pinned = await pinBy(site, 'Rynek Główny Kraków', 'market-square', square);
-  assert.equal(pinned.code, 0, pinned.out + pinned.err);
-  assert.match(pinned.out, /removed its "not found yet" entry/);
+  const first = await pinBy(site, 'Main Market Square, Kraków', 'market-square', square, ['--json']);
+  assert.equal(first.code, 0, first.out + first.err);
+  assert.deepEqual([first.json.chosen.name, first.json.chosen.type, first.json.chosen.osm_id], ['Rynek Główny', 'place=square', 'osm-w201133718']);
   assert.equal(cfgOf(site).missing, undefined, 'nothing pinned reads "Not found yet"');
+  const again = await pinBy(site, 'Rynek Główny Kraków', 'main-square', square, ['--json']);
+  assert.equal(again.code, 2, again.out + again.err);
+  assert.deepEqual([again.json.refused, again.json.pinned.id], ['already_pinned', 'market-square']);
+  assert.equal(cfgOf(site).missing, undefined);
   for (const s of CHOSEN) assert.equal((await pinAt(site, s)).code, 0);
   // the food hall's page, which no uw cite read: read by the add-point that pins it, in the same command
   const market = await pinAt(site, MARKET, {}, 'food');
@@ -223,17 +222,17 @@ test('a place a pin already is is never listed as not found, and validate fails 
   read(SQUARE_PAGE.page, SQUARE_PAGE.text);
   const square = { name: 'Main Square', page: SQUARE_PAGE.page };
   assert.equal((await pinBy(site, 'Rynek Główny Kraków', 'market-square', square)).code, 0);
-  // the same square by another name: refused, but not listed: its pin is that place
+  // the same square by another name: that place, pinned already (one place, one pin), and never listed
   const again = await pinBy(site, 'Main Market Square, Kraków', 'main-square', square, ['--json']);
   assert.equal(again.code, 2, again.out + again.err);
-  assert.equal(again.json.pinned_as, 'sights:market-square');
+  assert.deepEqual([again.json.refused, again.json.pinned.id], ['already_pinned', 'market-square']);
   assert.equal(cfgOf(site).missing, undefined);
   const text = await pinBy(site, 'Main Market Square, Kraków', 'main-square', square);
-  assert.ok(text.err.includes('Not listed as "not found yet": sights:market-square ("Rynek Główny") is that place, on the map already.'), text.err);
-  // under the pin's own id too: the pin is that place by its object, not only by its id
+  assert.ok(text.err.includes('is already pinned in this layer as sights:market-square ("Main Square"): one place, one pin.'), text.err);
+  // under the pin's own id: the same place again, which replaces that pin, and nothing is listed
   const own = await pinBy(site, 'Main Market Square, Kraków', 'market-square', square, ['--json']);
-  assert.equal(own.code, 2, own.out + own.err);
-  assert.equal(own.json.pinned_as, 'sights:market-square');
+  assert.equal(own.code, 0, own.out + own.err);
+  assert.deepEqual([own.json.id, own.json.chosen.osm_id], ['market-square', 'osm-w201133718']);
   assert.equal(cfgOf(site).missing, undefined);
   // an entry an earlier version left beside the pin (written by hand here): validate fails it
   const cfg = cfgOf(site);

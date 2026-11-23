@@ -3,6 +3,92 @@
 All notable changes to this pack. Versions follow [semantic versioning](https://semver.org/); the release tag is
 `v<version>` and `skills/interactive-map/.instafy-pack.json` carries the same version.
 
+## 0.1.41 (2026-11-23)
+
+- **A base line walks to the place its stay was found near.** A two-city map read "Base: Hotel Plaza · 2 min walk to
+  the station" for a station 1.8 km away: the stay was found 2 min from the city's centre (`uw stay --near <centre>
+  --near-label "the centre of …"`), and the plan took that walk as one to the stop, the city's station. A stay's walk
+  is now to the place it was found near (its `walk_to`), which is the stop only when it was found around the stop
+  itself (`--near stations:<id>`, or a point by it); the station is then said by how far it lies from the stay ("Base:
+  Hotel Plaza · 2 min walk to the centre of Seville · 1.8 km from the station: taxi or local bus"; under 1.5 km,
+  "about N min walk to the station", estimated as `uw stay` estimates one).
+- **A stop the map expects matches by the place it resolves to.** A map expected "Sevilla" (`--expect "Sevilla:2"`)
+  and failed its own check against its stop, the station of "Seville", whose days the plan named "Seville". An
+  expected stop is now matched by the stops on the map that stand for it, with every name each goes by (its name and
+  English name, the city a station is of, that city's local name, the name it was looked up by): a day focused on the
+  stop or one of its stays, or whose words name it by any of those names, is its day. `uw station` keeps the city's
+  local name when it searched by it (`"station_of_local"`), and its English name when the search has one and it is
+  not the one given (`"station_of_en"`: "Seville:2" expected is the station `uw station --city "Sevilla"` found).
+- **A place looked up by its name is the place of that name.** A hotel looked up by its name was pinned as another of
+  its chain that shared one word of it, another as a hotel that shared only "Boutique", and a square looked up by its
+  English name was refused because none of its words names a place on its own. A candidate now matches when one of its
+  own names, in any language it carries, holds every word of the query's name that tells the place from another of
+  its kind (lib/names.mjs `holdsName`: not a generic word, a title such as "Saint" or "Royal", a word of where the
+  candidates are, or a word of the kind the candidate is: "Wawel Castle" holds a castle mapped as one, "Zamek
+  Królewski na Wawelu"; a plural of a generic word is generic), and its kind fits. A name with a word of its own
+  beside those carries the query's title, its word such as "Central" and its code too: "Teatro Español" is not
+  "Teatro Real", "Opera Holland Park" not the "Royal Opera House", "Mercado de Colón" not the "Mercado Central",
+  "Copper Box Arena" not the "O2 Arena", "New Town Hall" not the "Old Town Hall", while "Alcázar of Seville" and "Real
+  Alcázar de Sevilla" (its title in another language) are the "Royal Alcázar of Seville". A name of generic words
+  only ("Main Market Square") is held by a name made of its words that holds its first and its last, or says one by
+  its kind ("Main Square", the square). `--strict-name` asks for this,
+  and it is the default for a named place: a lookup by a name, never by a street address, for a city or a stop, or
+  with a `--name` its query is not. A place to stay, a venue or a business looked up by its name (its layer or
+  `--kind`) takes only a candidate one of whose names holds it, as `--strict-name` does: one named with generic words
+  only ("Hotel Plaza") is that very name, never "Hotel Plaza de Armas". When no candidate in range holds the name by
+  the names the search gave, the other names OpenStreetMap keeps for those that share a word of it, and the search's
+  English names when it was too slow to give them, are looked up once, in one wait, and judged the same way; when
+  neither can be read, a sight that shares a word of the name and can be of its kind is taken, and said ("… was taken
+  for … by a word of its name: its other names could not be read"), while a place to stay, a venue or a business is
+  refused, saying the names could not be read. A refusal says so: "no candidate's own name is "…": "…" only shares a
+  word of it". A holiday flat named after a cathedral still holds its name, and its kind still refuses it.
+- **A street is never a venue, a sight or a place to stay.** A football match, looked up by its own name, was pinned
+  on a residential street named like the opponent. On a sight's, a listing's or an option's layer, and on any named
+  lookup, a street that only carries a word of the query is refused ("found a street named …, not the venue …"),
+  unless the lookup asks for a street or names that very street. A sight that is a main road is that road by its
+  usual name: "Champs-Élysées" is the "Avenue des Champs-Élysées" (its name with no word but its street word and the
+  small ones between), never a residential street that shares a word. An item of a listing (a layer of events, gigs,
+  concerts, festivals, exhibitions) is pinned at the venue its listing names, under its own name, with its date in its
+  note: one with no `--name` is refused, and one looked up by its own name is refused before any lookup and listed
+  "Not found yet" under that name (`"item_by_its_name"`, with the command to run by its venue).
+- **A place pinned with no page is on its day, not checked.** A trip's plan refused its days for two places pinned
+  with no page of their own, and the turn planned again without its places to see: every day empty, and the check
+  passed. A place pinned with no page read now counts for its day as a place the person named does, marked not
+  checked: the days for the reply say "(not checked)", `uw validate` warns of each place on the days that is not
+  checked (in the turn that planned them), and neither refuses a day for it. A refusal names only the days still
+  short of places and where to add one. A trip's plan takes its places to see with or without `--sights` (the map's
+  sights, food, daytrips, attractions and landmarks layers that hold a place; said), and `uw validate` fails a plan
+  that names no such layers while every full day is empty and a place to see is pinned. Its line for the day a stop
+  is reached after a short ride counts that day's places as `uw plan` does, so a place not checked is not "nothing to
+  see".
+- **The places the person named are kept.** A trip's map lost the castle its message named: its pin was joined to a
+  page that refused it with `&&`, so it never ran and nothing listed it as not found; the one mark for a place the
+  person named went on a square chosen for the old town. `uw new --asked "<place>, …"` keeps the places the message
+  names by their own name (`"asked"`): `uw validate` fails while one is neither on the map (a pin of any layer by one
+  of its names, either holding the other's words) nor listed "Not found yet", naming the `uw add-point` to run; in the
+  turn that wrote the list, `uw add-point` and `uw set` give the mark `"asked": true` only to one of them (dropping it
+  from another, and saying so); a place the person names in a later turn, marked so, joins the list. A place they
+  named is that place by any of its names: a pin that takes off a "not found yet" entry goes by that entry's name
+  (`"looked_up_as"`), so the castle refused by the name the person gave it and pinned by its local name under the same
+  id keeps their name and its mark; a lookup by their name that finds it pinned under another name is refused as
+  pinned already and names that pin so, with its mark; `uw set` giving a pin a name it was listed under as "not found
+  yet" takes that entry off; and the lines that drop a mark, and the check, name the command for a pin that is one of
+  their places under another name (`uw set … {"looked_up_as":"<their name>","asked":true}`).
+- **A busy lookup says how much of the turn is left.** A turn was told "retry later" with four minutes left and
+  stopped there. With a turn clock, a skipped command now ends "about 4m29s left for tool work this turn: time to retry
+  it once now, with: …" when the retry and a minute for the plan and the check fit, else "too little to retry it now:
+  reply, and offer it as a follow-up (…)"; with no clock, as before.
+- **`uw validate` ends with what is not done.** A reply said "the plan and map are set" over two errors. A failing
+  check's last line is now "not done: <its errors>. The reply's first line says what is not done, never that the map is
+  set or done."; a passing one ends "… is valid". The JSON says `"status": "valid"` or `"not done"`.
+- **The trip guides.** reference/itinerary.md and several-stops.md: `--asked` with the places the message names; stays
+  from `uw stay`, never from memory (`uw new`'s next step says so for a map of options too); each named place pinned in
+  a command of its own, never after `&&` behind its `uw cite`; a lookup still running on the site waited for before
+  the plan; a named place looked up by its local name keeping the person's name (`--name`); the place taken for a
+  kind named with what it is; the base line's walk to the centre and the station's distance; the reply's first line
+  following `uw validate`'s last, and only the sources the map cites.
+- The turn clock says "N of M full days have fewer than 2 places to see", as it counts them.
+
 ## 0.1.40 (2026-11-22)
 
 - **`uw plan` replaces the days it wrote by itself; nothing names `--force`.** A trip's turn ran the plan a third time

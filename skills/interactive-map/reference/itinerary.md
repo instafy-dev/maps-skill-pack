@@ -29,7 +29,7 @@ goes back to one), and the `Assumed:` line says where they fly out ("flying home
 strands them.
 
 **1. Site.** `uw geocode "<country or first city>"`, then
-`uw new sites/<slug> --title "<Country> by train" --subtitle "7–14 May · 7 nights" --ask "<the question in your words, ≤ 60 characters>" --center <lng,lat> --zoom 7 --expect "<Stop>:<nights>,…"`
+`uw new sites/<slug> --title "<Country> by train" --subtitle "7–14 May · 7 nights" --ask "<the question in your words, ≤ 60 characters>" --center <lng,lat> --zoom 7 --expect "<Stop>:<nights>,…" --asked "<place>, …"`
 (its folder under `sites/`, as every page's, is `<site>` below; the ask is the map's heading, e.g. "Two weeks in
 Taiwan by train": never the user's message pasted in; `--expect` is the route from step 0: every stop the user
 named or you chose, so `uw validate` fails while one is missing).
@@ -47,7 +47,8 @@ instead of steps 2-5:
    --layer stops --query "<City>" --country "<Country>" --kind city --id <slug> --props '{"nights":N}'`. "N days" is
    N nights unless the user gave dates; one day is 0. The plan has a dated day per night and no departure day: they
    leave the day after, which the stay line's dates end on.
-2. **Stays** in the area you recommend staying in (a page you read says why): `uw geocode "<area>, <City>"`, then
+2. **Stays** in the area you recommend staying in (a page you read says why), from `uw stay`, never from memory:
+   `uw geocode "<area>, <City>"`, then
    `uw stay <site> --near <its lng,lat> --near-label "<area>" --stop <slug>` (`--kinds hotel` unless the person asked
    for hostels or said the budget is tight; a reason each). The base is the rank-1 stay; each day starts and ends
    there. Never the area itself as a hotel. No stay found (exit 2 after widening, or exit 4): pin the area as the
@@ -82,8 +83,8 @@ A plan whose full days say only "Day in …" is not finished. When the ask is wh
 plan with `--sights`: `uw plan` refuses fewer than two
 a day while there is time, and `uw validate` fails while a full day has fewer than two sourced places (one: in the turn
 that planned the days, while its clock shows more than ~3 min left; a later turn keeps the days the person changed).
-One place a day only when the person asked for it: `uw plan … --per-day 1`. Without `--sights` it warns when most
-full days are empty, and the turn clock prints how many are empty or thin. While any is and time is left, add sights
+One place a day only when the person asked for it: `uw plan … --per-day 1`. The turn clock prints how many full
+days are empty or thin. While any is and time is left, add sights
 rather than reply. Sights come from `uw cite` in this turn, never from a browser card. Step 1 comes first.
 
 1. **Sights with sources, 2-3 a full day.** A city's page (its Wikivoyage See/Do, the official tourism site) only
@@ -110,6 +111,12 @@ rather than reply. Sights come from `uw cite` in this turn, never from a browser
    exit 2 = no hit carries the name: retry once with the local name, else list it as unverified; exit 2 "already
    pinned" = it is on the map: never pin it again, the day takes another place; food spots go on `--layer food`, day
    trips on `--layer daytrips --max-km 80`).
+   A place the message names is pinned this way first, its pin never joined to its `uw cite` with `&&` (a refused
+   page skips the pin, and the place is lost): a page that cannot be read leaves it pinned with no page, marked not
+   checked. `uw new … --asked "<place>, …"` (step 1) keeps each place the message names by its own name (never an
+   area it names, nor a kind: "the cathedral"); `uw validate` fails while one is neither pinned nor listed as not
+   found yet. Looked up by another name (its local-language name), it keeps theirs: `--name "<the message's name>"`.
+   A lookup that was busy says how much of the turn is left: retry it now when its line says there is time.
    Once each has finished (an exit code, not still running: wait on one that is, never start it again; `uw plan`
    and `uw validate` name any still running), `uw plan … --sights sights,food,daytrips` with the sights that
    landed (the layers that exist; one not found stays out, in the reply's unverified line): places land on the
@@ -118,10 +125,13 @@ rather than reply. Sights come from `uw cite` in this turn, never from a browser
    nothing its pages do not say; no opening hours or prices from memory); a day still "Day in …" needs places.
    Refused for a day with one place: run the same command again once you looked for more and none could be added;
    it keeps that day, a warning there and in `uw validate`, which the reply names.
-   Cite, then pin, then plan: a place pinned with no page counts on no day, and `uw plan --sights` before the places
-   are pinned is refused. A place named by its kind ("the cathedral", "the central market") is the city's place of
-   that kind: look it up as that ("<City> Cathedral", the name its page gives it; never another church or hall you
-   know better), unmarked, and the reply says which place was taken. A sight is never a board or a sign that only
+   Cite, then pin, then plan: a place pinned with no page is on its day as it is, marked not checked (the reply says
+   so), and `uw plan --sights` before the places are pinned is refused. A lookup `uw plan` or `uw validate` names as
+   "still running on this site" is waited for (`write_stdin` with its session, until it exits) before the plan: a plan
+   made while it runs leaves its place out. A place named by its kind ("the cathedral", "the central market") is the
+   city's place of that kind: look it up as that ("<City> Cathedral", the name its page gives it; never another
+   church or hall you know better), unmarked, and the reply names the place taken and what it is ("the main market:
+   the Alcaicería, a bazaar street"). A sight is never a board or a sign that only
    carries its name: `uw add-point` refuses one (look the place up by its official name).
 2. **Train times**, if a timetable page answers it this turn: re-run `uw legs` with `--durations`/`--source`/
    `--source-url`, then `uw plan …` again (each day keeps its own words). Copy the page's own number; a page that gives a
@@ -216,7 +226,9 @@ open site in place; then `uw validate`, SKILL.md step 9, the reply.
 
 ## Reply (Phase C for trips)
 
-Write for the traveller, 5-8 short lines:
+Write for the traveller, 5-8 short lines. The first line follows `uw validate`'s last: after "not done: …" it says
+what is not done ("the plan is a draft: Tuesday has nothing to see yet"), never that the map or the plan is set or
+done.
 1. The route with nights and dates, as `uw plan` prints it ("Route for the reply"; one stop: "Stay for the reply"):
    `<Stop> <nights> → <Stop> <nights> → … (<n> nights, <first date> – <last date>)`. The night split is part of the
    answer: always state it.
@@ -242,7 +254,8 @@ Write for the traveller, 5-8 short lines:
    one `uw plan` kept too; never "the sights need pages of their own". A place the message named by its kind: say
    which place was taken ("the cathedral: <its name>").
 6. `Sources:` in one line, as `uw validate` lists them ("Sources for the reply"): who publishes what the map cites
-   (e.g. "OpenStreetMap, Wikipedia, the national park's site", a lodging register, a timetable), no other.
+   (e.g. "OpenStreetMap, Wikipedia, the national park's site", a lodging register, a timetable), no other. A city
+   guide or a page read only for ideas, which no place cites, is never one the reply names.
 7. `Unverified:` prices and availability (never checked), train times not sourced, anything `uw validate` lists as
    not found yet, handoff unknowns.
 
