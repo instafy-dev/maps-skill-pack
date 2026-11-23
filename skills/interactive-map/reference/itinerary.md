@@ -115,7 +115,8 @@ rather than reply. Sights come from `uw cite` in this turn, never from a browser
    page skips the pin, and the place is lost): a page that cannot be read leaves it pinned with no page, marked not
    checked. `uw new … --asked "<place>, …"` (step 1) keeps each place the message names by its own name (never an
    area it names, nor a kind: "the cathedral"); `uw validate` fails while one is neither pinned nor listed as not
-   found yet. A lookup that was busy says how much of the turn is left: retry it now when its line says there is time.
+   found yet. Looked up by another name (its local-language name), it keeps theirs: `--name "<the message's name>"`.
+   A lookup that was busy says how much of the turn is left: retry it now when its line says there is time.
    Once each has finished (an exit code, not still running: wait on one that is, never start it again; `uw plan`
    and `uw validate` name any still running), `uw plan … --sights sights,food,daytrips` with the sights that
    landed (the layers that exist; one not found stays out, in the reply's unverified line): places land on the

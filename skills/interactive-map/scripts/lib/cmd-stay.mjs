@@ -195,6 +195,7 @@ export async function station(argv) {
   let centreExtentKm = null; // how big that place is: a big municipality's point is its city hall
   let centreCountry = null; // its ISO country code: stations elsewhere are not candidates
   let localName = null; // the centre's name in the local language, for a second station search
+  let enName = null; // and in English, when the place search has one (with --country)
   if (!near) {
     // no --near: the city's own centre (the place search, place objects only), biased to the map's view; saves a geocode step.
     // With --country the query names the country and only hits in it count (Tokyo is also a village in Papua New Guinea).
@@ -209,7 +210,11 @@ export async function station(argv) {
       let [local, en] = await lookup(placeTags, 'stop');
       // a capital that is mapped as its own state or province (東京都 is place=province; Berlin, Vienna are states)
       if (!local.length) [local, en] = await lookup(['place:state', 'place:province', 'place:region']);
-      for (const c of local) { const m = en.find((e) => e.osm_id && e.osm_id === c.osm_id); if (m?.country && m.country !== c.country) c.country_en = m.country; }
+      for (const c of local) {
+        const m = en.find((e) => e.osm_id && e.osm_id === c.osm_id);
+        if (m?.country && m.country !== c.country) c.country_en = m.country;
+        if (m?.name && m.name !== c.name) c.name_en = m.name;
+      }
       const hits = args.country ? local.filter((c) => countryMatches(c, args.country) !== false) : local;
       if (args.country && local.length && !hits.length) {
         out.result({ ok: false, layer, city, country: args.country, candidates: [] }, [`No place named "${city}" in ${args.country} (found: ${[...new Set(local.map((c) => c.country_en || c.country).filter(Boolean))].join(', ')}).`,
@@ -218,6 +223,7 @@ export async function station(argv) {
       }
       if (hits[0]) {
         near = hits[0].coord; searchCentre = hits[0].coord; centreExtentKm = hits[0].extent_km ?? null; centreCountry = hits[0].countrycode || null; localName = hits[0].name;
+        enName = hits[0].name_en || null;
         out.log(`City centre: ${hits[0].name}${hits[0].address ? ` (${hits[0].address})` : ''} @ ${near.join(',')}`);
       }
     } catch (e) { if (isSkip(e)) throw e; }
@@ -286,6 +292,9 @@ export async function station(argv) {
     // the city's name in its own language, when it is not the one given ("Sevilla" for Seville): a stop the map expects
     // under it is this stop (expect.mjs)
     ...(localName && normPlace(localName) !== normPlace(city) ? { station_of_local: localName } : {}),
+    // and in English, when it is not the one given ("Seville" for Sevilla): a stop the map expects under the person's
+    // word for the city is this stop too
+    ...(enName && normPlace(enName) !== normPlace(city) && normPlace(enName) !== normPlace(localName || '') ? { station_of_en: enName } : {}),
     // found by a fallback source (the first search was down or found nothing): the point says so
     ...partialProps(c),
     ...(args.nights != null ? { nights: args.nights } : {}),

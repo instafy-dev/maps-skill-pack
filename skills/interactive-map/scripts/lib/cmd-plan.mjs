@@ -276,7 +276,7 @@ export const NOT_CHECKED = 'on a page of its own';
  *  its day marked not checked, as a place the person named does: the reply says so (the base is not a place to see). A
  *  trip's plan once refused its days for two places pinned with no page, and the turn planned them again without the
  *  places, leaving every day empty. */
-const counts = (it) => (it?.asked === true || it?.check === NOT_CHECKED || (typeof it?.url === 'string' && /^https?:\/\//.test(it.url))) && !/^Base: /.test(String(it?.text || ''));
+export const counts = (it) => (it?.asked === true || it?.check === NOT_CHECKED || (typeof it?.url === 'string' && /^https?:\/\//.test(it.url))) && !/^Base: /.test(String(it?.text || ''));
 function sourcedItems(d) {
   return (Array.isArray(d?.items) ? d.items : []).filter(counts).length;
 }

@@ -71,7 +71,7 @@ export function textNames(text, name) {
   if (/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(n)) return t.includes(n);
   return t.includes(` ${n} `);
 }
-const PROPS = ['name', 'name_en', 'osm_name_en', 'station_of', 'station_of_local', 'stop', 'id', 'title'];
+const PROPS = ['name', 'name_en', 'osm_name_en', 'station_of', 'station_of_local', 'station_of_en', 'stop', 'id', 'title'];
 /** Does a feature stand for the item: its id or stop is the item's slug (or starts with it: "hualien-hsr"), or one
  *  of its names names it. */
 export function featureNames(props, name) {
@@ -89,12 +89,12 @@ export function featureNames(props, name) {
 /** Is a feature one of a trip's stops: a place with nights, a station of a city, or a city, town or village itself? */
 const isStopFeature = (p) => !!p && (Number.isInteger(p.nights) || typeof p.station_of === 'string' || /^(city|town|village|train_station|station)$/.test(String(p.kind ?? '')));
 /** An expected stop as the place it resolves to: the stops on the map that stand for it (featureNames), with every
- *  name each goes by (its name and English name, the city a station is of and that city's local name, the name it was
- *  looked up by) and their ids. "Sevilla:2" expected, and its stop the station "Sevilla - Santa Justa" of "Seville":
+ *  name each goes by (its name and English name, the city a station is of and that city's local and English names,
+ *  the name it was looked up by) and their ids. "Sevilla:2" expected, and its stop the station "Sevilla - Santa Justa" of "Seville":
  *  the days that name Seville are its days (a map failed its own check for "Sevilla" against its stop "Seville"). */
 export function resolveExpected(all, e) {
   const stops = all.filter((f) => isStopFeature(f?.properties) && featureNames(f.properties, e.name));
-  const names = [e.name, ...stops.flatMap((f) => ['name', 'name_en', 'osm_name_en', 'station_of', 'station_of_local', 'looked_up_as'].map((k) => f.properties[k]))]
+  const names = [e.name, ...stops.flatMap((f) => ['name', 'name_en', 'osm_name_en', 'station_of', 'station_of_local', 'station_of_en', 'looked_up_as'].map((k) => f.properties[k]))]
     .filter((n) => typeof n === 'string' && n.trim());
   return { stops, names: [...new Set(names)], ids: new Set(stops.map((f) => String(f.properties.id))) };
 }

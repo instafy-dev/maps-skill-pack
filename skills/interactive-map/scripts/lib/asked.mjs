@@ -39,6 +39,11 @@ export function askedEntry(list, names, area = []) {
 /** The names a pin goes by: its name, English names, the name it was looked up by. */
 export const pinNames = (p) => [p?.name, p?.name_en, p?.osm_name_en, p?.looked_up_as].filter((n) => typeof n === 'string' && n.trim());
 
+/** The command that says a pin is a place the person named under another name (its local name): their name for it
+ *  as the name it was looked up by, with the mark (uw set judges the mark with it). Only for the place they named. */
+export const askedNameFix = (dir, ref, name = '<the name they gave it>') =>
+  `uw set ${dir} ${ref} --props-file - with {"looked_up_as":"${String(name).replace(/(["\\])/g, '\\$1')}","asked":true}`;
+
 /** Was the list written in this turn (`turnStartedMs`; no clock: yes)? Then a mark goes only on a place it names; in a
  *  later turn a place the person names then joins it. The pack's own clock starts with the command after `uw new` (the
  *  site it times is made by it): a list written seconds before is this turn's. */

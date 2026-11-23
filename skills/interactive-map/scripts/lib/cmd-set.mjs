@@ -10,7 +10,8 @@ import { isLodging } from './registry-geo.mjs';
 import { expectOf } from './expect.mjs';
 import { REPLY_WITHIN_S } from './turn-advice.mjs';
 import { NOT_CHECKED, planDraftAgain, draftAgainLine } from './cmd-plan.mjs';
-import { askedOf, askedEntry, askedArea, pinNames, namedThisTurn } from './asked.mjs';
+import { askedOf, askedEntry, askedArea, pinNames, namedThisTurn, askedNameFix } from './asked.mjs';
+import { clearMissing, pinOfFeature } from './missing.mjs';
 
 export const help = `set <dir> <layer>:<id> [--note "…"] [--name "…"] [--emoji 🏨] [--props '{"price":120}' | --props-file <file|->] [--unset key1,key2] [--remove] [--json]
 set <dir> plan:day<N> --note "…" | --unset note [--json]
@@ -149,10 +150,19 @@ export async function run(argv, turn = {}) {
     // so does a mark the person named it ("asked"), which counts it for its day
     const dayItems = !args.remove && changed.some((k) => /^-?(source(_url)?|asked)$/.test(k)) ? withDayItems(site, layer, id, before, f.properties, { late: !!late }) : 0;
     if (twin) withDayItems(site, layer, twin.id, twin.before, twin.f.properties);
-    return { f, changed, dayItems, late, dropped, unmarked };
+    // a place named here by a name it was listed under as "not found yet" (its English name, the name the person gave
+    // it) takes that entry off, as uw add-point's pin of it does: never "Not found yet" beside its own pin
+    let unlisted = 0;
+    if (!args.remove && changed.some((k) => /^(name|name_en|looked_up_as)$/.test(k))) {
+      const cfg = readJSON(site.cfgPath);
+      unlisted = Array.isArray(cfg.missing) ? clearMissing(cfg, { ...pinOfFeature(layer, f), byId: false }) : 0;
+      if (unlisted) { if (!cfg.missing.length) delete cfg.missing; writeJSON(site.cfgPath, cfg, { pretty: true }); site.config = cfg; }
+    }
+    return { f, changed, dayItems, late, dropped, unmarked, unlisted };
   });
-  const { f, changed, dayItems, refused, late, named, dropped, unmarked } = done;
-  if (unmarked) out.warn(`not marked as a place the person named: they named ${unmarked.map((a) => `"${a.name}"`).join(', ')}, not "${f.properties.name_en || f.properties.name || id}"; it stays a place you chose (its own page counts it on its day)`);
+  const { f, changed, dayItems, refused, late, named, dropped, unmarked, unlisted } = done;
+  if (unmarked) out.warn(`not marked as a place the person named: they named ${unmarked.map((a) => `"${a.name}"`).join(', ')}, not "${f.properties.name_en || f.properties.name || id}"; it stays a place you chose (its own page counts it on its day). `
+    + `Only if it IS one of them under another name (its local name): ${askedNameFix(args._[0], `${layer}:${id}`, unmarked.length === 1 ? unmarked[0].name : undefined)}`);
   if (named) {
     const ref = `${layer}:${id}`, name = f.properties.name_en || f.properties.name || id;
     const next = `uw set ${args._[0]} ${ref} --unset asked --remove`;
@@ -179,8 +189,9 @@ export async function run(argv, turn = {}) {
   // add-point plans them again with a place it pins (cmd-plan.mjs planDraftAgain). A change of a place's page is in its
   // items already (above)
   const replanned = args.remove ? planDraftAgain(site.dir, args._[0], turn) : null;
-  out.result({ ok: true, layer, id, changed, removed: !!args.remove, ...(dayItems ? { day_items: dayItems } : {}), ...(miss ? { source_not_named: miss } : {}), ...(replanned ? { planned_again: replanned } : {}) }, [
+  out.result({ ok: true, layer, id, changed, removed: !!args.remove, ...(dayItems ? { day_items: dayItems } : {}), ...(unlisted ? { missing_removed: true } : {}), ...(miss ? { source_not_named: miss } : {}), ...(replanned ? { planned_again: replanned } : {}) }, [
     args.remove ? `Removed ${layer}:${id} (${f.properties.name || ''}). Re-run enrich / legs / routes that used it.` : `Updated ${layer}:${id}: ${changed.join(', ')}.`,
+    unlisted ? 'map.config.json: removed its "not found yet" entry (it is on the map under that name).' : null,
     replanned ? draftAgainLine(replanned, 'without it') : null,
     dropped ? `Its source "${dropped}" named the old page's publisher and went with it: give "source" with a source_url to name the new page's.` : null,
     dayItems && changed.some((k) => /^-?source(_url)?$/.test(k)) ? `Its ${dayItems === 1 ? 'item' : `${dayItems} items`} in the plan's days link${dayItems === 1 ? 's' : ''} ${f.properties.source_url ? 'that page now' : 'no page now'}${f.properties.source_url && !late ? '' : ', marked not checked'}; the days are as they were.` : null,

@@ -1,5 +1,5 @@
 // `validate`: check a site thoroughly; every message names file + JSON path + a fix.
-import { emptyPlanDays, isPlanSkeletonText, dayPlaceWarnings, dayPlaceLine, isDraft, planDraftAgain, draftAgainLine, seeLayersOf, NOT_CHECKED } from './cmd-plan.mjs';
+import { emptyPlanDays, isPlanSkeletonText, dayPlaceWarnings, dayPlaceLine, isDraft, planDraftAgain, draftAgainLine, seeLayersOf, NOT_CHECKED, counts } from './cmd-plan.mjs';
 import { pathToFileURL } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -16,7 +16,7 @@ import { cacheOff } from './net.mjs';
 import { isAreaPin, isPlaceToStay, stopIsAStay, staysLookedUp, lookedAsFarAsItGoes, STAY_RADIUS_MAX } from './stays.mjs';
 import { isLodging } from './registry-geo.mjs';
 import { missingPinned, pinOfFeature, areaWords } from './missing.mjs';
-import { askedLeftOut, askedArea } from './asked.mjs';
+import { askedLeftOut, askedArea, askedNameFix } from './asked.mjs';
 
 export const help = `validate <dir> [--signal] [--strict] [--expect "<stop>:<nights>,…"] [--json]
   Checks map.config.json (schema, enums, refs), every layer file (exists, valid GeoJSON, geometry fits the layer type,
@@ -713,7 +713,8 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
       // the reply said two in each)
       if (sightsAsked) for (const a of Array.isArray(cfg.plan?.after_ride) ? cfg.plan.after_ride : []) {
         const d = typeof a?.day === 'string' ? days.find((x) => x?.title === a.day) : null;
-        if (!d || (Array.isArray(d.items) ? d.items : []).some((it) => (it?.asked === true || /^https?:\/\//.test(String(it?.url ?? ''))) && !/^Base: /.test(String(it?.text || '')))) continue;
+        // (a place on it counts as uw plan counts it: with its page, named by the person, or pinned with no page, not checked)
+        if (!d || (Array.isArray(d.items) ? d.items : []).some(counts)) continue;
         const when = a.day.split(' · ')[0], stop = typeof a.stop === 'string' && a.stop.trim() ? a.stop : 'its stop';
         W(CFG, '$.plan.days', `${when}, the day ${stop} is reached after a short ride, has nothing to see yet: ${stop} has one day to see fewer than its nights`,
           `the reply says that split, as uw plan prints it ("${stop}: … to see, ${when} is the ride there"); while the turn has time, add places to see in ${stop} instead, two for each of its days, each from its own page, then uw plan ${args._[0]} … again`);
@@ -835,13 +836,14 @@ export async function run(argv, { turnLeftS = null, turnStartedMs = null } = {})
   // --- the places the person named (uw new --asked): each is on the map or listed as not found yet. A trip's map lost
   // the castle its message named: its pin was joined to a refused page with && and never ran, and nothing said so
   if (cfg.asked !== undefined && !Array.isArray(cfg.asked)) E(CFG, '$.asked', 'asked must be an array of { "name", "at" } (uw new --asked writes it)', 'uw new … --asked "<place>, …"');
-  const leftOut = askedLeftOut(cfg, featuresByLayer, askedArea(cfg, nightStops.flatMap((s) => [s.pr.name, s.pr.name_en, s.pr.station_of])));
+  const leftOut = askedLeftOut(cfg, featuresByLayer, askedArea(cfg, nightStops.flatMap((s) => [s.pr.name, s.pr.name_en, s.pr.station_of, s.pr.station_of_local, s.pr.station_of_en])));
   if (leftOut.length) {
     const city = expectOf(cfg).length === 1 ? expectOf(cfg)[0].name : '<city>';
     const q = (n) => `uw add-point ${args._[0]} --layer sights --query "${n.replace(/(["\\$`])/g, '\\$1')}, ${city}" --strict-name --near <lng,lat> --props-file - with {"asked":true${nightStops.length ? ',"stop":"<stop id>"' : ''}}`;
     E(CFG, '$.asked', `${leftOut.length === 1 ? 'a place' : `${leftOut.length} places`} the person named ${leftOut.length === 1 ? 'is' : 'are'} neither on the map nor listed as not found yet: ${leftOut.map((a) => a.name).join(', ')}`,
       `pin ${leftOut.length === 1 ? 'it' : 'each'} first, in a command of ${leftOut.length === 1 ? 'its' : 'their'} own (never after && behind uw cite: a refused page skips the pin): ${leftOut.slice(0, 3).map((a) => q(a.name)).join('; ')}`
-        + ` (its layer: sights for a place to see, food, stays…; a page that cannot be read leaves it pinned with no page, not checked). One the lookup cannot find is listed as not found yet, which passes`);
+        + ` (its layer: sights for a place to see, food, stays…; a page that cannot be read leaves it pinned with no page, not checked). One the lookup cannot find is listed as not found yet, which passes.`
+        + ` On the map already under another name (its local name)? Name that pin so: ${askedNameFix(args._[0], '<its layer>:<its id>', leftOut.length === 1 ? leftOut[0].name : undefined)}`);
   }
 
   if (cfg.notes !== undefined) {
