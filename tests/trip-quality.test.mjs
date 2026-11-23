@@ -49,7 +49,7 @@ test('empty full days are counted; the turn clock prints facts, the skill decide
   for (const d of plan.days) d.items.push({ text: 'Sight', url: 'https://en.wikivoyage.org/wiki/Porto' });
   assert.equal(emptyPlanDays(plan).empty, 0);
   assert.equal(emptyPlanDays(plan).thin, 6);
-  assert.match(clockAdvice(323, emptyPlanDays(plan), 480), /6 of 6 full days have fewer than 2 sourced sights/);
+  assert.match(clockAdvice(323, emptyPlanDays(plan), 480), /6 of 6 full days have fewer than 2 places to see/);
   for (const d of plan.days) d.items.push({ text: 'Sight 2', url: 'https://example.org/sight-2' });
   assert.equal(emptyPlanDays(plan).thin, 0);
   assert.doesNotMatch(clockAdvice(323, emptyPlanDays(plan), 480), /full days/);

@@ -283,6 +283,9 @@ export async function station(argv) {
   const centreKm = centre ? haversine(centre, c.coord) / 1000 : null;
   const props = { id, name: c.name, ...(nameEn ? { name_en: nameEn } : {}), kind: 'train_station', emoji: c.hsr ? '🚄' : '🚉',
     station_of: city, station_kind: c.hsr ? 'hsr' : 'rail', osm_id: c.osm_id || undefined, address: c.address || undefined, source: c.source || 'OpenStreetMap',
+    // the city's name in its own language, when it is not the one given ("Sevilla" for Seville): a stop the map expects
+    // under it is this stop (expect.mjs)
+    ...(localName && normPlace(localName) !== normPlace(city) ? { station_of_local: localName } : {}),
     // found by a fallback source (the first search was down or found nothing): the point says so
     ...partialProps(c),
     ...(args.nights != null ? { nights: args.nights } : {}),

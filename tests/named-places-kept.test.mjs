@@ -4,11 +4,11 @@
 // it", with no way to find one. Six seconds later one turn removed all seven sights it had pinned, the two the person
 // had named among them ("one day around …"), planned cafés instead, and replied with the day the person asked for
 // while its last `uw validate` failed: the map no longer had that day. Now:
-//  - the refusal names each place pinned with no page and how to find its page: its own site from the reference search
-//    (the search for it is printed), else its Wikipedia article, then uw cite and uw set; it says to keep them (never
-//    remove a place to get past it), and asks for new places only where those cannot fill a day;
-//  - a place the person named ("asked": true) stays on its day: `uw plan` counts it there, marked not checked while no
-//    page was read (`uw set` takes the mark off once it has its page);
+//  - a place pinned with no page stays on its day, counted, marked not checked, as a place the person named ("asked":
+//    true) does (`uw set` takes the mark off once it has its page): the refusal names only a day still short of
+//    places and where to add one, never a place's page to count it, and `uw validate` warns of each place not
+//    checked for the reply (a turn planned its days again without such places to get past the refusal, and every day
+//    was empty);
 //  - `uw plan` prints the days for the reply as the map has them, and a failing `uw validate` says a reply sent before
 //    it passes says plainly what is undone; the skill and its references never tell a turn to remove a place to pass a
 //    check, and the trip guide's reply takes its days from `uw plan`.
@@ -18,8 +18,7 @@
 //  - a place whose page is not its own (one city page for several, a page that does not name it), taken with too
 //    little time left, is "(not checked)" in the days for the reply and marked so on the Plan tab, as is every place
 //    with no page; `uw validate` never calls a day with such places one with nothing to see;
-//  - the refusal never offers to mark places as named to get past it, and always says what to do for a place whose
-//    page cannot be found (keep it, add another near there);
+//  - the refusal never offers to mark places as named to get past it;
 //  - `uw set --remove` refuses a place the person named unless the same command takes the mark off, and its help says
 //    when a place is removed; a mark given after the days were planned reaches the days;
 //  - no line the tools print tells a turn to remove a place pinned to see (validate's far-from-the-view fix did), and
@@ -164,55 +163,44 @@ const viennaPinned = async (site) => {
 const search = (name) => `instafy web search "${name}" --chain reference-search --json`;
 
 // ---------------------------------------------------------------------------
-test('the refusal names how to find each pinned place\'s page and keeps them; the places the person named count on their day; then the plan and validate pass', async () => {
+test('places pinned with no page stay on their days, counted and marked not checked, as the places the person named do: the refusal names only a day still short; then the plan and validate pass', async () => {
   const site = 'vienna';
   await viennaPinned(site);
   const all = [...NAMED, ...CHOSEN].map((s) => s.id);
-  // the plan refuses the two days whose places have no page; the day of the two places the person named is not short
+  // every place counts on its day, with or without its page: only the palace's day a ride out, with one place, is short
   const refused = await planVienna(['--json']);
   assert.equal(refused.code, 2, refused.out + refused.err);
-  assert.deepEqual(refused.json.short_days, [{ title: 'Wed 18 Nov · Vienna', places: 0 }, { title: 'Fri 20 Nov · Vienna', places: 0 }]);
+  assert.deepEqual(refused.json.short_days, [{ title: 'Fri 20 Nov · Vienna', places: 1 }]);
   assert.equal(refused.json.draft, true, 'the days as they are, a draft for now');
   assert.equal(cfgOf(site).plan.draft.start, '2026-11-18');
   assert.deepEqual(sightIds(site), all, 'every place stays pinned');
-  // each place pinned with no page, with the search that finds its own site; the named ones count as they are
-  assert.deepEqual(refused.json.no_page.map((x) => [x.ref, x.search]), [
-    ['sights:stephansdom', search('Stephansdom Vienna')], ['sights:hofburg', search('Hofburg Vienna')], ['sights:belvedere', search('Oberes Belvedere Vienna')],
-    ['sights:kunsthistorisches', search('Kunsthistorisches Museum Vienna')], ['sights:schonbrunn', search('Schloss Schönbrunn Vienna')]]);
-  // what those places cannot fill once they have their pages: one more near the palace a ride out, whose day it is
+  // the draft has every place on a day, marked not checked; the refusal asks for no place's page to count it
+  assert.deepEqual(cfgOf(site).plan.days.map((d) => itemsOf(d).length), [3, 3, 1]);
+  for (const d of cfgOf(site).plan.days) for (const it of itemsOf(d)) assert.equal(it.check, NOT_CHECKED, it.text);
+  assert.equal(refused.json.no_page, undefined);
+  assert.equal(refused.json.instead, undefined);
+  // one more near the palace a ride out, whose day it is
   assert.deepEqual(refused.json.add, [{ name: 'Schloss Schönbrunn', near: '16.311568,48.184989', stop: 'vienna', places: 1 }]);
   const text = await planVienna();
   assert.equal(text.code, 2);
-  const lines = text.err.trim().split('\n');
-  assert.equal(lines[0], 'REFUSED: 2 of 3 full days would have fewer than 2 places to see with their own page (a full day takes 2-3): Wed 18 Nov · Vienna (0), Fri 20 Nov · Vienna (0). The days are on the map as they are for now: a draft, which this command replaces.');
-  assert.equal(lines[1], 'The 5 places pinned with no page count on no day until each has its own: keep them (never remove a place to get past this). '
-    + 'Each one\'s page: its own site from the reference search below, else its Wikipedia article; uw cite <that page> --grep "<its name>", '
-    + 'then uw set vienna <layer>:<id> --props-file - with {"source_url":"<that page>","source":"<site>"}.');
+  assert.deepEqual(text.err.trim().split('\n'), [
+    'REFUSED: 1 of 3 full days would have fewer than 2 places to see (a full day takes 2-3): Fri 20 Nov · Vienna (1). The days are on the map as they are for now: a draft, which this command replaces.',
+    'Add 1 more place near Schloss Schönbrunn (--near 16.311568,48.184989), each from its own page '
+      + '(its own site from instafy web search "<its name>" --chain reference-search --json, else its Wikipedia article): uw cite <that page> --grep "<its name>", '
+      + 'then uw add-point vienna --layer sights --near 16.311568,48.184989 … with {"stop":"vienna","source_url":"<that page>","source":"<site>"}, '
+      + 'one place per command (reference/itinerary.md Phase B step 1). Then run this command again.',
+    'Looked for more after this refusal and none could be added (no other place found there, or none with a page of its own)? Run this command again as it is: a day with one place to see is then kept, as a warning the reply names.']);
   // marking places as named is never offered as a way past it
   assert.doesNotMatch(text.err + refused.json.next, /asked/);
-  assert.deepEqual(lines.slice(2, 7), refused.json.no_page.map((x) => `  ${x.ref}: ${x.search}`));
-  assert.equal(lines[7], 'Add 1 more place near Schloss Schönbrunn (--near 16.311568,48.184989), each from its own page '
-    + '(its own site from instafy web search "<its name>" --chain reference-search --json, else its Wikipedia article): uw cite <that page> --grep "<its name>", '
-    + 'then uw add-point vienna --layer sights --near 16.311568,48.184989 … with {"stop":"vienna","source_url":"<that page>","source":"<site>"}, '
-    + 'one place per command (reference/itinerary.md Phase B step 1). Where no page of its own can be found for one of those places on '
-    + 'Wed 18 Nov · Vienna, Fri 20 Nov · Vienna, keep it and add another place instead, near DO&CO Hotel (--near 16.371632,48.208374; "stop":"vienna"), '
-    + 'near Schloss Schönbrunn (--near 16.311568,48.184989; "stop":"vienna"), the same way. Then run this command again.');
-  assert.deepEqual(refused.json.instead, [{ name: 'DO&CO Hotel', near: '16.371632,48.208374', stop: 'vienna', places: 2, days: ['Wed 18 Nov · Vienna'] },
-    { name: 'Schloss Schönbrunn', near: '16.311568,48.184989', stop: 'vienna', places: 1, days: ['Fri 20 Nov · Vienna'] }]);
-  assert.equal(lines.length, 9);
-  assert.equal(lines[8], 'A full day with nothing to see is refused again while the turn has time: each takes a place first. With too little time left the days are written as they are, and the reply names each.');
   assert.equal(text.json, null);
-  assert.equal(refused.json.next, lines.slice(1).join('\n'));
+  assert.equal(refused.json.next, text.err.trim().split('\n').slice(1).join('\n'));
 
-  // as it says: each one's page (its Wikipedia article: the search found no site of its own), read with uw cite, then
-  // given with uw set
-  const wiki = { stephansdom: 'St._Stephen%27s_Cathedral,_Vienna', hofburg: 'Hofburg', belvedere: 'Belvedere,_Vienna', kunsthistorisches: null, schonbrunn: 'Sch%C3%B6nbrunn_Palace' };
-  for (const { ref, name } of refused.json.no_page) {
-    const id = ref.split(':')[1];
-    if (!wiki[id]) continue; // one the turn found no page for: it stays pinned, and on no day's count
-    const url = `${WIKI}${wiki[id]}`;
-    read(url, `${name}\nOpening hours and tickets.`);
-    const set = await uw(['set', site, ref, '--props-file', '-'], { input: JSON.stringify({ source_url: url, source: 'Wikipedia' }) });
+  // pages for four of them (their Wikipedia articles), read with uw cite, then given with uw set
+  const wiki = { stephansdom: 'St._Stephen%27s_Cathedral,_Vienna', hofburg: 'Hofburg', belvedere: 'Belvedere,_Vienna', schonbrunn: 'Sch%C3%B6nbrunn_Palace' };
+  for (const [id, page] of Object.entries(wiki)) {
+    const url = `${WIKI}${page}`;
+    read(url, `${CHOSEN.find((s) => s.id === id).name}\nOpening hours and tickets.`);
+    const set = await uw(['set', site, `sights:${id}`, '--props-file', '-'], { input: JSON.stringify({ source_url: url, source: 'Wikipedia' }) });
     assert.equal(set.code, 0, set.out + set.err);
   }
   // and one more place near the palace, from its own page
@@ -237,9 +225,11 @@ test('the refusal names how to find each pinned place\'s page and keeps them; th
   const plain = await planVienna();
   assert.equal(plain.code, 0, plain.out + plain.err);
   assert.ok(plain.out.includes(`Days for the reply, as the map has them (no other place; one not checked is said so): ${planned.json.days_for_the_reply}.`), plain.out);
+  // validate passes, and warns of the places on the days that are not checked, for the reply to name
   const v = await uw(['validate', site, '--signal', '--json']);
   assert.equal(v.code, 0, JSON.stringify(v.json?.errors ?? v.out, null, 1));
-  assert.deepEqual(v.json.warnings.filter((w) => w.path === '$.plan.days'), []);
+  assert.deepEqual(v.json.warnings.filter((w) => w.path === '$.plan.days').map((w) => w.message),
+    ['3 places on the days are not checked on a page of their own: Kunsthistorisches Museum (Thu 19 Nov), Secession (Thu 19 Nov), Naschmarkt (Thu 19 Nov)']);
 
   // a named place's page found later: its item links it, and the mark goes; the day keeps it
   const own = 'https://market.example/';
@@ -249,7 +239,7 @@ test('the refusal names how to find each pinned place\'s page and keeps them; th
   assert.deepEqual([after.url, after.check, after.asked], [own, undefined, true]);
 });
 
-test('with too little time left the days are written as they are: the named places stay on their day, and validate says what is missing and that the reply says it', async () => {
+test('with too little time left the days are written as they are: every place stays on its day, not checked, and validate warns of each for the reply', async () => {
   const site = 'vienna-late';
   await viennaPinned(site);
   const turn = hostClock(450);
@@ -260,17 +250,19 @@ test('with too little time left the days are written as they are: the named plac
   assert.deepEqual(itemsOf(day).filter((it) => it.asked).map((it) => [it.text, it.check]), [['Secession', NOT_CHECKED], ['Naschmarkt', NOT_CHECKED]]);
   assert.equal(written.json.days_for_the_reply, 'Wed 18 Nov · Vienna: Stephansdom (not checked), Hofburg (not checked), Oberes Belvedere (not checked) | '
     + 'Thu 19 Nov · Vienna: Kunsthistorisches Museum (not checked), Secession (not checked), Naschmarkt (not checked) | Fri 20 Nov · Vienna: Schloss Schönbrunn (not checked)');
-  // validate fails on the two days with nothing that has a page, never the named places' day, and its last line says
-  // what a reply sent now says
+  // validate fails none of the days for it: every place is on its day, marked not checked, and it warns of each for
+  // the reply, with the day that has one place to see
   const v = await uw(['validate', site, '--signal', '--json'], { clock: turn });
-  assert.equal(v.code, 1, v.out);
-  assert.deepEqual(v.json.errors.filter((e) => e.path === '$.plan.days').map((e) => e.message),
-    ['2 of 3 full days have no place checked on a page of its own: Wed 18 Nov · Vienna (3 places not checked), Fri 20 Nov · Vienna (1 place not checked)']);
+  assert.equal(v.code, 0, JSON.stringify(v.json?.errors ?? v.out, null, 1));
+  assert.deepEqual(v.json.errors.filter((e) => e.path === '$.plan.days'), []);
+  assert.deepEqual(v.json.warnings.filter((w) => w.path === '$.plan.days').map((w) => w.message), [
+    '7 places on the days are not checked on a page of their own: Stephansdom (Wed 18 Nov), Hofburg (Wed 18 Nov), Oberes Belvedere (Wed 18 Nov), Kunsthistorisches Museum (Thu 19 Nov) …',
+    '1 of 3 full days have one place to see: Fri 20 Nov · Vienna']);
   // the Plan tab marks every place with no page of its own, as the days for the reply do
   for (const d of cfgOf(site).plan.days) for (const it of itemsOf(d)) assert.equal(it.check, NOT_CHECKED, it.text);
   const text = await uw(['validate', site, '--signal'], { clock: turn });
-  assert.equal(text.code, 1);
-  assert.match(text.out, /^✗ 1 error\(s\), \d+ warning\(s\)\. Fix the errors and run validate again\. A reply sent while they stand says plainly what they leave undone, never that the map is done\.$/m);
+  assert.equal(text.code, 0);
+  assert.match(text.out, /^✓ vienna-late is valid \(\d+ warning\(s\)\)\.$/m);
 });
 
 test('a trip whose tourism listing refuses agents: the refusal says where each new place\'s page comes from; then the plan and validate pass', async () => {
@@ -287,7 +279,7 @@ test('a trip whose tourism listing refuses agents: the refusal says where each n
   const refused = await plan();
   assert.equal(refused.code, 2, refused.out + refused.err);
   const [first, next, ...rest] = refused.err.trim().split('\n');
-  assert.match(first, /^REFUSED: 1 of 2 full days would have no place to see with its own page \(one a day: --per-day 1\): Wed 18 Nov · Ljubljana \(0\)\. The days are on the map as they are for now: a draft, which this command replaces\.$/);
+  assert.match(first, /^REFUSED: 1 of 2 full days would have no place to see \(one a day: --per-day 1\): Wed 18 Nov · Ljubljana \(0\)\. The days are on the map as they are for now: a draft, which this command replaces\.$/);
   assert.match(next, /^Add 1 more place near the base, Old Quarter Residence \(--near 14\.506533,46\.049269\), each from its own page \(its own site from instafy web search "<its name>" --chain reference-search --json, else its Wikipedia article\): uw cite <that page> --grep "<its name>", then uw add-point ljubljana --layer sights /);
   assert.deepEqual(rest, ['A full day with nothing to see is refused again while the turn has time: each takes a place first. With too little time left the days are written as they are, and the reply names each.']);
   // as it says: a place from its Wikipedia article
@@ -470,7 +462,7 @@ test('with too little time left, a place whose page is not its own is "(not chec
   assert.deepEqual([item().url, item().check], [guide, NOT_CHECKED]);
 });
 
-test('a short day whose places have no page to find: the refusal says to keep them and add another place near there; once one is added, the plan passes and they stay on their day, not checked', async () => {
+test('a day whose places have no page to find is no short day: the plan passes at once, and they stay on their day, not checked, named for the reply', async () => {
   const site = 'vienna-unfound';
   await viennaPinned(site);
   // a page for every place but two on the first day, which the search found nothing for
@@ -482,31 +474,21 @@ test('a short day whose places have no page to find: the refusal says to keep th
   const zoo = `${WIKI}Tiergarten_Sch%C3%B6nbrunn`;
   read(zoo, 'Tiergarten Schönbrunn\nThe zoo in the palace park.');
   assert.equal((await pin(site, { id: 'tiergarten', name: 'Tiergarten Schönbrunn', at: [16.30245, 48.18233] }, { stop: 'vienna', source_url: zoo, source: 'Wikipedia' })).code, 0);
-  const refused = await planVienna(['--json'], {}, site);
-  assert.equal(refused.code, 2, refused.out + refused.err);
-  assert.deepEqual(refused.json.short_days, [{ title: 'Wed 18 Nov · Vienna', places: 1 }]);
-  assert.deepEqual(refused.json.add, []);
-  assert.deepEqual(refused.json.instead, [{ name: 'DO&CO Hotel', near: '16.371632,48.208374', stop: 'vienna', places: 1, days: ['Wed 18 Nov · Vienna'] }]);
-  const text = await planVienna([], {}, site);
-  assert.equal(text.err.trim().split('\n').pop(), 'Looked for more after this refusal and none could be added (no other place found there, or none with a page of its own)? Run this command again as it is: a day with one place to see is then kept, as a warning the reply names.');
-  assert.equal(text.err.trim().split('\n').slice(-2)[0], 'Where no page of its own can be found for one of those places on Wed 18 Nov · Vienna, keep it and add another place '
-    + 'near the base, DO&CO Hotel (--near 16.371632,48.208374) instead, from its own page (its own site from instafy web search "<its name>" --chain reference-search --json, '
-    + 'else its Wikipedia article): uw cite <that page> --grep "<its name>", then uw add-point vienna-unfound --layer sights --near 16.371632,48.208374 … '
-    + 'with {"stop":"vienna","source_url":"<that page>","source":"<site>"}, one place per command (reference/itinerary.md Phase B step 1). Then run this command again.');
-  // as it says: one more place near the base, from its own page
-  const church = `${WIKI}Peterskirche`;
-  read(church, 'Peterskirche\nA baroque church off the Graben.');
-  assert.equal((await pin(site, { id: 'peterskirche', name: 'Peterskirche', at: [16.369904, 48.209394] }, { stop: 'vienna', source_url: church, source: 'Wikipedia' })).code, 0);
+  // the day of the two with no page has three places: the plan is written, nothing refused, nothing to add instead
   const planned = await planVienna(['--json'], {}, site);
   assert.equal(planned.code, 0, planned.out + planned.err);
-  assert.deepEqual(sightIds(site), [...NAMED, ...CHOSEN].map((s) => s.id).concat('tiergarten', 'peterskirche'), 'every place stays pinned');
+  assert.deepEqual(sightIds(site), [...NAMED, ...CHOSEN].map((s) => s.id).concat('tiergarten'), 'every place stays pinned');
   for (const id of ['hofburg', 'belvedere']) {
     const it = cfgOf(site).plan.days.flatMap(itemsOf).find((x) => x.ref.id === id);
     assert.equal(it?.check, NOT_CHECKED, id);
   }
   assert.match(planned.json.days_for_the_reply, /Hofburg \(not checked\)/);
   assert.match(planned.json.days_for_the_reply, /Oberes Belvedere \(not checked\)/);
-  assert.equal((await uw(['validate', site, '--signal'])).code, 0);
+  const v = await uw(['validate', site, '--signal', '--json']);
+  assert.equal(v.code, 0, JSON.stringify(v.json?.errors ?? v.out, null, 1));
+  const unchecked = v.json.warnings.find((w) => /are not checked on a page of their own/.test(w.message));
+  assert.match(unchecked.message, /Hofburg \(Wed 18 Nov\), Oberes Belvedere \(Wed 18 Nov\)/);
+  assert.match(unchecked.fix, /^the reply names each as not checked \("<place> is not checked yet"\); while the turn has time, each from its own page /);
 });
 
 test('uw set --remove refuses a place the person named unless the same command takes its mark off; one place pinned twice keeps the mark on the pin that stays; the help says when a place is removed', async () => {
@@ -543,7 +525,7 @@ test('uw set --remove refuses a place the person named unless the same command t
   assert.match(help.out.replace(/\s+/g, ' '), /removes it \(--remove: only a place the person asks to drop, never one they named or one pinned to see to get past a refusal or a failing check; one they named, "asked": true, is refused unless the same command has --unset asked\)/);
 });
 
-test('a place marked as one the person named after the days were planned counts on its day; the mark taken off undoes it', async () => {
+test('a place marked as one the person named after the days were planned reaches its items; the mark taken off undoes it; a day of places with no page is never one with nothing to see', async () => {
   const site = 'vienna-marked';
   const turn = hostClock(450);
   await trip(site, { title: 'Vienna: first visit', city: 'Vienna', at: VIENNA.stop, nights: 3, area: VIENNA.area, stop: 'vienna' });
@@ -551,17 +533,16 @@ test('a place marked as one the person named after the days were planned counts 
   const planned = await uw(['plan', site, '--stops', 'stops', '--ids', 'vienna', '--nights', '3', '--start', '2026-11-18', '--stays', 'stays', '--sights', 'sights', '--json'], { clock: turn });
   assert.equal(planned.code, 0, planned.out + planned.err);
   const bare = async () => (await uw(['validate', site, '--signal', '--json'], { clock: turn })).json.errors.filter((e) => e.path === '$.plan.days').map((e) => e.message);
-  assert.deepEqual(await bare(), ['3 of 3 full days have no place checked on a page of its own: Wed 18 Nov · Vienna (3 places not checked), Thu 19 Nov · Vienna (3 places not checked), Fri 20 Nov · Vienna (1 place not checked)']);
+  assert.deepEqual(await bare(), [], 'every day has its places, not checked');
   const set = await uw(['set', site, 'sights:naschmarkt', '--props', '{"asked":true}'], { clock: turn });
   assert.equal(set.code, 0, set.out + set.err);
   assert.match(set.out, /Its item in the plan's days counts for its day as a place the person named; the days are as they were\./);
   const item = () => cfgOf(site).plan.days.flatMap(itemsOf).find((it) => it.ref.id === 'naschmarkt');
   assert.deepEqual([item().asked, item().check], [true, NOT_CHECKED]);
-  assert.deepEqual(await bare(), ['2 of 3 full days have no place checked on a page of its own: Wed 18 Nov · Vienna (3 places not checked), Fri 20 Nov · Vienna (1 place not checked)']);
+  assert.deepEqual(await bare(), []);
   assert.equal((await uw(['set', site, 'sights:naschmarkt', '--unset', 'asked'], { clock: turn })).code, 0);
   assert.deepEqual([item().asked, item().check], [undefined, NOT_CHECKED]);
-  assert.equal((await bare()).length, 1);
-  assert.match((await bare())[0], /^3 of 3 full days/);
+  assert.deepEqual(await bare(), []);
 });
 
 test('no line the tools print tells a turn to remove a place pinned to see: validate\'s fix for a place far out of the first view pins it again or frames it', async () => {

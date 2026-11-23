@@ -10,6 +10,7 @@ import { isLodging } from './registry-geo.mjs';
 import { expectOf } from './expect.mjs';
 import { REPLY_WITHIN_S } from './turn-advice.mjs';
 import { NOT_CHECKED, planDraftAgain, draftAgainLine } from './cmd-plan.mjs';
+import { askedOf, askedEntry, askedArea, pinNames, namedThisTurn } from './asked.mjs';
 
 export const help = `set <dir> <layer>:<id> [--note "…"] [--name "…"] [--emoji 🏨] [--props '{"price":120}' | --props-file <file|->] [--unset key1,key2] [--remove] [--json]
 set <dir> plan:day<N> --note "…" | --unset note [--json]
@@ -38,7 +39,9 @@ set <dir> plan:day<N> --note "…" | --unset note [--json]
   A new source_url or source goes to the place's items in the plan's days too (the Plan tab's link under it; marked
   not checked while the place has no page of its own), so the days stay as they are: no new uw plan. An item that links
   another page is left as it is. --props '{"asked":true}' marks a place the person's message named (only that, never to
-  get past a check): its items in the days count for their day, as uw plan and uw validate count it.
+  get past a check): its items in the days count for their day, as uw plan and uw validate count it. Once the map
+  keeps the places the person named (uw new --asked), the mark goes only on one of them in that turn (said, nothing
+  marked); in a later turn the place joins the list.
   Text with an apostrophe or quotes: --props-file - <<'JSON', the object on the next line, then JSON (no shell quoting).`;
 
 /** `turn`: the turn's clock, as uw.mjs gives it to validate ({ turnLeftS, turnStartedMs }). */
@@ -74,7 +77,7 @@ export async function run(argv, turn = {}) {
     }
     const f = fc.features[i];
     const before = { ...f.properties };
-    let changed = [], late = null, twin = null, dropped = null;
+    let changed = [], late = null, twin = null, dropped = null, unmarked = null;
     if (args.remove) {
       // a place the person named stays on the map and on its day: removed only when they ask to drop it, with its mark
       // taken off in the same command. A turn removed every place it had pinned, the two the person named among them,
@@ -113,7 +116,24 @@ export async function run(argv, turn = {}) {
         delete f.properties.source;
         changed.push('-source');
       }
-      if (!changed.length) return { f, changed, dayItems: 0 };
+      // a mark that the person named the place goes only on a place they named, once the map keeps their list (uw new
+      // --asked; asked.mjs); in a later turn a place the person names then joins it
+      if (changed.includes('asked') && f.properties.asked === true) {
+        const list = askedOf(site.config);
+        if (list.length && !askedEntry(list, pinNames(f.properties), askedArea(site.config))) {
+          if (namedThisTurn(list, turn?.turnStartedMs ?? null)) {
+            if (before.asked === undefined) delete f.properties.asked; else f.properties.asked = before.asked;
+            changed = changed.filter((k) => k !== 'asked');
+            unmarked = list;
+          } else {
+            const cfg = readJSON(site.cfgPath);
+            cfg.asked = [...askedOf(cfg), { name: String(f.properties.name_en || f.properties.name || id), at: new Date().toISOString() }];
+            writeJSON(site.cfgPath, cfg, { pretty: true });
+            site.config = cfg;
+          }
+        }
+      }
+      if (!changed.length) return { f, changed, dayItems: 0, unmarked };
       // a new page no uw cite read (or one it found is not a page), or one uw validate fails as not the place's own,
       // is not its source: refused, nothing written (cmd-cite.mjs sourceNotRead, sourceNotOwn below). With too little
       // time left to cite, validate only warns about the latter: taken, and said
@@ -129,9 +149,10 @@ export async function run(argv, turn = {}) {
     // so does a mark the person named it ("asked"), which counts it for its day
     const dayItems = !args.remove && changed.some((k) => /^-?(source(_url)?|asked)$/.test(k)) ? withDayItems(site, layer, id, before, f.properties, { late: !!late }) : 0;
     if (twin) withDayItems(site, layer, twin.id, twin.before, twin.f.properties);
-    return { f, changed, dayItems, late, dropped };
+    return { f, changed, dayItems, late, dropped, unmarked };
   });
-  const { f, changed, dayItems, refused, late, named, dropped } = done;
+  const { f, changed, dayItems, refused, late, named, dropped, unmarked } = done;
+  if (unmarked) out.warn(`not marked as a place the person named: they named ${unmarked.map((a) => `"${a.name}"`).join(', ')}, not "${f.properties.name_en || f.properties.name || id}"; it stays a place you chose (its own page counts it on its day)`);
   if (named) {
     const ref = `${layer}:${id}`, name = f.properties.name_en || f.properties.name || id;
     const next = `uw set ${args._[0]} ${ref} --unset asked --remove`;

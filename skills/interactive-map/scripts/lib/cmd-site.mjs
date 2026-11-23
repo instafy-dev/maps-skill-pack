@@ -8,11 +8,12 @@ import { chainOf, resolveProvider } from './lookup.mjs';
 import { STARTER_DIR, ensureGitignore, openSite, loadLayer, listLayerIds, withSiteLock } from './site.mjs';
 import { loadPlaywright, launchChromium } from './cmd-serve.mjs';
 import { parseStops, describeItems } from './expect.mjs';
+import { parseAsked } from './asked.mjs';
 import { findSpaceCheckout } from './save-owner.mjs';
 
 export const helps = {
   newSite: `new <dir> [--title "Where to stay in Taipei"] [--subtitle "…"] [--ask "Which hotel for 3 nights?"] [--center lng,lat] [--zoom 14]
-      [--lang en|sv] [--expect "<stop>:<nights>,…"] [--force] [--json]
+      [--lang en|sv] [--expect "<stop>:<nights>,…"] [--asked "<place>, …"] [--force] [--json]
   Copies the starter (index.html, map.config.json, style.json, custom.js, data/, engine/) into <dir>, sets title and view
   (bounds are derived from --center + --zoom) and writes a .gitignore (.uwcache/ and the working snapshots, keeping
   snapshots/mobile.png, desktop.png and thumb.png for a gallery). Refuses a non-empty
@@ -23,7 +24,12 @@ export const helps = {
   --lang sv  "locale": "sv": the words the map writes itself (tabs, verdict phrases from uw question) are Swedish.
   --expect "…"  a trip's stops with their nights ("Lisbon:3" for 3 days in Lisbon; "Porto:3,Lisbon:4"), kept as
              "expect": uw validate fails while one is not on the map (or, with a plan, in no day), and until the map
-             has its plan. Anything else is refused: days come from uw plan, stays from uw stay.`,
+             has its plan. Anything else is refused: days come from uw plan, stays from uw stay.
+  --asked "…"  the places the person's message names by their own name ("Wawel Castle, Kazimierz Synagogue"; never an
+             area it names, which is a day's theme, nor a kind: "the cathedral"), kept as "asked": uw validate fails
+             while one is neither on the map (a pin of any layer by one of its names) nor listed as "Not found yet",
+             naming the add-point to run, and in this turn a mark "asked": true goes only on one of them (a later
+             turn's place the person names joins the list).`,
   fit: `fit <dir> [--layers hotels,day1] [--pad 0.12] [--max-zoom 16] [--json]
   Sets view.center, view.zoom and view.bounds in map.config.json to frame the data. A find-place question frames its
   lettered top N (ranked like the engine) plus the hand-picked layers. Default: the hand-picked layers
@@ -95,10 +101,12 @@ export function cardCommand(title, site = '.') {
 }
 
 export async function newSite(argv) {
-  const args = parseArgs(argv, { title: 'string', subtitle: 'string', ask: 'string', center: 'string', zoom: 'number', lang: 'string', force: 'bool', expect: 'string' }, { positionals: [1, 1], command: 'new' });
+  const args = parseArgs(argv, { title: 'string', subtitle: 'string', ask: 'string', center: 'string', zoom: 'number', lang: 'string', force: 'bool', expect: 'string', asked: 'string' }, { positionals: [1, 1], command: 'new' });
   if (args.help) return console.log(helps.newSite);
   // a trip's stops with nights (refused before anything is made: a day or a stay listed here became a pin, then a stop)
   const trip = parseStops(args.expect);
+  // the places the person named, by their own names: each is pinned or listed as not found yet (asked.mjs)
+  const named = parseAsked(args.asked);
   const out = makeOut(args);
   checkStarter();
   const dir = path.resolve(args._[0]);
@@ -139,6 +147,7 @@ export async function newSite(argv) {
     cfg.description = ask;
   }
   if (trip.length) cfg.expect = trip;
+  if (named.length) { const at = new Date().toISOString(); cfg.asked = named.map((a) => ({ name: a.name, at })); }
   cfg.view = cfg.view || {};
   if (center) {
     cfg.view.center = center;
@@ -156,8 +165,13 @@ export async function newSite(argv) {
     `Next, at once: its card: ${cardCommand(cfg.title, rel)}`,
     trip.length
       ? `Then: a trip (${describeItems(trip)}): follow reference/itinerary.md ("One base" for days in one place), not SKILL.md steps 4-8; uw validate fails until the plan has its days.`
-      : `Then (SKILL.md procedure step 4): uw add-point ${rel} --layer <options> --query "<name, city>" --near <lng,lat from geocode> --id <slug>, once per option. A trip (days or nights somewhere): reference/itinerary.md instead.`,
-  ];
+      : `Then (SKILL.md procedure step 4): uw add-point ${rel} --layer <options> --query "<name, city>" --near <lng,lat from geocode> --id <slug>, once per option. A trip (days or nights somewhere): reference/itinerary.md instead. `
+        // the options are what the person or a page names: a map of hotels "in" an area once pinned four the turn knew,
+        // two of them other hotels than it named
+        + `Each option is one the person or a page you read names, never one from memory; places to stay when none is named: uw stay ${rel} --near <lng,lat> --near-label "<the area>" --layer <options>.`,
+    // the places the person named come first, each in a command of its own: a pin joined to a refused page with && never ran
+    named.length ? `The places the person named (kept; uw validate fails while one is neither pinned nor listed as not found yet): ${named.map((a) => a.name).join(', ')}. Pin each first, each in a command of its own (never after && behind uw cite: a refused page skips it), with "asked":true in its props.` : null,
+  ].filter(Boolean);
   // --json keeps the next steps: a turn that made its trip's site with --json never saw the pointer to the trip guide
   out.result({ ok: true, dir, files: n, title: cfg.title, view: cfg.view, next }, [
     `Created ${rel} (${n} files) — "${cfg.title}"${center ? ` centred on ${center.join(',')} @ z${cfg.view.zoom}` : ''}.`,

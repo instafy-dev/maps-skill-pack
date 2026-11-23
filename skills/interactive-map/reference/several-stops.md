@@ -18,7 +18,8 @@ pass-through stop: `uw station <site> --city "<City>" --country "<Country>" --ki
 train, and never mention HSR. Neighbouring cities (Porto–Braga, Osaka–Kyoto) take the conventional train between the
 two city stations: never route a short hop out to an HSR station and back.
 
-**3. Stays by the station**, per stop: `uw stay <site> --near stations:<id>` (3 picks within 800 m, ranked by walking
+**3. Stays by the station**, per stop, from `uw stay`, never from memory (a hotel goes on the map by its own name only
+when the person or a page you read names it): `uw stay <site> --near stations:<id>` (3 picks within 800 m, ranked by walking
 time, each with a reason in plain words: "3 min walk to Porto São Bento"; a route that goes round the station
 is replaced by the straight-line estimate, "about 3 min walk"; how each part is known is on the card, under "How we
 know"). Where a lodging register covers the
@@ -30,7 +31,9 @@ picks; "No hotel within …" means there is none, and the reply says so. Small t
 It answers within about 30 s with what it found (a busy lookup gives fewer, marked partial; exit 4 = none found:
 say places to stay were not looked up yet): wait for it, never run it twice.
 A station far from the centre (step 2): `uw stay <site> --near <centre lng,lat> --near-label "the centre of <City>"
---stop <station id>` too, and let the reply say which is which. Exit 2 = nothing in range: widen it. Never say a stay
+--stop <station id>` too, and let the reply say which is which: the plan's base line names the walk to the centre
+and how far the station is ("2 min walk to the centre of <City> · 1.8 km from the station: taxi or local bus"), and so
+does the reply, never a walk to the station the stay was not found by. Exit 2 = nothing in range: widen it. Never say a stay
 is available, bookable or a price (a register's filed rates are not prices).
 Give each pick one reason beyond the walk when a page you opened says it (quiet street, river view, family rooms).
 
@@ -64,7 +67,8 @@ prints "Days to see at each stop". The day a stop is reached is one of its days 
 takes places once the stop has two with their own page for each of its days); after a longer ride that day is the
 ride's, and the reply says the split as printed, never "D days in each".
 No `--sights` yet: the places to see come in Phase B, each cited (`uw cite`) before it is pinned, then `uw plan …
---sights`; planned with `--sights` before any is pinned, every day is short and the plan is refused.
+--sights`; planned with `--sights` before any is pinned, every day is short and the plan is refused. Once places to
+see are pinned, the plan takes them with or without `--sights`: never plan again without them to get past a refusal.
 
 **6. Reconcile, then preview.** `uw validate <site> --signal`. It checks the map against the route ("expect"):
 `asked for but not on the map: <Stop> (2 nights)` or `on the map but in no day of the plan` is an error. Place the

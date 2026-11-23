@@ -100,7 +100,7 @@ test('validate: a plan made with --sights fails while a full day has nothing to 
   // as they are for now (a draft the next run replaces)
   const refused = await run(args);
   assert.equal(refused.code, 2, refused.err + refused.out);
-  assert.match(refused.err, /^REFUSED: 3 of 3 full days would have fewer than 2 places to see with their own page \(a full day takes 2-3\): Thu 29 Oct · Lisbon \(0\), Fri 30 Oct · Lisbon \(0\), Sat 31 Oct · Lisbon \(0\)\. The days are on the map as they are for now: a draft, which this command replaces\.$/m);
+  assert.match(refused.err, /^REFUSED: 3 of 3 full days would have fewer than 2 places to see \(a full day takes 2-3\): Thu 29 Oct · Lisbon \(0\), Fri 30 Oct · Lisbon \(0\), Sat 31 Oct · Lisbon \(0\)\. The days are on the map as they are for now: a draft, which this command replaces\.$/m);
   assert.match(refused.err, /^Add 6 more places near the base, Hotel in Baixa \(--near -?[\d.]+,-?[\d.]+\), each from its own page \(its own site from instafy web search "<its name>" --chain reference-search --json, else its Wikipedia article\): /m);
   assert.equal(JSON.parse(fs.readFileSync(cfgPath, 'utf8')).plan.days.length, 3, 'the days as they are, a draft for now');
   // with too little time left the days are written as they are, and uw validate fails them

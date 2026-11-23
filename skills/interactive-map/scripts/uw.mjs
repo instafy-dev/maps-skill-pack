@@ -121,11 +121,26 @@ function turnClock(dir, { touchOnly = false } = {}) {
   return { elapsedS: Math.round((now - t.started) / 1000), startedMs: t.started };
 }
 const mmss = (s) => `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s`;
-// "retry later with" line: the same command with a longer limit
-function retryLine(cmd, rest, timeoutS) {
+// "retry later with" line: the same command with a longer limit (`maxS`: at most that long)
+const retryS = (timeoutS) => Math.max(120, Math.round((timeoutS || 60) * 2));
+function retryLine(cmd, rest, timeoutS, maxS = null) {
   const q = (a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`);
   const args = []; for (let i = 0; i < rest.length; i++) { if (rest[i] === '--timeout') { i++; continue; } if (/^--timeout=/.test(rest[i]) || rest[i] === '--json') continue; args.push(rest[i]); }
-  return `uw ${cmd} ${args.map(q).join(' ')} --timeout ${Math.max(120, Math.round((timeoutS || 60) * 2))}`;
+  return `uw ${cmd} ${args.map(q).join(' ')} --timeout ${maxS != null ? Math.min(retryS(timeoutS), maxS) : retryS(timeoutS)}`;
+}
+// what a retry leaves the turn after it, at least: its plan, its check and its card
+const AFTER_RETRY_S = 60;
+/** How the skipped line ends: with the turn's clock, how much of its time is left and whether one retry fits in it now
+ *  (a turn told "retry later" ended four minutes in, its map without the place, and never retried); without a clock,
+ *  the retry for later. */
+function retryAdvice(cmd, rest, limitS) {
+  const clock = ctx.clock;
+  if (!clock || !(TURN_BUDGET_S > 0)) return `retry later with: ${retryLine(cmd, rest, limitS)}`;
+  const used = clock.elapsedS + Math.round((Date.now() - ctx.startedMs) / 1000);
+  const left = Math.max(0, TURN_BUDGET_S - used);
+  const fits = left - AFTER_RETRY_S;
+  if (fits >= 60) return `about ${mmss(left)} left for tool work this turn: time to retry it once now, with: ${retryLine(cmd, rest, limitS, fits)}`;
+  return `about ${mmss(left)} left for tool work this turn, too little to retry it now: reply, and offer it as a follow-up (${retryLine(cmd, rest, limitS)})`;
 }
 
 function usage() {
@@ -207,6 +222,7 @@ async function main() {
   }
   const siteDir = siteDirOf(rest);
   const clock = turnClock(siteDir);
+  ctx.clock = clock; ctx.startedMs = Date.now();
   if (cmd in NET_TIMEOUT_S) {
     // --timeout is global for network commands (snapshot keeps its own --timeout in ms)
     let given = null;
@@ -256,7 +272,7 @@ async function main() {
       const hardStop = () => {
         if (!networkActive()) { setTimeout(hardStop, 5000).unref(); return; }
         releaseOverpassLock();
-        console.error(`skipped: ${cmd} did not finish within ${limit} s (+15 s grace); the map works without it; retry later with: ${retryLine(cmd, rest, limit)}`);
+        console.error(`skipped: ${cmd} did not finish within ${limit} s (+15 s grace); the map works without it; ${retryAdvice(cmd, rest, limit)}`);
         process.exit(4);
       };
       setTimeout(hardStop, (limit + 15) * 1000).unref();
@@ -287,13 +303,13 @@ async function planGaps(dir) {
   } catch { return null; }
 }
 
-const ctx = { limit: null, cmd: null, rest: null };
+const ctx = { limit: null, cmd: null, rest: null, clock: null, startedMs: Date.now() };
 
 main().catch((e) => {
   const json = process.argv.includes('--json');
   if (isSkip(e) || e?.name === 'SkipError') {
     // one clear line: what was skipped, that the map is fine, how to retry
-    const line = e.line || `skipped: ${e.message}; ${e.kept ? `kept ${e.kept}; ` : ''}the map works without it; retry later with: ${retryLine(ctx.cmd || process.argv[2], ctx.rest || process.argv.slice(3), ctx.limit)}`;
+    const line = e.line || `skipped: ${e.message}; ${e.kept ? `kept ${e.kept}; ` : ''}the map works without it; ${retryAdvice(ctx.cmd || process.argv[2], ctx.rest || process.argv.slice(3), ctx.limit)}`;
     if (json) process.stdout.write(JSON.stringify({ ok: false, skipped: true, status: 'unavailable', error: line, kept: e.kept || null, exit_code: 4,
       ...(e.retry_after_s ? { retry_after_s: e.retry_after_s } : {}), ...(e.attempts ? { tried: e.attempts.filter((a) => a.outcome !== 'skipped').map((a) => ({ provider: a.provider, outcome: a.outcome, detail: a.detail || null })) } : {}) }) + '\n');
     console.error(line);
